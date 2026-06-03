@@ -1,6 +1,7 @@
 package com.basetool.bpextractor.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -43,6 +44,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.loadSvgPainter
 import androidx.compose.ui.res.useResource
 import androidx.compose.ui.unit.dp
+import com.basetool.bpextractor.Legal
 
 /**
  * The signature container: hairline border + two diagonal orange corner brackets
@@ -283,5 +285,34 @@ fun Modifier.tiled(painter: Painter): Modifier = this.drawBehind {
             x += tw
         }
         y += th
+    }
+}
+
+/**
+ * Always-visible Star Citizen fan disclaimer footer. Renders the official
+ * "Made by the Community" logo (unaltered, full opacity — never recolored, flipped,
+ * distorted or shadowed) alongside the required trademark notice, as mandated by the
+ * Star Citizen Fankit Guidelines (logo in a corner at ≥50% opacity + the trademark
+ * notice in a legible size/color, visible regardless of scrolling). [logo] must be the
+ * white-ink variant (`MadeByTheCommunity_Black.png`) so it reads on the dark HUD.
+ */
+@Composable
+fun CommunityDisclaimerFooter(logo: Painter, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .background(Krt.Gray4)
+            .drawBehind { drawLine(Krt.Gray3, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
+            .padding(start = 16.dp, end = 24.dp, top = 10.dp, bottom = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        // Unaltered, fully opaque, only proportionally scaled (Fankit "what not to do").
+        Image(painter = logo, contentDescription = "Made by the Community", modifier = Modifier.size(34.dp))
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(Legal.UNAFFILIATED, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+            // Required notice: kept legible (Gray1 on Gray4) and ≥10pt (bodySmall = 13sp).
+            Text(Legal.TRADEMARK_NOTICE, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1)
+        }
     }
 }

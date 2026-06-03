@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.basetool.bpextractor.ui.CommunityDisclaimerFooter
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.FieldLabel
 import com.basetool.bpextractor.ui.GhostButton
@@ -326,12 +327,16 @@ private fun runCli(args: Array<String>) {
     println("Done. ${export.blueprintCount} blueprint(s) from ${export.logFilesScanned} file(s).")
     export.players.forEach { println("  Player ${it.handle}: ${it.blueprintCount} blueprint(s)") }
     println("Output: ${output.absolutePath}")
+    println()
+    println(Legal.UNAFFILIATED)
+    println(Legal.TRADEMARK_NOTICE)
 }
 
 private fun guiMain() = application {
     val state = remember { AppState() }
     val windowState = rememberWindowState(width = 860.dp, height = 720.dp)
     val appIcon = remember { useResource("icons/krt-icon.png") { BitmapPainter(loadImageBitmap(it)) } }
+    val communityLogo = remember { useResource("MadeByTheCommunity_Black.png") { BitmapPainter(loadImageBitmap(it)) } }
     Window(
         onCloseRequest = ::exitApplication,
         title = "Basetool Blueprint Extractor",
@@ -342,12 +347,15 @@ private fun guiMain() = application {
     ) {
         val frame = this
         KrtTheme {
-            Column(Modifier.fillMaxSize().background(Krt.Black).border(1.dp, Krt.Gray3)) {
-                frame.KrtTitleBar(windowState, appIcon, "Basetool Blueprint Extractor", ::exitApplication)
-                Box(Modifier.weight(1f).fillMaxWidth()) {
-                    ExtractorScreen(state)
-                    ResizeCorner(windowState)
+            Box(Modifier.fillMaxSize()) {
+                Column(Modifier.fillMaxSize().background(Krt.Black).border(1.dp, Krt.Gray3)) {
+                    frame.KrtTitleBar(windowState, appIcon, "Basetool Blueprint Extractor", ::exitApplication)
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        ExtractorScreen(state)
+                    }
+                    CommunityDisclaimerFooter(communityLogo)
                 }
+                ResizeCorner(windowState)
             }
         }
     }

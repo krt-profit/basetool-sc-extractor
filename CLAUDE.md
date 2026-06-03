@@ -122,6 +122,13 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   Don't "fix" it back to `WindowDraggableArea`.
 - Verify GUI changes by actually launching the app (Skiko/Compose init on the slim
   runtime is the thing that breaks), not just by passing tests.
+- **Star Citizen Fankit compliance:** the GUI footer (`CommunityDisclaimerFooter`) and the
+  README show the official *Made by the Community* logo
+  (`src/main/resources/MadeByTheCommunity_Black.png` = white-ink, **unaltered**: no
+  recolor/flip/distort/effects, full opacity, proportional scale only) plus the required
+  trademark notice (`Legal.TRADEMARK_NOTICE`, verbatim from the Fankit Guidelines, ≥10pt,
+  always visible). Keep both wherever the SC brand is shown; don't change the notice
+  wording (Squadron 42 is intentionally absent — it's not in the required notice).
 
 ## Build & packaging gotchas
 

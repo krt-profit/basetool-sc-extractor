@@ -5,6 +5,18 @@ Eine kleine **Kotlin-Desktop-App** (Compose for Desktop), die aus Star-Citizen-
 das Ergebnis als JSON schreibt. Inspiriert vom „SCMDB Log Watcher", aber bewusst
 auf **Blueprints fokussiert** — Missionsdaten werden nicht ausgewertet.
 
+<table>
+<tr>
+<td width="120" align="center">
+<img width="88" alt="Made by the Community" src="docs/img/MadeByTheCommunity_White.png#gh-light-mode-only"><img width="88" alt="Made by the Community" src="docs/img/MadeByTheCommunity_Black.png#gh-dark-mode-only">
+</td>
+<td>
+<b>Inoffizielles Star-Citizen-Fan-Tool</b> — nicht mit der Cloud-Imperium-Unternehmensgruppe affiliiert.<br>
+Star Citizen®, Roberts Space Industries® and Cloud Imperium® are registered trademarks of Cloud Imperium Rights LLC
+</td>
+</tr>
+</table>
+
 Die App bringt eine **Installationsroutine** (MSI) mit und lässt sich wie jedes
 normale Windows-Programm wieder **deinstallieren** (Einträge in „Apps & Features",
 Startmenü, Desktop-Verknüpfung).
@@ -288,7 +300,17 @@ Das **KRT-/„Das Kartell"-Logo** und zugehörige Markenzeichen sind Eigentum ih
 Inhaber. Die GPL deckt den **Quellcode** dieses Programms ab, **nicht** die Marken-
 und Logo-Assets — diese werden nicht zur freien Weiterverwendung lizenziert.
 
-### Hinweis
+### Star Citizen
 
-Community-Tool, **nicht** mit Cloud Imperium Games affiliiert. Es werden keine
-Spieldaten oder Assets von Star Citizen mitgeliefert.
+Dies ist ein **inoffizielles Star-Citizen-Fan-Tool** und steht in keiner Verbindung zur
+Cloud-Imperium-Unternehmensgruppe. Es verwendet das **„Made by the Community"-Logo** und
+den Marken-Hinweis gemäß dem offiziellen **Star Citizen Fankit** (Fankit Agreement, Fan
+Style Guide und RSI Terms of Service). Es werden **keine** Star-Citizen-Spieldaten oder
+-Assets mitgeliefert; die ausgelesenen `Game.log`-Dateien und die exportierten JSON-Daten
+gehören dir.
+
+> Star Citizen®, Roberts Space Industries® and Cloud Imperium® are registered trademarks of Cloud Imperium Rights LLC
+
+Fankit-Assets wie das „Made by the Community"-Logo sind Eigentum von Cloud Imperium Rights
+LLC / Cloud Imperium Rights Ltd. und werden unter den Fankit-Bedingungen verwendet — die
+GPL dieses Projekts erstreckt sich **nicht** auf diese Marken und Assets.
