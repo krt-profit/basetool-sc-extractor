@@ -25,6 +25,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.res.useResource
@@ -35,6 +36,7 @@ import androidx.compose.ui.window.rememberWindowState
 import com.basetool.bpextractor.ui.CommunityDisclaimerFooter
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.FieldLabel
+import com.basetool.bpextractor.ui.FilePickerDialog
 import com.basetool.bpextractor.ui.GhostButton
 import com.basetool.bpextractor.ui.GreetingHeader
 import com.basetool.bpextractor.ui.Krt
@@ -42,6 +44,8 @@ import com.basetool.bpextractor.ui.KrtDataStyle
 import com.basetool.bpextractor.ui.KrtTextField
 import com.basetool.bpextractor.ui.KrtTheme
 import com.basetool.bpextractor.ui.KrtTitleBar
+import com.basetool.bpextractor.ui.PickerMode
+import com.basetool.bpextractor.ui.PickerRequest
 import com.basetool.bpextractor.ui.ResizeCorner
 import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.hudBox
@@ -51,10 +55,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.awt.FileDialog
-import java.awt.Frame
 import java.io.File
-import javax.swing.JFileChooser
 
 /** UI state for the single-screen extractor. */
 private class AppState {
@@ -64,6 +65,9 @@ private class AppState {
     var status by mutableStateOf("Wähle den Star-Citizen-Channel-Ordner (z. B. …\\StarCitizen\\LIVE) und einen Ziel-Pfad für die JSON.")
     var resultSummary by mutableStateOf("")
     var isError by mutableStateOf(false)
+
+    /** When non-null, the KRT file/folder picker overlay is shown for this request. */
+    var picker by mutableStateOf<PickerRequest?>(null)
 
     private companion object {
         fun defaultOutputPath(): String {
@@ -80,31 +84,41 @@ private class AppState {
     }
 }
 
-private fun pickFolder(initial: String): String? {
-    val chooser = JFileChooser().apply {
-        fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-        dialogTitle = "Star-Citizen-Channel-Ordner wählen (z. B. …\\LIVE)"
-        initial.takeIf { it.isNotBlank() }?.let {
-            val f = File(it)
-            currentDirectory = if (f.isDirectory) f else f.parentFile
-        }
-    }
-    return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) {
-        chooser.selectedFile?.absolutePath
-    } else null
-}
+/** A read-only validity hint for the channel-folder field, rendered under it in KRT style. */
+private data class FolderHint(val dot: Color, val text: String, val textColor: Color)
 
-private fun pickSaveFile(initial: String): String? {
-    val initialFile = File(initial.ifBlank { "blueprints.json" })
-    val dialog = FileDialog(null as Frame?, "JSON-Ausgabedatei wählen", FileDialog.SAVE).apply {
-        directory = initialFile.parent
-        file = initialFile.name
+/**
+ * Compute a live hint for the typed channel folder. Pure local `File` stats (cheap, read-only) —
+ * it never writes or browses, so it can't fail destructively; a bad path just yields a warning
+ * hint, and the extraction re-validates the path itself before running.
+ */
+private fun channelFolderHint(path: String): FolderHint {
+    val p = path.trim()
+    if (p.isEmpty()) {
+        return FolderHint(
+            Krt.Gray2,
+            "Liest die Game.log in diesem Ordner und alle Logs im Unterordner „logbackups\".",
+            Krt.Gray2,
+        )
     }
-    dialog.isVisible = true
-    val dir = dialog.directory ?: return null
-    val name = dialog.file ?: return null
-    val withExt = if (name.endsWith(".json", ignoreCase = true)) name else "$name.json"
-    return File(dir, withExt).absolutePath
+    val dir = File(p)
+    if (!dir.isDirectory) {
+        return FolderHint(Krt.Danger, "Ordner existiert nicht.", Krt.Danger)
+    }
+    val hasGameLog = File(dir, "Game.log").isFile
+    val hasBackups = File(dir, "logbackups").isDirectory
+    if (!hasGameLog && !hasBackups) {
+        return FolderHint(
+            Krt.Orange,
+            "Ordner gefunden, aber keine Game.log/logbackups — evtl. der falsche Ordner.",
+            Krt.Gray1,
+        )
+    }
+    val found = listOfNotNull(
+        "Game.log".takeIf { hasGameLog },
+        "logbackups".takeIf { hasBackups },
+    ).joinToString(" + ")
+    return FolderHint(Krt.Success, "Gültiger Channel-Ordner ($found erkannt).", Krt.Gray1)
 }
 
 @Composable
@@ -137,15 +151,26 @@ private fun ExtractorScreen(state: AppState) {
                         "Durchsuchen…",
                         enabled = !state.running,
                         modifier = Modifier.height(56.dp),
-                        onClick = { pickFolder(state.channelFolder)?.let { state.channelFolder = it } },
+                        onClick = {
+                            state.picker = PickerRequest(
+                                mode = PickerMode.FOLDER,
+                                title = "Channel-Ordner wählen",
+                                confirmLabel = "Diesen Ordner wählen",
+                                initialPath = state.channelFolder,
+                            ) { state.channelFolder = it }
+                        },
                     )
                 }
                 Spacer(Modifier.height(6.dp))
-                Text(
-                    "Liest die Game.log in diesem Ordner und alle Logs im Unterordner „logbackups\".",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Krt.Gray2,
-                )
+                val channelHint = remember(state.channelFolder) { channelFolderHint(state.channelFolder) }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusDot(channelHint.dot)
+                    Text(
+                        channelHint.text,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = channelHint.textColor,
+                    )
+                }
             }
 
             // --- Output file ---
@@ -163,7 +188,14 @@ private fun ExtractorScreen(state: AppState) {
                         "Durchsuchen…",
                         enabled = !state.running,
                         modifier = Modifier.height(56.dp),
-                        onClick = { pickSaveFile(state.outputFile)?.let { state.outputFile = it } },
+                        onClick = {
+                            state.picker = PickerRequest(
+                                mode = PickerMode.SAVE_FILE,
+                                title = "JSON-Ausgabedatei wählen",
+                                confirmLabel = "Speichern",
+                                initialPath = state.outputFile,
+                            ) { state.outputFile = it }
+                        },
                     )
                 }
             }
@@ -356,6 +388,18 @@ private fun guiMain() = application {
                     CommunityDisclaimerFooter(communityLogo)
                 }
                 ResizeCorner(windowState)
+                // KRT file/folder picker overlay (replaces the legacy OS dialogs). Full-window modal.
+                state.picker?.let { req ->
+                    FilePickerDialog(
+                        mode = req.mode,
+                        title = req.title,
+                        confirmLabel = req.confirmLabel,
+                        initialPath = req.initialPath,
+                        extension = req.extension,
+                        onConfirm = { path -> req.onConfirm(path); state.picker = null },
+                        onDismiss = { state.picker = null },
+                    )
+                }
             }
         }
     }
