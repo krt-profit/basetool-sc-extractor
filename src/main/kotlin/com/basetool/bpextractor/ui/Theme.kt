@@ -86,7 +86,7 @@ private val KrtColorScheme = darkColorScheme(
 private val KrtTypography = Typography(
     headlineLarge = TextStyle(fontFamily = Display, fontWeight = FontWeight.Normal, fontSize = 26.sp, letterSpacing = 0.02.em),
     headlineMedium = TextStyle(fontFamily = Display, fontWeight = FontWeight.Normal, fontSize = 19.sp, letterSpacing = 0.02.em),
-    headlineSmall = TextStyle(fontFamily = Display, fontWeight = FontWeight.Normal, fontSize = 13.sp, letterSpacing = 0.04.em),
+    headlineSmall = TextStyle(fontFamily = Display, fontWeight = FontWeight.Normal, fontSize = 15.sp, letterSpacing = 0.05.em),
     titleMedium = TextStyle(fontFamily = Lato, fontWeight = FontWeight.Bold, fontSize = 16.sp),
     labelLarge = TextStyle(fontFamily = Lato, fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 0.03.em),
     labelMedium = TextStyle(fontFamily = Lato, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 0.06.em),

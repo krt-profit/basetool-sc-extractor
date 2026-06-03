@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -135,6 +136,7 @@ private fun WindowControlButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    val focused by interaction.collectIsFocusedAsState()
     val bg = when {
         hovered && danger -> Krt.Danger
         hovered -> Krt.Gray3
@@ -142,12 +144,14 @@ private fun WindowControlButton(
     }
     val fg = when {
         hovered && danger -> Krt.White
-        hovered -> Krt.Orange
+        hovered || focused -> Krt.Orange
         else -> Krt.Gray1
     }
     Box(
         modifier = Modifier
             .size(width = 46.dp, height = 40.dp)
+            // Inset ring (negative offset) keeps the focus outline inside the 40dp bar.
+            .focusRing(focused, offset = (-7).dp)
             .background(bg)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
