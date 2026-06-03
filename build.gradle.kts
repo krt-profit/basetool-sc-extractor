@@ -8,7 +8,13 @@ plugins {
 }
 
 group = "com.basetool"
-version = "1.0.0"
+// The version comes from the release tag in CI: the workflow strips the leading `v`
+// from e.g. `v1.2.0` and exports APP_VERSION, which the build reads here. Local builds
+// (no APP_VERSION / no -PappVersion) fall back to the dev default below. Don't hardcode
+// a release version — tag the commit instead.
+version = (System.getenv("APP_VERSION") ?: findProperty("appVersion") as String?)
+    ?.trim()?.removePrefix("v")?.takeIf { it.isNotEmpty() }
+    ?: "1.0.0"
 
 repositories {
     mavenCentral()
@@ -60,7 +66,9 @@ compose.desktop {
             targetFormats(TargetFormat.Msi)
 
             packageName = "Basetool Blueprint Extractor"
-            packageVersion = project.version.toString()
+            // MSI ProductVersion must be strictly numeric (major.minor.build), so drop
+            // any pre-release suffix (e.g. -rc1) — jpackage/WiX would otherwise reject it.
+            packageVersion = project.version.toString().substringBefore('-').ifBlank { "1.0.0" }
             description = "Extracts received Star Citizen blueprints from Game.log files into JSON."
             vendor = "Basetool"
             copyright = "© 2026 Basetool. Community tool, not affiliated with Cloud Imperium Games."

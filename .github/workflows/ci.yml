@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege by default; the release job opts into write below.
+permissions:
+  contents: read
+
+# Cancel superseded runs on a branch/PR, but never cancel a tag (release) build.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+defaults:
+  run:
+    shell: pwsh
+
+jobs:
+  check:
+    name: Build & test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Run tests
+        run: .\gradlew.bat --stacktrace test
+
+      # Assemble the app image (jlink runtime + native bundle, no WiX/MSI). Catches
+      # runtime-module and packaging regressions without the slow full MSI build.
+      - name: Assemble app image (packaging smoke test)
+        run: .\gradlew.bat --stacktrace createDistributable
+
+  release:
+    name: Package MSI & publish release
+    needs: check
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    permissions:
+      contents: write   # create the GitHub release and upload the MSI asset
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # The release version comes from the tag (e.g. v1.2.0 -> 1.2.0), not from
+      # build.gradle.kts. APP_VERSION is read by the Gradle build.
+      - name: Derive version from tag
+        run: |
+          $v = "${{ github.ref_name }}" -replace '^v', ''
+          "APP_VERSION=$v" >> $env:GITHUB_ENV
+          Write-Host "Releasing version $v"
+
+      # Always via the script: it strips WiX 4+ from PATH so jpackage uses WiX 3.x
+      # (works around JDK-8356592) and copies the MSI to dist\.
+      - name: Build MSI installer
+        run: .\package-msi.ps1
+
+      - name: Upload MSI as build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: msi-installer
+          path: dist/*.msi
+          if-no-files-found: error
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.msi
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          # Tags like v1.2.0-rc1 are published as pre-releases.
+          prerelease: ${{ contains(github.ref_name, '-') }}

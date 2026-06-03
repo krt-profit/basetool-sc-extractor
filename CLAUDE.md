@@ -148,6 +148,32 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   179/`greluc` characterization against the local `game-log/`.
 - **bundled modules or the runtime** → `suggestRuntimeModules`, rebuild, GUI-launch test.
 - **the export shape** → bump `schemaVersion`.
+- **the released version** → don't edit it in `build.gradle.kts`; it comes from the git
+  tag (see *Releases*). The dev fallback there stays `1.0.0`.
+
+## Releases (CI)
+
+GitHub Actions — [`.github/workflows/ci.yml`](.github/workflows/ci.yml), on
+`windows-latest`:
+
+- **Push to `main` / PRs / manual dispatch:** runs `test` + `createDistributable` (a
+  packaging smoke test — no MSI/WiX).
+- **Push a `v*` tag (e.g. `v1.2.0`):** after checks pass, builds the MSI via
+  `package-msi.ps1` and publishes a GitHub Release with the `.msi` attached. Suffixed
+  tags (`v1.2.0-rc1`) publish as pre-releases.
+
+**The release version is the tag, not a constant in the build.** The workflow strips the
+leading `v` and exports `APP_VERSION`, which `build.gradle.kts` reads (`System.getenv` →
+`-PappVersion` → `1.0.0` dev fallback); the MSI `packageVersion` drops any `-suffix` to
+stay numeric `major.minor.build`. To cut a release:
+
+```powershell
+git tag v1.2.0 ; git push origin v1.2.0
+```
+
+CI builds the MSI through `package-msi.ps1`, so the WiX-3.x/jpackage workaround
+(JDK-8356592) is honored on the runner too. The release job is the only one granted
+`contents: write`.
 
 ## Repo / publishing
 
