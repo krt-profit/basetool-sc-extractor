@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.selection.DisableSelection
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -320,6 +321,54 @@ fun KrtProgressBar(done: Int, total: Int, modifier: Modifier = Modifier) {
             .border(1.dp, Krt.Gray3),
     ) {
         Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(Krt.Orange))
+    }
+}
+
+/**
+ * Transient notification toast in the brand idiom (mirrors `.notification-toast`):
+ * near-black panel, accent hairline + two diagonal corner brackets, and an outer
+ * accent bloom (the brand's only "shadow"). [error] swaps the orange accent for
+ * Danger. The caller positions and auto-dismisses it.
+ */
+@Composable
+fun KrtToast(title: String, message: String, error: Boolean = false, modifier: Modifier = Modifier) {
+    val accent = if (error) Krt.Danger else Krt.Orange
+    Box(
+        modifier = modifier
+            .widthIn(max = 400.dp)
+            .drawBehind {
+                val grow = 16.dp.toPx()
+                drawRect(
+                    brush = Brush.radialGradient(
+                        colors = listOf(accent.copy(alpha = 0.22f), Color.Transparent),
+                        center = center,
+                        radius = size.maxDimension / 2f + grow,
+                    ),
+                    topLeft = Offset(-grow, -grow),
+                    size = Size(size.width + 2f * grow, size.height + 2f * grow),
+                )
+            }
+            .background(Krt.Black.copy(alpha = 0.95f))
+            .border(1.dp, accent)
+            .drawWithContent {
+                drawContent()
+                val len = 10.dp.toPx()
+                val w = 2.dp.toPx()
+                val o = w / 2f
+                val ww = size.width
+                val hh = size.height
+                drawLine(accent, Offset(o, o), Offset(len, o), w)
+                drawLine(accent, Offset(o, o), Offset(o, len), w)
+                drawLine(accent, Offset(ww - o, hh - o), Offset(ww - len, hh - o), w)
+                drawLine(accent, Offset(ww - o, hh - o), Offset(ww - o, hh - len), w)
+            }
+            .padding(20.dp),
+    ) {
+        Column {
+            Text(title.uppercase(), style = MaterialTheme.typography.headlineSmall, color = accent)
+            Spacer(Modifier.height(6.dp))
+            Text(message, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
+        }
     }
 }
 

@@ -18,6 +18,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +43,7 @@ import com.basetool.bpextractor.ui.KrtDataStyle
 import com.basetool.bpextractor.ui.KrtProgressBar
 import com.basetool.bpextractor.ui.KrtTextField
 import com.basetool.bpextractor.ui.KrtTheme
+import com.basetool.bpextractor.ui.KrtToast
 import com.basetool.bpextractor.ui.KrtTitleBar
 import com.basetool.bpextractor.ui.ResizeCorner
 import com.basetool.bpextractor.ui.StatusDot
@@ -50,6 +52,7 @@ import com.basetool.bpextractor.ui.rememberHoneycombPainter
 import com.basetool.bpextractor.ui.tiled
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
@@ -57,6 +60,9 @@ import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
 import javax.swing.JFileChooser
+
+/** A transient completion notification (success or failure), shown as a toast. */
+private data class ToastInfo(val title: String, val message: String, val error: Boolean)
 
 /** UI state for the single-screen extractor. */
 private class AppState {
@@ -71,6 +77,7 @@ private class AppState {
     var isError by mutableStateOf(false)
     var channelError by mutableStateOf<String?>(null)
     var outputError by mutableStateOf<String?>(null)
+    var toast by mutableStateOf<ToastInfo?>(null)
 
     private companion object {
         fun defaultOutputPath(): String {
@@ -257,6 +264,22 @@ private fun ExtractorScreen(state: AppState) {
                 }
             }
         }
+
+        // Transient completion toast (auto-dismisses), overlaid bottom-right and
+        // clear of the footer. The status line + result panel stay the persistent
+        // record; this is just a glanceable confirmation, not a second source.
+        state.toast?.let { t ->
+            LaunchedEffect(t) {
+                delay(4500)
+                state.toast = null
+            }
+            Box(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.BottomEnd,
+            ) {
+                KrtToast(title = t.title, message = t.message, error = t.error)
+            }
+        }
     }
 }
 
@@ -266,6 +289,7 @@ private fun runExtraction(
 ) {
     val folder = File(state.channelFolder.trim())
     val output = File(state.outputFile.trim())
+    state.toast = null
 
     // Validate on click and mark the offending field(s) — the CTA itself stays
     // enabled, so the user is never left guessing why nothing happened.
@@ -317,6 +341,7 @@ private fun runExtraction(
             if (export.logFilesScanned == 0) {
                 state.isError = true
                 state.status = "Keine Game.log und kein „logbackups\"-Ordner im Channel-Ordner gefunden."
+                state.toast = ToastInfo("Keine Logs gefunden", "Im Channel-Ordner wurde keine Game.log gefunden.", error = true)
                 state.running = false
                 return@launch
             }
@@ -327,9 +352,11 @@ private fun runExtraction(
             state.status = "Fertig: ${export.blueprintCount} Blueprint(s) aus ${export.logFilesScanned} Datei(en) geschrieben nach ${output.absolutePath}"
             state.resultFile = output
             state.resultSummary = buildSummary(export)
+            state.toast = ToastInfo("Fertig", "${export.blueprintCount} Blueprint(s) gespeichert.", error = false)
         } catch (t: Throwable) {
             state.isError = true
             state.status = "Fehler: ${t.message ?: t::class.simpleName}"
+            state.toast = ToastInfo("Fehler", t.message ?: t::class.simpleName ?: "Unbekannter Fehler", error = true)
         } finally {
             state.running = false
         }
