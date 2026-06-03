@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,11 +39,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.loadSvgPainter
 import androidx.compose.ui.res.useResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.Legal
 
@@ -69,6 +72,26 @@ fun Modifier.hudBox(
         drawLine(bracket, Offset(o, o), Offset(o, len), w)                 // TL left
         drawLine(bracket, Offset(ww - o, hh - o), Offset(ww - len, hh - o), w) // BR bottom
         drawLine(bracket, Offset(ww - o, hh - o), Offset(ww - o, hh - len), w) // BR right
+    }
+
+/**
+ * Keyboard-focus affordance in the brand idiom — a 2dp orange outline drawn as an
+ * overlay (so it never shifts layout), mirroring the system's
+ * `:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px }`.
+ * A positive [offset] draws the ring *outside* the control (the caller must leave
+ * that much breathing room around it); a negative [offset] insets it for controls
+ * with no outer slack, e.g. the title-bar buttons.
+ */
+fun Modifier.focusRing(focused: Boolean, offset: Dp = 2.dp): Modifier =
+    if (!focused) this else drawWithContent {
+        drawContent()
+        val o = offset.toPx()
+        drawRect(
+            color = Krt.Orange,
+            topLeft = Offset(-o, -o),
+            size = Size(size.width + 2f * o, size.height + 2f * o),
+            style = Stroke(width = 2.dp.toPx()),
+        )
     }
 
 /** Page-title banner: orange left-accent bar + dark→transparent fade (`.greeting`). */
@@ -147,6 +170,7 @@ fun CtaButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    val focused by interaction.collectIsFocusedAsState()
     val bg = when {
         !enabled -> Krt.Orange.copy(alpha = 0.40f)
         hovered -> Krt.OrangeHover
@@ -175,6 +199,7 @@ fun CtaButton(
             modifier = Modifier
                 .heightIn(min = 44.dp)
                 .background(bg)
+                .focusRing(focused)
                 .hoverable(interaction, enabled = enabled)
                 .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick)
                 .padding(horizontal = 22.dp, vertical = 12.dp),
@@ -195,13 +220,17 @@ fun GhostButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
-    val active = hovered && enabled
+    val focused by interaction.collectIsFocusedAsState()
+    // Hover and keyboard-focus both light the button orange (content + hairline);
+    // focus additionally gets the offset ring below so it reads as :focus-visible.
+    val active = (hovered || focused) && enabled
     val content = if (active) Krt.Orange else if (enabled) Krt.Gray1 else Krt.Gray2
     val border = if (active) Krt.Orange else Krt.Gray3
-    val bg = if (active) Krt.Orange.copy(alpha = 0.07f) else Color.Transparent
+    val bg = if (hovered && enabled) Krt.Orange.copy(alpha = 0.07f) else Color.Transparent
     Box(
         modifier = modifier
             .heightIn(min = 44.dp)
+            .focusRing(focused)
             .background(bg)
             .border(1.dp, border)
             .hoverable(interaction, enabled = enabled)
@@ -223,14 +252,17 @@ fun KrtCheckbox(
     enabled: Boolean = true,
 ) {
     val interaction = remember { MutableInteractionSource() }
+    val focused by interaction.collectIsFocusedAsState()
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier.clickable(
-            enabled = enabled,
-            interactionSource = interaction,
-            indication = null,
-            onClick = { onCheckedChange(!checked) },
-        ),
+        modifier = modifier
+            .focusRing(focused)
+            .clickable(
+                enabled = enabled,
+                interactionSource = interaction,
+                indication = null,
+                onClick = { onCheckedChange(!checked) },
+            ),
     ) {
         Box(
             modifier = Modifier
