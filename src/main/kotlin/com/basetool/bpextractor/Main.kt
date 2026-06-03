@@ -67,6 +67,8 @@ private class AppState {
     var status by mutableStateOf("Wähle den Star-Citizen-Channel-Ordner (z. B. …\\StarCitizen\\LIVE) und einen Ziel-Pfad für die JSON.")
     var resultSummary by mutableStateOf("")
     var isError by mutableStateOf(false)
+    var channelError by mutableStateOf<String?>(null)
+    var outputError by mutableStateOf<String?>(null)
 
     private companion object {
         fun defaultOutputPath(): String {
@@ -128,19 +130,21 @@ private fun ExtractorScreen(state: AppState) {
             // --- Channel folder ---
             Column {
                 FieldLabel("Star-Citizen-Channel-Ordner")
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     KrtTextField(
                         value = state.channelFolder,
-                        onValueChange = { state.channelFolder = it },
+                        onValueChange = { state.channelFolder = it; state.channelError = null },
                         placeholder = "z. B. C:\\Program Files\\Roberts Space Industries\\StarCitizen\\LIVE",
                         enabled = !state.running,
+                        isError = state.channelError != null,
+                        supportingText = state.channelError,
                         modifier = Modifier.weight(1f),
                     )
                     GhostButton(
                         "Durchsuchen…",
                         enabled = !state.running,
                         modifier = Modifier.height(56.dp),
-                        onClick = { pickFolder(state.channelFolder)?.let { state.channelFolder = it } },
+                        onClick = { pickFolder(state.channelFolder)?.let { state.channelFolder = it; state.channelError = null } },
                     )
                 }
                 Spacer(Modifier.height(6.dp))
@@ -154,19 +158,21 @@ private fun ExtractorScreen(state: AppState) {
             // --- Output file ---
             Column {
                 FieldLabel("Ausgabe-JSON (Ziel)")
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     KrtTextField(
                         value = state.outputFile,
-                        onValueChange = { state.outputFile = it },
+                        onValueChange = { state.outputFile = it; state.outputError = null },
                         placeholder = "z. B. …\\Dokumente\\blueprints.json",
                         enabled = !state.running,
+                        isError = state.outputError != null,
+                        supportingText = state.outputError,
                         modifier = Modifier.weight(1f),
                     )
                     GhostButton(
                         "Durchsuchen…",
                         enabled = !state.running,
                         modifier = Modifier.height(56.dp),
-                        onClick = { pickSaveFile(state.outputFile)?.let { state.outputFile = it } },
+                        onClick = { pickSaveFile(state.outputFile)?.let { state.outputFile = it; state.outputError = null } },
                     )
                 }
             }
@@ -175,7 +181,9 @@ private fun ExtractorScreen(state: AppState) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 CtaButton(
                     "Blueprints extrahieren",
-                    enabled = !state.running && state.channelFolder.isNotBlank() && state.outputFile.isNotBlank(),
+                    // Stays enabled (variant A): a click validates and marks the
+                    // offending field rather than leaving the button greyed out.
+                    enabled = !state.running,
                     onClick = { runExtraction(scope, state) },
                 )
                 // Indeterminate fallback only for the brief "finding files" phase, before
@@ -237,9 +245,30 @@ private fun runExtraction(
     val folder = File(state.channelFolder.trim())
     val output = File(state.outputFile.trim())
 
-    if (!folder.isDirectory) {
+    // Validate on click and mark the offending field(s) — the CTA itself stays
+    // enabled, so the user is never left guessing why nothing happened.
+    var valid = true
+    when {
+        state.channelFolder.isBlank() -> {
+            state.channelError = "Bitte einen Channel-Ordner auswählen."
+            valid = false
+        }
+        !folder.isDirectory -> {
+            state.channelError = "Ordner nicht gefunden: ${folder.absolutePath}"
+            valid = false
+        }
+        else -> state.channelError = null
+    }
+    if (state.outputFile.isBlank()) {
+        state.outputError = "Bitte einen Ziel-Pfad für die JSON angeben."
+        valid = false
+    } else {
+        state.outputError = null
+    }
+    if (!valid) {
         state.isError = true
-        state.status = "Der Channel-Ordner existiert nicht: ${folder.absolutePath}"
+        state.resultSummary = ""
+        state.status = "Bitte die markierten Felder korrigieren."
         return
     }
 

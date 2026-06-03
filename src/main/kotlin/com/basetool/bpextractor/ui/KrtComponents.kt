@@ -123,7 +123,12 @@ fun FieldLabel(text: String) {
     )
 }
 
-/** Square, dark-fill text field: hairline border, orange focus border + caret. */
+/**
+ * Square, dark-fill text field: hairline border, orange focus border + caret.
+ * When [isError] is set the border turns [Krt.Danger] (focused and unfocused) and
+ * an optional [supportingText] is shown below in Danger with a "⚠" glyph — so an
+ * invalid entry is obvious at the field, not only in the status line.
+ */
 @Composable
 fun KrtTextField(
     value: String,
@@ -131,27 +136,37 @@ fun KrtTextField(
     placeholder: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    isError: Boolean = false,
+    supportingText: String? = null,
 ) {
     OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = modifier,
         enabled = enabled,
+        isError = isError,
         singleLine = true,
         shape = RectangleShape,
         textStyle = MaterialTheme.typography.bodyMedium,
         placeholder = { Text(placeholder, color = Krt.Gray2, style = MaterialTheme.typography.bodyMedium) },
+        supportingText = supportingText?.let {
+            { Text("⚠ $it", color = Krt.Danger, style = MaterialTheme.typography.bodySmall) }
+        },
         colors = OutlinedTextFieldDefaults.colors(
             focusedContainerColor = Krt.SurfaceInput,
             unfocusedContainerColor = Krt.SurfaceInput,
             disabledContainerColor = Krt.SurfaceInput.copy(alpha = 0.4f),
+            errorContainerColor = Krt.SurfaceInput,
             focusedBorderColor = Krt.Orange,
             unfocusedBorderColor = Krt.Gray3,
             disabledBorderColor = Krt.Gray3,
+            errorBorderColor = Krt.Danger,
             cursorColor = Krt.Orange,
+            errorCursorColor = Krt.Orange,
             focusedTextColor = Krt.Gray1,
             unfocusedTextColor = Krt.Gray1,
             disabledTextColor = Krt.Gray2,
+            errorTextColor = Krt.Gray1,
         ),
     )
 }
