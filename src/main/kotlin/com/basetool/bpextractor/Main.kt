@@ -52,6 +52,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.awt.Desktop
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
@@ -66,6 +67,7 @@ private class AppState {
     var progressTotal by mutableStateOf(0)
     var status by mutableStateOf("Wähle den Star-Citizen-Channel-Ordner (z. B. …\\StarCitizen\\LIVE) und einen Ziel-Pfad für die JSON.")
     var resultSummary by mutableStateOf("")
+    var resultFile by mutableStateOf<File?>(null)
     var isError by mutableStateOf(false)
     var channelError by mutableStateOf<String?>(null)
     var outputError by mutableStateOf<String?>(null)
@@ -116,6 +118,8 @@ private fun pickSaveFile(initial: String): String? {
 private fun ExtractorScreen(state: AppState) {
     val scope = rememberCoroutineScope()
     val honeycomb = rememberHoneycombPainter()
+    // Whether we can offer "open folder / open file" actions on this platform.
+    val canOpenFiles = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
 
     Box(modifier = Modifier.fillMaxSize().background(Krt.Black).tiled(honeycomb)) {
         Column(
@@ -217,12 +221,30 @@ private fun ExtractorScreen(state: AppState) {
             // --- Result panel (HUD box) ---
             if (state.resultSummary.isNotBlank()) {
                 Column(modifier = Modifier.fillMaxWidth().weight(1f).hudBox()) {
-                    Text(
-                        "Ergebnis".uppercase(),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = Krt.Orange,
-                        modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 8.dp),
-                    )
+                    // Header: title + (after a successful write) jump-to-output actions.
+                    // Kept outside the scroll area below so the actions stay visible.
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            "Ergebnis".uppercase(),
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = Krt.Orange,
+                        )
+                        val file = state.resultFile
+                        if (canOpenFiles && file != null) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                file.absoluteFile.parentFile?.let { parent ->
+                                    GhostButton("Im Ordner anzeigen", onClick = { openWithDesktop(parent, scope, state) })
+                                }
+                                GhostButton("JSON öffnen", onClick = { openWithDesktop(file, scope, state) })
+                            }
+                        }
+                    }
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -303,12 +325,30 @@ private fun runExtraction(
 
             state.isError = false
             state.status = "Fertig: ${export.blueprintCount} Blueprint(s) aus ${export.logFilesScanned} Datei(en) geschrieben nach ${output.absolutePath}"
+            state.resultFile = output
             state.resultSummary = buildSummary(export)
         } catch (t: Throwable) {
             state.isError = true
             state.status = "Fehler: ${t.message ?: t::class.simpleName}"
         } finally {
             state.running = false
+        }
+    }
+}
+
+/**
+ * Open [target] (the output file or its containing folder) in the OS default
+ * handler. Runs off the UI thread; any failure is reported in the status line
+ * rather than thrown. Callers only show the buttons when [Desktop] OPEN is
+ * supported, but the try/catch still guards the headless/unsupported edge.
+ */
+private fun openWithDesktop(target: File, scope: CoroutineScope, state: AppState) {
+    scope.launch {
+        try {
+            withContext(Dispatchers.IO) { Desktop.getDesktop().open(target) }
+        } catch (t: Throwable) {
+            state.isError = true
+            state.status = "Konnte „${target.name}\" nicht öffnen: ${t.message ?: t::class.simpleName}"
         }
     }
 }
