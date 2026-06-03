@@ -1,0 +1,94 @@
+import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+
+plugins {
+    kotlin("jvm") version "2.3.21"
+    kotlin("plugin.compose") version "2.3.21"
+    kotlin("plugin.serialization") version "2.3.21"
+    id("org.jetbrains.compose") version "1.11.1"
+}
+
+group = "com.basetool"
+version = "1.0.0"
+
+repositories {
+    mavenCentral()
+    google()
+    maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
+}
+
+dependencies {
+    implementation(compose.desktop.currentOs)
+    implementation(compose.material3)
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
+
+    testImplementation(kotlin("test"))
+}
+
+kotlin {
+    jvmToolchain(25)
+}
+
+tasks.test {
+    useJUnitPlatform()
+    testLogging { showStandardStreams = true }
+}
+
+compose.desktop {
+    application {
+        mainClass = "com.basetool.bpextractor.MainKt"
+
+        // jpackage builds the bundled runtime (via jlink) and the installer with THIS JDK.
+        // Without it, the Compose plugin falls back to the Gradle daemon's JDK (21) — so the
+        // app would ship a Java 21 runtime even though we compile to Java 25 bytecode, which
+        // would crash at launch with UnsupportedClassVersionError. Pin it to the JDK 25
+        // toolchain so the compiled bytecode and the bundled runtime stay in lockstep.
+        javaHome = javaToolchains.launcherFor {
+            languageVersion.set(JavaLanguageVersion.of(25))
+        }.get().metadata.installationPath.asFile.absolutePath
+
+        // Skiko loads its native renderer via System.load(); on JDK 25 that prints
+        // "restricted method / native access" warnings to stderr. Granting native access
+        // to the (classpath = unnamed) module silences them and future-proofs against the
+        // announced block in a later JDK.
+        jvmArgs += "--enable-native-access=ALL-UNNAMED"
+
+        nativeDistributions {
+            // Msi -> classic Windows installer that registers in "Apps & Features"
+            // and is uninstallable like any normal program. (Requires the WiX 3
+            // toolset on PATH at build time — see README.)
+            targetFormats(TargetFormat.Msi)
+
+            packageName = "Basetool Blueprint Extractor"
+            packageVersion = project.version.toString()
+            description = "Extracts received Star Citizen blueprints from Game.log files into JSON."
+            vendor = "Basetool"
+            copyright = "© 2026 Basetool. Community tool, not affiliated with Cloud Imperium Games."
+
+            // Bundle only the JDK modules the app actually needs instead of the whole
+            // JDK — keeps the installer small. The Compose plugin auto-infers the base
+            // set (java.base, java.desktop for AWT/Skiko, …); these two extras come from
+            // `gradlew suggestRuntimeModules` (jdeps): jdk.unsupported for Skiko's
+            // sun.misc.Unsafe, java.instrument pulled in by the coroutines agent hooks.
+            modules("java.instrument", "jdk.unsupported")
+
+            windows {
+                // Stable identity so future versions upgrade the install in place
+                // instead of leaving duplicates in Apps & Features.
+                upgradeUuid = "530c8db7-fe35-4e3f-8ac4-1af9a611a0a6"
+
+                menuGroup = "Basetool"
+                menu = true          // Start-menu entry
+                shortcut = true      // Desktop shortcut
+                dirChooser = true    // let the user choose the install directory (install wizard step)
+                perUserInstall = true // no admin elevation; shows under the user's "Apps & Features"
+
+                // Optional custom icon. Drop an app.ico into src/main/resources to enable.
+                val icon = project.file("src/main/resources/app.ico")
+                if (icon.exists()) {
+                    iconFile.set(icon)
+                }
+            }
+        }
+    }
+}

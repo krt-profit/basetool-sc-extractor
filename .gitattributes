@@ -1,0 +1,11 @@
+# Normalize text to LF in the repo; .bat stays CRLF (Windows).
+* text=auto eol=lf
+*.bat text eol=crlf
+
+# Binary assets — never apply EOL conversion.
+*.jar binary
+*.ico binary
+*.png binary
+*.otf binary
+*.ttf binary
+*.log binary

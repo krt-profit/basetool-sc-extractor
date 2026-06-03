@@ -1,0 +1,38 @@
+# Gradle
+.gradle/
+build/
+
+# Built installer output (regenerable via gradlew packageMsi)
+dist/
+
+# MSI test logs
+install.log
+uninstall.log
+
+# GUI verification artifacts (screenshots, captured stdout/stderr)
+_gui_*
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Local tooling fetched at build time (WiX for the MSI installer)
+tools/
+
+# Reference material / sample data (kept out of the build)
+_extracted/
+
+# Private sample logs — LOCAL DEVELOPMENT ONLY, must never be published.
+# These Game.log files contain the player's handle/IDs and personal play data.
+game-log/
+
+# Claude tooling / design-system skill — dev-only, kept out of the program repo
+.claude/
+
+# Kotlin build cache
+.kotlin/
+
+# OS
+Thumbs.db
+.DS_Store
