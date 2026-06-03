@@ -221,7 +221,7 @@ basetool-bp-extractor/
 │   ├── ui/KrtComponents.kt           # HUD-Box, CTA-/Ghost-Buttons, Checkbox …
 │   ├── ui/WindowChrome.kt            # undekorierte Titelleiste + Fenster-Buttons
 │   └── model/Models.kt               # JSON-Datenmodelle
-├── src/main/resources/               # Fonts (Ethnocentric/Lato), app.ico,
+├── src/main/resources/               # Fonts (Audiowide/Lato), app.ico,
 │                                     #   honeycomb-bg.svg, icons/krt-icon.png
 ├── src/test/kotlin/…                 # Unit-Tests
 ├── src/test/resources/sample.log     # Test-Fixture (Edge-Cases)
@@ -232,7 +232,7 @@ basetool-bp-extractor/
 
 Die GUI folgt dem **„Das Kartell" / KRT-Design-System** (Quelle: Claude-Skill
 `das-kartell-design`): dunkles Sci-Fi-„HUD", Hausorange `#E77E23` auf Schwarz,
-Display-Schrift **Ethnocentric** (UPPERCASE) + Body **Lato**, durchweg scharfe
+Display-Schrift **Audiowide** (UPPERCASE) + Body **Lato**, durchweg scharfe
 Ecken mit diagonalen HUD-Eckwinkeln, Orange-Bloom statt weicher Schatten. Umgesetzt
 als Compose-Material3-Theme (`ui/Theme.kt`, `ui/KrtComponents.kt`) mit strenger
 Action-Hierarchie: genau **eine** gefüllte Orange-CTA pro Kontext („Blueprints
@@ -241,7 +241,12 @@ extrahieren"), Sekundäraktionen als Ghost-Buttons, Labels neutral-grau.
 Das **KRT-Logo** dient als App-/Fenster-Icon (`app.ico` für Installer/Exe,
 `icons/krt-icon.png` fürs Fenster), und ein **dezenter Honeycomb-Hintergrund**
 (`honeycomb-bg.svg` — orange Hexagone bei 10 % Deckkraft) liegt als Textur hinter
-dem Inhalt. Quelle aller Assets: der Skill `das-kartell-design/assets/`.
+dem Inhalt. Logo + Honeycomb (und **Lato**) stammen aus dem Skill
+`das-kartell-design/assets/`. Die Display-Schrift **Audiowide** (OFL/Google Fonts,
+Lizenztext in `fonts/Audiowide-OFL.txt`) ersetzt die markenseitig vorgesehene,
+**kommerzielle** Ethnocentric durch eine frei redistribuierbare, optisch
+verwandte Variante — bewusst gewählt, damit das öffentliche Repo keine
+lizenzpflichtige Schrift mitliefert.
 
 Das Fenster ist **undekoriert** (kein weißer OS-Rahmen): eine eigene dunkle
 Titelleiste (`ui/WindowChrome.kt`) trägt Logo + Titel und eigene Minimieren-/

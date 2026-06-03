@@ -18,7 +18,7 @@ import androidx.compose.ui.unit.sp
 /**
  * DAS KARTELL / KRT brand tokens, ported from the `das-kartell-design` skill
  * (`colors_and_type.css`). Dark sci-fi "HUD": one hero orange on black, square
- * corners, Ethnocentric display + Lato body. There is no light theme.
+ * corners, Audiowide display + Lato body. There is no light theme.
  */
 object Krt {
     // House colors (Corporate Design Manual p.12)
@@ -43,9 +43,10 @@ object Krt {
     val Info = Color(0xFF355DDC)
 }
 
-// Two faces only — Ethnocentric (display, UPPERCASE) + Lato (body). Loaded from
+// Two faces only — a wide sci-fi display face (UPPERCASE) + Lato (body). Loaded from
 // the classpath (src/main/resources/fonts), so they work in the packaged app too.
-val Ethnocentric = FontFamily(Font("fonts/Ethnocentric_Rg.otf", FontWeight.Normal))
+// Display face: Audiowide (OFL) — a freely redistributable Ethnocentric-style face.
+val Display = FontFamily(Font("fonts/Audiowide-Regular.ttf", FontWeight.Normal))
 val Lato = FontFamily(
     Font("fonts/Lato-Light.ttf", FontWeight.Light),
     Font("fonts/Lato-Regular.ttf", FontWeight.Normal),
@@ -80,12 +81,12 @@ private val KrtColorScheme = darkColorScheme(
     scrim = Krt.Black,
 )
 
-// Headings: Ethnocentric, +0.05em tracking (always rendered UPPERCASE by callers).
+// Headings: Audiowide, light tracking (always rendered UPPERCASE by callers).
 // Body/labels: Lato — Light 300 for prose, Bold 700 for labels/buttons.
 private val KrtTypography = Typography(
-    headlineLarge = TextStyle(fontFamily = Ethnocentric, fontWeight = FontWeight.Normal, fontSize = 30.sp, letterSpacing = 0.05.em),
-    headlineMedium = TextStyle(fontFamily = Ethnocentric, fontWeight = FontWeight.Normal, fontSize = 23.sp, letterSpacing = 0.05.em),
-    headlineSmall = TextStyle(fontFamily = Ethnocentric, fontWeight = FontWeight.Normal, fontSize = 15.sp, letterSpacing = 0.08.em),
+    headlineLarge = TextStyle(fontFamily = Display, fontWeight = FontWeight.Normal, fontSize = 26.sp, letterSpacing = 0.02.em),
+    headlineMedium = TextStyle(fontFamily = Display, fontWeight = FontWeight.Normal, fontSize = 19.sp, letterSpacing = 0.02.em),
+    headlineSmall = TextStyle(fontFamily = Display, fontWeight = FontWeight.Normal, fontSize = 13.sp, letterSpacing = 0.04.em),
     titleMedium = TextStyle(fontFamily = Lato, fontWeight = FontWeight.Bold, fontSize = 16.sp),
     labelLarge = TextStyle(fontFamily = Lato, fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 0.03.em),
     labelMedium = TextStyle(fontFamily = Lato, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 0.06.em),
