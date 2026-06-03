@@ -253,6 +253,42 @@ Titelleiste (`ui/WindowChrome.kt`) trägt Logo + Titel und eigene Minimieren-/
 Maximieren-/Schließen-Buttons, mit scharfen Ecken, oranger Akzentlinie, dünnem
 HUD-Rahmen und einer Resize-Ecke unten rechts.
 
-## Lizenz / Hinweis
+## Lizenz
 
-Community-Tool, **nicht** mit Cloud Imperium Games affiliiert.
+Dieses Programm ist **freie Software** unter der **GNU General Public License,
+Version 3 oder (nach Wahl) später** (GPL-3.0-or-later). Den vollständigen Lizenztext
+findest du in [`LICENSE`](LICENSE).
+
+```
+Copyright (C) 2026 Basetool
+
+Dieses Programm ist freie Software: Du kannst es weitergeben und/oder verändern,
+solange du dich an die Bedingungen der GNU General Public License hältst. Es wird
+in der Hoffnung verteilt, dass es nützlich ist, jedoch OHNE JEDE GEWÄHRLEISTUNG.
+```
+
+### Drittanbieter-Komponenten
+
+| Komponente | Lizenz |
+|---|---|
+| Kotlin, Compose Multiplatform, Material 3, Skiko, kotlinx-serialization/-coroutines | Apache-2.0 |
+| Skia (via Skiko) | BSD-3-Clause |
+| Gebündelte Java-Laufzeit (OpenJDK 25) | GPLv2 **mit Classpath Exception** |
+| Schriften **Audiowide** & **Lato** | SIL Open Font License 1.1 |
+
+Die OFL-Lizenztexte der Schriften liegen unter
+[`src/main/resources/fonts/`](src/main/resources/fonts/) (`Audiowide-OFL.txt`,
+`Lato-OFL.txt`). Die **Classpath Exception** der gebündelten JRE erlaubt die Weitergabe
+zusammen mit diesem (GPL-)Programm, ohne dass die JRE selbst dadurch ihre Lizenz ändert;
+ihre Notices liegen im Installationspaket unter `runtime/legal/`.
+
+### Marken
+
+Das **KRT-/„Das Kartell"-Logo** und zugehörige Markenzeichen sind Eigentum ihrer
+Inhaber. Die GPL deckt den **Quellcode** dieses Programms ab, **nicht** die Marken-
+und Logo-Assets — diese werden nicht zur freien Weiterverwendung lizenziert.
+
+### Hinweis
+
+Community-Tool, **nicht** mit Cloud Imperium Games affiliiert. Es werden keine
+Spieldaten oder Assets von Star Citizen mitgeliefert.

@@ -178,6 +178,10 @@ CI builds the MSI through `package-msi.ps1`, so the WiX-3.x/jpackage workaround
 ## Repo / publishing
 
 - Public repo: `https://github.com/krt-iri/basetool-bp-extractor` (branch `main`).
+- **License: GPL-3.0-or-later** (`LICENSE`). Deps are permissive (Apache-2.0/BSD); the
+  bundled JRE is GPLv2 + Classpath Exception (redistribution OK, does not infect app
+  code). Bundled fonts (Audiowide, Lato) ship their OFL texts under
+  `src/main/resources/fonts/` — if you add/replace a bundled font, add its license too.
 - Gitignored and kept out of the published repo: `game-log/` (private logs), `.claude/`
   (the design skill), `_extracted/` (reference material), `tools/`, `build/`, `dist/`,
   `_gui_*`. Verify `game-log/` is absent from any commit before pushing.

@@ -71,7 +71,7 @@ compose.desktop {
             packageVersion = project.version.toString().substringBefore('-').ifBlank { "1.0.0" }
             description = "Extracts received Star Citizen blueprints from Game.log files into JSON."
             vendor = "Basetool"
-            copyright = "© 2026 Basetool. Community tool, not affiliated with Cloud Imperium Games."
+            copyright = "© 2026 Basetool. GPL-3.0-or-later. Community tool, not affiliated with Cloud Imperium Games."
 
             // Bundle only the JDK modules the app actually needs instead of the whole
             // JDK — keeps the installer small. The Compose plugin auto-infers the base
