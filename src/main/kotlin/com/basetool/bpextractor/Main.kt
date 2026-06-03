@@ -434,7 +434,9 @@ private fun guiMain() = application {
         KrtTheme {
             Box(Modifier.fillMaxSize()) {
                 Column(Modifier.fillMaxSize().background(Krt.Black).border(1.dp, Krt.Gray3)) {
-                    frame.KrtTitleBar(windowState, appIcon, "Basetool Blueprint Extractor", ::exitApplication)
+                    // Short title here — GreetingHeader already carries the full name,
+                    // so this avoids duplication and the ellipsis on narrow windows.
+                    frame.KrtTitleBar(windowState, appIcon, "Blueprint Extractor", ::exitApplication)
                     Box(Modifier.weight(1f).fillMaxWidth()) {
                         ExtractorScreen(state)
                     }
