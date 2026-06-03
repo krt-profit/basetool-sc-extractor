@@ -288,6 +288,26 @@ fun KrtCheckbox(
     }
 }
 
+/**
+ * Determinate, square progress bar in the brand palette: a 6dp track
+ * (`SurfaceInput` fill + 1dp `Gray3` hairline) with an orange fill driven by
+ * [done]/[total]. A zero or unknown [total] renders an empty track (the caller
+ * shows the indeterminate spinner instead until the file count is known).
+ */
+@Composable
+fun KrtProgressBar(done: Int, total: Int, modifier: Modifier = Modifier) {
+    val fraction = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(6.dp)
+            .background(Krt.SurfaceInput)
+            .border(1.dp, Krt.Gray3),
+    ) {
+        Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(Krt.Orange))
+    }
+}
+
 /** Small HUD status dot (`.status-pill::before`) — a tiny solid square. */
 @Composable
 fun StatusDot(color: Color) {

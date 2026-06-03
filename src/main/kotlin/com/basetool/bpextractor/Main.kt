@@ -39,6 +39,7 @@ import com.basetool.bpextractor.ui.GhostButton
 import com.basetool.bpextractor.ui.GreetingHeader
 import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.KrtDataStyle
+import com.basetool.bpextractor.ui.KrtProgressBar
 import com.basetool.bpextractor.ui.KrtTextField
 import com.basetool.bpextractor.ui.KrtTheme
 import com.basetool.bpextractor.ui.KrtTitleBar
@@ -61,6 +62,8 @@ private class AppState {
     var channelFolder by mutableStateOf(defaultChannelFolder())
     var outputFile by mutableStateOf(defaultOutputPath())
     var running by mutableStateOf(false)
+    var progressDone by mutableStateOf(0)
+    var progressTotal by mutableStateOf(0)
     var status by mutableStateOf("Wähle den Star-Citizen-Channel-Ordner (z. B. …\\StarCitizen\\LIVE) und einen Ziel-Pfad für die JSON.")
     var resultSummary by mutableStateOf("")
     var isError by mutableStateOf(false)
@@ -175,9 +178,16 @@ private fun ExtractorScreen(state: AppState) {
                     enabled = !state.running && state.channelFolder.isNotBlank() && state.outputFile.isNotBlank(),
                     onClick = { runExtraction(scope, state) },
                 )
-                if (state.running) {
+                // Indeterminate fallback only for the brief "finding files" phase, before
+                // the file count is known; once it is, the determinate bar below takes over.
+                if (state.running && state.progressTotal == 0) {
                     CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Krt.Orange, strokeWidth = 2.dp)
                 }
+            }
+
+            // Determinate progress: the bar grows file-by-file during extraction.
+            if (state.running && state.progressTotal > 0) {
+                KrtProgressBar(done = state.progressDone, total = state.progressTotal)
             }
 
             // --- Status line ---
@@ -236,6 +246,8 @@ private fun runExtraction(
     state.running = true
     state.isError = false
     state.resultSummary = ""
+    state.progressDone = 0
+    state.progressTotal = 0
     state.status = "Suche Log-Dateien…"
 
     scope.launch {
@@ -243,7 +255,11 @@ private fun runExtraction(
             val export = withContext(Dispatchers.IO) {
                 BlueprintExtractor.extract(folder) { done, total, current ->
                     val label = if (current.isBlank()) "Werte aus…" else current
-                    scope.launch { state.status = "Verarbeite Datei $done/$total: $label" }
+                    scope.launch {
+                        state.progressDone = done
+                        state.progressTotal = total
+                        state.status = "Verarbeite Datei $done/$total: $label"
+                    }
                 }
             }
 
