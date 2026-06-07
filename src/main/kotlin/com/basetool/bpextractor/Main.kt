@@ -135,6 +135,17 @@ private fun channelFolderHint(path: String): FolderHint {
     return FolderHint(Krt.Success, "Gültiger Channel-Ordner ($found erkannt).", Krt.Gray1)
 }
 
+/**
+ * Note shown under the channel field when the picked folder is the LIVE channel and a sibling
+ * `HOTFIX` folder with logs sits next to it. The extractor sweeps that channel too (so blueprints
+ * farmed on HOTFIX aren't missed); this line tells the user it's happening. `null` ⇒ no such
+ * sibling, so no note is rendered.
+ */
+private fun siblingHotfixNote(path: String): String? {
+    BlueprintExtractor.siblingHotfixFolder(File(path.trim())) ?: return null
+    return "HOTFIX-Ordner daneben gefunden — dessen Logs werden zusätzlich ausgelesen."
+}
+
 @Composable
 private fun ExtractorScreen(state: AppState) {
     val scope = rememberCoroutineScope()
@@ -191,6 +202,20 @@ private fun ExtractorScreen(state: AppState) {
                             style = MaterialTheme.typography.bodySmall,
                             color = channelHint.textColor,
                         )
+                    }
+                    // When LIVE is picked and a sibling HOTFIX channel with logs sits beside it,
+                    // tell the user it's swept in too (its blueprints would otherwise be missed).
+                    val hotfixNote = remember(state.channelFolder) { siblingHotfixNote(state.channelFolder) }
+                    if (hotfixNote != null) {
+                        Spacer(Modifier.height(6.dp))
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatusDot(Krt.Orange)
+                            Text(
+                                hotfixNote,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Krt.Gray1,
+                            )
+                        }
                     }
                 }
             }
@@ -468,6 +493,9 @@ private fun runCli(args: Array<String>) {
     }
     println("${BlueprintExtractor.TOOL_NAME} v${BlueprintExtractor.TOOL_VERSION}")
     println("Scanning channel: ${folder.absolutePath}")
+    BlueprintExtractor.siblingHotfixFolder(folder)?.let {
+        println("HOTFIX channel found next to LIVE - also scanning ${it.absolutePath}")
+    }
     val export = BlueprintExtractor.extract(folder) { done, total, current ->
         if (current.isNotBlank()) println("  [$done/$total] $current")
     }

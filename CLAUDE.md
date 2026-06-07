@@ -28,7 +28,10 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
 
 - CLI args: `<channelFolder> <outputJson>` — `channelFolder` is an SC channel dir
   (e.g. `…\StarCitizen\LIVE`); the app reads its `Game.log` + every `*.log` in the
-  `logbackups\` subfolder. No args ⇒ GUI.
+  `logbackups\` subfolder. When the channel is **LIVE** and a sibling `HOTFIX` folder
+  with logs sits next to it, that channel is swept in too (crafting knowledge is
+  account-wide but each channel logs separately, so HOTFIX-farmed blueprints would
+  otherwise be missed). No args ⇒ GUI.
 - **Build the MSI only via `package-msi.ps1`**, never `gradlew packageMsi` directly
   (see *Packaging* below).
 
@@ -64,9 +67,11 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   line by line (`useLines`) so multi-hundred-MB files never load whole. Returns
   `FileResult(player, blueprints)`. No I/O orchestration, no disk writes — keep it that
   way (it's the easiest part to unit-test).
-- **`BlueprintExtractor.kt`** — orchestration: `findLogFiles(channelFolder)` →
-  parse each → aggregate per-player counts → sort chronologically → assemble
-  `BlueprintExport`. Also `writeJson`. No line-level parsing here.
+- **`BlueprintExtractor.kt`** — orchestration: `findLogFiles(channelFolder)` (when the
+  folder is LIVE it also appends a sibling `HOTFIX` channel's logs via
+  `siblingHotfixFolder`) → parse each → aggregate per-player counts → sort
+  chronologically → assemble `BlueprintExport`. Also `writeJson`. No line-level parsing
+  here.
 - **`model/Models.kt`** — `@Serializable` data classes (`BlueprintEvent`,
   `PlayerSummary`, `BlueprintExport`). The exported JSON *is* this shape.
 - **`Main.kt`** — entry point. No args ⇒ Compose GUI (`guiMain`); args ⇒ `runCli`. Keep

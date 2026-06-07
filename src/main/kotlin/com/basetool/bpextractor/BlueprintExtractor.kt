@@ -25,13 +25,37 @@ object BlueprintExtractor {
         encodeDefaults = true
     }
 
+    /** The channel folder a user normally points the tool at. */
+    const val PRIMARY_CHANNEL_NAME = "LIVE"
+
     /**
-     * Collect the SC log files to scan from a channel folder (e.g. `…\StarCitizen\LIVE`):
-     * the current `Game.log` in that folder plus every `*.log` in its `logbackups`
-     * subfolder (the `Game Build(...).log` session backups). Current first, then backups
-     * by name; the export is re-sorted by blueprint timestamp anyway.
+     * The patch-cycle channel CIG spins up next to LIVE. Crafting knowledge is account-wide, but
+     * each channel writes its own logs, so a blueprint first received while playing HOTFIX is
+     * recorded only in the HOTFIX logs. A user who farmed on HOTFIX and then points the tool at
+     * LIVE would silently lose those blueprints — so when the picked folder is LIVE we also sweep a
+     * sibling HOTFIX folder (see [siblingHotfixFolder]).
+     */
+    const val SIBLING_CHANNEL_NAME = "HOTFIX"
+
+    /**
+     * Collect the SC log files to scan from a channel folder (e.g. `…\StarCitizen\LIVE`): the
+     * current `Game.log` in that folder plus every `*.log` in its `logbackups` subfolder (the
+     * `Game Build(...).log` session backups). When [channelFolder] is the LIVE channel and a
+     * sibling `HOTFIX` folder holding logs sits next to it, that channel's logs are appended too
+     * (see [siblingHotfixFolder]). Current first, then backups by name; the export is re-sorted by
+     * blueprint timestamp anyway.
      */
     fun findLogFiles(channelFolder: File): List<File> {
+        val files = collectChannelLogs(channelFolder).toMutableList()
+        siblingHotfixFolder(channelFolder)?.let { files += collectChannelLogs(it) }
+        return files
+    }
+
+    /**
+     * The `Game.log` + every `*.log` in `logbackups` for a single channel folder, current first
+     * then backups by name. Empty when [channelFolder] is not a directory or carries no logs.
+     */
+    private fun collectChannelLogs(channelFolder: File): List<File> {
         if (!channelFolder.isDirectory) return emptyList()
         val files = mutableListOf<File>()
         val current = File(channelFolder, "Game.log")
@@ -44,6 +68,23 @@ object BlueprintExtractor {
                 ?.let { files += it }
         }
         return files
+    }
+
+    /**
+     * If [channelFolder] is the LIVE channel directory, returns the sibling [SIBLING_CHANNEL_NAME]
+     * (HOTFIX) directory next to it (e.g. `…\StarCitizen\LIVE` → `…\StarCitizen\HOTFIX`) when that
+     * folder exists and actually holds SC logs (a `Game.log` or a `logbackups` subfolder). Returns
+     * `null` otherwise — when the picked folder isn't LIVE, has no parent, or no usable HOTFIX
+     * sibling is present. Pure `File` stats; never writes or browses, so a caller can use it for a
+     * cheap live UI hint as well as for the scan itself.
+     */
+    fun siblingHotfixFolder(channelFolder: File): File? {
+        if (!channelFolder.name.equals(PRIMARY_CHANNEL_NAME, ignoreCase = true)) return null
+        val parent = channelFolder.absoluteFile.parentFile ?: return null
+        val sibling = File(parent, SIBLING_CHANNEL_NAME)
+        if (!sibling.isDirectory) return null
+        val hasLogs = File(sibling, "Game.log").isFile || File(sibling, "logbackups").isDirectory
+        return if (hasLogs) sibling else null
     }
 
     /**

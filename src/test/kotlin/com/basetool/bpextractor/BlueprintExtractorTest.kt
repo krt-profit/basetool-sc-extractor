@@ -5,6 +5,7 @@ import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class BlueprintExtractorTest {
@@ -65,6 +66,70 @@ class BlueprintExtractorTest {
             assertTrue(BlueprintExtractor.findLogFiles(channel).isEmpty())
         } finally {
             channel.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `LIVE folder also pulls in a sibling HOTFIX channel`() {
+        val root = Files.createTempDirectory("StarCitizen").toFile()
+        try {
+            val live = File(root, "LIVE").apply { mkdirs() }
+            File(live, "Game.log").writeText("x")
+            val hotfix = File(root, "HOTFIX").apply { mkdirs() }
+            File(hotfix, "Game.log").writeText("x")
+            val hotfixBackups = File(hotfix, "logbackups").apply { mkdirs() }
+            File(hotfixBackups, "Game Build(9) a.log").writeText("x")
+
+            assertEquals("HOTFIX", BlueprintExtractor.siblingHotfixFolder(live)?.name)
+            // LIVE Game.log + HOTFIX Game.log + HOTFIX backup
+            assertEquals(3, BlueprintExtractor.findLogFiles(live).size)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `no HOTFIX sibling pulled in when the folder is absent`() {
+        val root = Files.createTempDirectory("StarCitizen").toFile()
+        try {
+            val live = File(root, "LIVE").apply { mkdirs() }
+            File(live, "Game.log").writeText("x")
+
+            assertNull(BlueprintExtractor.siblingHotfixFolder(live))
+            assertEquals(1, BlueprintExtractor.findLogFiles(live).size)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a sibling HOTFIX is ignored for a non-LIVE channel`() {
+        val root = Files.createTempDirectory("StarCitizen").toFile()
+        try {
+            val ptu = File(root, "PTU").apply { mkdirs() }
+            File(ptu, "Game.log").writeText("x")
+            val hotfix = File(root, "HOTFIX").apply { mkdirs() }
+            File(hotfix, "Game.log").writeText("x")
+
+            assertNull(BlueprintExtractor.siblingHotfixFolder(ptu))
+            assertEquals(1, BlueprintExtractor.findLogFiles(ptu).size) // only PTU's own log
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `an empty HOTFIX folder with no logs is not pulled in`() {
+        val root = Files.createTempDirectory("StarCitizen").toFile()
+        try {
+            val live = File(root, "LIVE").apply { mkdirs() }
+            File(live, "Game.log").writeText("x")
+            File(root, "HOTFIX").mkdirs() // exists but carries no Game.log / logbackups
+
+            assertNull(BlueprintExtractor.siblingHotfixFolder(live))
+            assertEquals(1, BlueprintExtractor.findLogFiles(live).size)
+        } finally {
+            root.deleteRecursively()
         }
     }
 }
