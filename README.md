@@ -27,7 +27,7 @@ Startmenü, Desktop-Verknüpfung).
 
 ### Installieren
 
-1. `Basetool Blueprint Extractor-1.0.0.msi` doppelklicken.
+1. `Basetool Blueprint Extractor-1.1.0.msi` doppelklicken.
 2. Dem Installations-Assistenten folgen (es lässt sich ein Installationsordner
    wählen). Es werden **keine Administratorrechte** benötigt — die Installation
    erfolgt pro Benutzer.
