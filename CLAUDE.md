@@ -160,8 +160,11 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   179/`greluc` characterization against the local `game-log/`.
 - **bundled modules or the runtime** → `suggestRuntimeModules`, rebuild, GUI-launch test.
 - **the export shape** → bump `schemaVersion`.
-- **the released version** → don't edit it in `build.gradle.kts`; it comes from the git
-  tag (see *Releases*). The dev fallback there stays `1.0.0`.
+- **the released version** → don't edit it anywhere by hand; it comes from the git tag
+  (see *Releases*). CI sets `project.version`, the `generateBuildInfo` task writes it into
+  the generated `BuildInfo.VERSION`, and `BlueprintExtractor.TOOL_VERSION` (CLI banner +
+  export `toolVersion`) reads that — so the MSI and the app's reported version stay in
+  lockstep. The dev fallback in `build.gradle.kts` stays `1.0.0`.
 
 ## Releases (CI)
 

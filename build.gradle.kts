@@ -31,8 +31,41 @@ dependencies {
     testImplementation(kotlin("test"))
 }
 
+// Generate BuildInfo.VERSION from the project version (which CI sets from the release tag) so the
+// app's reported version — the CLI banner and the export `toolVersion` — always matches the MSI
+// version, with no hand-edited constant to drift out of sync. Generated into build/ (gitignored),
+// regenerated whenever the version changes.
+val generateBuildInfo by tasks.registering {
+    val versionValue = project.version.toString()
+    val outDir = layout.buildDirectory.dir("generated/buildinfo/kotlin")
+    inputs.property("version", versionValue)
+    outputs.dir(outDir)
+    doLast {
+        val file = outDir.get().asFile.resolve("com/basetool/bpextractor/BuildInfo.kt")
+        file.parentFile.mkdirs()
+        file.writeText(
+            """
+            |package com.basetool.bpextractor
+            |
+            |/** Generated from the project version (the release tag in CI). Do not edit. */
+            |internal object BuildInfo {
+            |    const val VERSION: String = "$versionValue"
+            |}
+            |
+            """.trimMargin(),
+        )
+    }
+}
+
 kotlin {
     jvmToolchain(25)
+    sourceSets.named("main") {
+        kotlin.srcDir(generateBuildInfo)
+    }
+}
+
+tasks.named("compileKotlin") {
+    dependsOn(generateBuildInfo)
 }
 
 tasks.test {

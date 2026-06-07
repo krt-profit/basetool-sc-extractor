@@ -18,7 +18,14 @@ typealias ProgressListener = (done: Int, total: Int, current: String) -> Unit
 object BlueprintExtractor {
 
     const val TOOL_NAME = "Basetool Blueprint Extractor"
-    const val TOOL_VERSION = "1.0.0"
+
+    /**
+     * App version shown in the CLI banner and written as the export's `toolVersion`. Generated from
+     * the project version (the release tag in CI) by the `generateBuildInfo` Gradle task — see
+     * [BuildInfo] — so it always matches the MSI version, with no hand-edited constant to drift. A
+     * local dev build reports the build's dev-fallback version.
+     */
+    val TOOL_VERSION: String = BuildInfo.VERSION
 
     private val json = Json {
         prettyPrint = true
