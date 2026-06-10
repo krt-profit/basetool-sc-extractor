@@ -36,3 +36,11 @@ game-log/
 # OS
 Thumbs.db
 .DS_Store
+
+# Phase-0 spike workspace - private screenshots/crops/model outputs live here.
+# Real captures contain the player handle + account balance: NEVER commit them.
+# Only the spike report + redacted/synthetic fixtures get committed (with owner approval).
+spike-phase0/work/
+
+# Python bytecode (spike harness)
+__pycache__/
