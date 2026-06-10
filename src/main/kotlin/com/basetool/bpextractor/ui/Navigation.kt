@@ -8,6 +8,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -145,6 +146,9 @@ private fun CmdTab(label: String, active: Boolean, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxHeight()
+            // Pin the tab to its intrinsic (label) width — without this the underline's
+            // fillMaxWidth makes the first tab swallow the whole strip.
+            .width(IntrinsicSize.Max)
             .background(if (active) Krt.Orange.copy(alpha = 0.07f) else Color.Transparent)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
