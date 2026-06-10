@@ -1,69 +1,85 @@
 package com.basetool.bpextractor.ui.refinery
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.refinery.HardwareTier
 import com.basetool.bpextractor.refinery.Preflight
 import com.basetool.bpextractor.ui.CtaButton
+import com.basetool.bpextractor.ui.FootNote
 import com.basetool.bpextractor.ui.GhostButton
-import com.basetool.bpextractor.ui.GreetingHeader
 import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.KrtCheckbox
 import com.basetool.bpextractor.ui.KrtProgressBar
 import com.basetool.bpextractor.ui.KrtTextField
 import com.basetool.bpextractor.ui.StatusDot
+import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 
 /**
- * §5.1 Vorprüfung & Setup: the Ollama-runtime card (reachable / model-missing + guided pull /
- * unreachable + install hint), the hardware card (GPU/VRAM/RAM, auto-selected model chip, tier
- * bar, below-recommended fallback radio), the SC-running soft warning with acknowledge checkbox,
- * and the throttle note above the single CTA.
+ * §5.1 Vorprüfung & Setup on the [StepScaffold] (`REDESIGN_IMPLEMENTATION.md` §4.3 — the most
+ * important fix of the redesign): the body SCROLLS and the CTA lives in the pinned footer, so
+ * the worst case (minimum tier with two fallback radios + model-missing alert + SC-running
+ * banner) can never push "Weiter: Bilder laden" off-screen. The head carries the help button
+ * opening the KRT help page (§4.3a); the cards are the Ollama runtime and hardware panels, with
+ * the SC soft-warning banner below.
  */
 @Composable
 fun PreflightStep(state: RefineryUiState) {
     val strings = LocalStrings.current
     val scope = rememberCoroutineScope()
+    var helpOpen by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { state.runPreflight(scope) }
 
-    Column(
-        modifier = Modifier.fillMaxWidth().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        GreetingHeader(title = strings.rfPreflightTitle, subtitle = strings.rfPreflightSubtitle)
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            OllamaCard(state, Modifier.weight(1f))
-            HardwareCard(state, Modifier.weight(1f))
+    Box(Modifier.fillMaxSize()) {
+        StepScaffold(
+            overline = strings.rfStepOverline(1),
+            title = strings.rfPreflightTitle,
+            subtitle = strings.rfPreflightSubtitle,
+            scrollBody = true,
+            headRight = { GhostButton(strings.help, onClick = { helpOpen = true }) },
+            footer = {
+                FootNote(strings.rfThrottleNote)
+                Spacer(Modifier.weight(1f))
+                CtaButton(
+                    strings.rfCtaToImages,
+                    enabled = state.preflightReady,
+                    onClick = { state.goTo(1) },
+                )
+            },
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.Top,
+            ) {
+                OllamaCard(state, Modifier.weight(1f))
+                HardwareCard(state, Modifier.weight(1f))
+            }
+            Spacer(Modifier.height(14.dp))
+            ScBanner(state)
         }
 
-        ScBanner(state)
-
-        // Footer: throttle note left, the one orange CTA right.
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            StatusDot(Krt.Gray2)
-            Spacer(Modifier.width(8.dp))
-            Text(strings.rfThrottleNote, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
-            Spacer(Modifier.weight(1f))
-            CtaButton(
-                strings.rfCtaToImages,
-                enabled = state.preflightReady,
-                onClick = { state.goTo(1) },
-            )
+        if (helpOpen) {
+            HelpOverlay(onClose = { helpOpen = false })
         }
     }
 }

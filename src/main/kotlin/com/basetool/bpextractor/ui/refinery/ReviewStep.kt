@@ -25,23 +25,25 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.refinery.model.RefineryExtractGood
 import com.basetool.bpextractor.ui.CtaButton
+import com.basetool.bpextractor.ui.FootNote
 import com.basetool.bpextractor.ui.GhostButton
-import com.basetool.bpextractor.ui.GreetingHeader
 import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.KrtDataStyle
 import com.basetool.bpextractor.ui.PickerMode
 import com.basetool.bpextractor.ui.PickerRequest
 import com.basetool.bpextractor.ui.StatusDot
+import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import java.io.File
 import kotlin.math.roundToInt
 
 /**
- * §5.4 Review & Bestätigung (desktop variant — master-data matching happens later in the
- * basetool frontend): header badges (`SETUP` + layout %), the warning banner, the four order
- * header cards, the goods table with derived confidence (percent + dot, accessible tints), and
- * the "stays manual" note above the export CTA.
+ * §5.4 Review & Bestätigung on the [StepScaffold] (desktop variant — master-data matching
+ * happens later in the basetool frontend): head badges (`SETUP` + layout %), the warning banner,
+ * the four order header cards, and the goods table filling the rest height with derived
+ * confidence (percent + dot at the 0.90/0.75 thresholds, accessible tints, flagged rows with a
+ * coloured 3dp edge). The "stays manual" note and the export CTA sit in the pinned footer.
  */
 @Composable
 fun ReviewStep(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
@@ -51,21 +53,42 @@ fun ReviewStep(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
     val order = result.extract.orders.first()
     val validated = result.validated
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        GreetingHeader(title = strings.rfReviewTitle, subtitle = strings.rfReviewSubtitle)
-
-        // Header badges: panel type + layout confidence.
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            KrtChip(order.panelType, color = Krt.Orange, border = Krt.Orange)
-            KrtChip(strings.rfBadgeLayout((order.layoutConfidence * 100).roundToInt()))
-            state.exportError?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+    StepScaffold(
+        overline = strings.rfStepOverline(4),
+        title = strings.rfReviewTitle,
+        subtitle = strings.rfReviewSubtitle,
+        scrollBody = false,
+        headRight = {
+            // Head badges: panel type + layout confidence.
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                KrtChip(order.panelType, color = Krt.Orange, border = Krt.Orange)
+                KrtChip(strings.rfBadgeLayout((order.layoutConfidence * 100).roundToInt()))
             }
-        }
-
+        },
+        footer = {
+            GhostButton(strings.back, onClick = { state.goTo(2) })
+            Spacer(Modifier.weight(1f))
+            val exportError = state.exportError
+            if (exportError != null) {
+                Text(exportError, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+            } else {
+                FootNote(strings.rfManualNote)
+            }
+            CtaButton(
+                strings.rfCtaExport,
+                onClick = {
+                    onPicker(
+                        PickerRequest(
+                            mode = PickerMode.SAVE_FILE,
+                            title = strings.rfPickerExportTitle,
+                            confirmLabel = strings.rfPickerExportConfirm,
+                            initialPath = defaultExportPath(state),
+                        ) { path -> state.export(scope, File(path), strings) },
+                    )
+                },
+            )
+        },
+    ) {
         // Warning banner: count + list of validation findings.
         if (validated.warnings.isEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -88,6 +111,7 @@ fun ReviewStep(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
                 }
             }
         }
+        Spacer(Modifier.height(12.dp))
 
         // Four order-header cards.
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -104,34 +128,14 @@ fun ReviewStep(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
                 Modifier.weight(1f),
             )
         }
+        Spacer(Modifier.height(12.dp))
 
-        // Goods table.
+        // Goods table: one sticky header row, the body scrolls and fills the rest height.
         Column(modifier = Modifier.weight(1f).fillMaxWidth().hudBox()) {
             GoodsHeaderRow()
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 order.goods.forEach { good -> GoodsRow(good) }
             }
-        }
-
-        Text(strings.rfManualNote, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
-
-        // Footer: back left, export CTA right.
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            GhostButton(strings.back, onClick = { state.goTo(2) })
-            Spacer(Modifier.weight(1f))
-            CtaButton(
-                strings.rfCtaExport,
-                onClick = {
-                    onPicker(
-                        PickerRequest(
-                            mode = PickerMode.SAVE_FILE,
-                            title = strings.rfPickerExportTitle,
-                            confirmLabel = strings.rfPickerExportConfirm,
-                            initialPath = defaultExportPath(state),
-                        ) { path -> state.export(scope, File(path), strings) },
-                    )
-                },
-            )
         }
     }
 }

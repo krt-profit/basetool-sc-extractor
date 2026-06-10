@@ -27,31 +27,41 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.GhostButton
-import com.basetool.bpextractor.ui.GreetingHeader
 import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.KrtTextField
 import com.basetool.bpextractor.ui.PickerMode
 import com.basetool.bpextractor.ui.PickerRequest
 import com.basetool.bpextractor.ui.StatusDot
+import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 
 /**
- * §5.2 Bilder laden: the "1 folder = 1 order" framing, a folder bar, the thumbnail grid (each
- * tile with resolution chip, file name, crop tag and a remove ×), the mini-stats row and the
- * "Extraktion starten" CTA.
+ * §5.2 Bilder laden on the [StepScaffold]: the "1 folder = 1 order" framing, a folder bar, the
+ * mini-stats row and the thumbnail grid (each tile with resolution chip, file name, crop tag and
+ * a remove ×) filling the remaining height; back + "Extraktion starten" live in the pinned
+ * footer.
  */
 @Composable
 fun ImagesStep(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
     val strings = LocalStrings.current
     val scope = rememberCoroutineScope()
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    StepScaffold(
+        overline = strings.rfStepOverline(2),
+        title = strings.rfImagesTitle,
+        subtitle = strings.rfImagesSubtitle,
+        scrollBody = false,
+        footer = {
+            GhostButton(strings.back, onClick = { state.goTo(0) })
+            Spacer(Modifier.weight(1f))
+            CtaButton(
+                strings.rfCtaStartExtraction,
+                enabled = state.images.isNotEmpty() && !state.loadingImages,
+                onClick = { state.goTo(2) },
+            )
+        },
     ) {
-        GreetingHeader(title = strings.rfImagesTitle, subtitle = strings.rfImagesSubtitle)
-
         // Folder bar: mono-style path + browse.
         Column {
             Text(
@@ -85,6 +95,7 @@ fun ImagesStep(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
                 )
             }
         }
+        Spacer(Modifier.height(12.dp))
 
         // Mini-stats row (Bilder · Auftrag · Auflösung · Modell).
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -96,6 +107,7 @@ fun ImagesStep(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
             }
             KrtChip("${strings.rfStatModel}: ${state.selectedModel}")
         }
+        Spacer(Modifier.height(12.dp))
 
         when {
             state.loadingImages -> {
@@ -112,8 +124,9 @@ fun ImagesStep(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
             }
             else -> {}
         }
+        Spacer(Modifier.height(10.dp))
 
-        // Thumbnail grid.
+        // Thumbnail grid — fills the remaining height (the grid itself scrolls on overflow).
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 200.dp),
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -123,17 +136,6 @@ fun ImagesStep(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
             items(state.images, key = { it.file.absolutePath }) { image ->
                 ImageTile(image, onRemove = { state.removeImage(image) })
             }
-        }
-
-        // Footer: back left, CTA right.
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            GhostButton(strings.back, onClick = { state.goTo(0) })
-            Spacer(Modifier.weight(1f))
-            CtaButton(
-                strings.rfCtaStartExtraction,
-                enabled = state.images.isNotEmpty() && !state.loadingImages,
-                onClick = { state.goTo(2) },
-            )
         }
     }
 }

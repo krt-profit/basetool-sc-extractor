@@ -47,7 +47,7 @@ import java.awt.Point
 
 /**
  * Custom KRT window chrome that replaces the white OS title bar (which clashes with
- * the dark HUD). Dark surface, KRT logo + title in Audiowide orange, an orange
+ * the dark HUD). Dark surface, KRT logo + title in Lato Bold orange, an orange
  * accent hairline, and hand-drawn minimize / maximize / close controls. The title
  * region is draggable; window edges are sharp (fits the brand).
  */

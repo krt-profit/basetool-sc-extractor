@@ -9,9 +9,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
@@ -27,6 +30,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.res.loadImageBitmap
@@ -35,12 +40,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.basetool.bpextractor.ui.CommandStrip
 import com.basetool.bpextractor.ui.CommunityDisclaimerFooter
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.FieldLabel
 import com.basetool.bpextractor.ui.FilePickerDialog
+import com.basetool.bpextractor.ui.FootNote
 import com.basetool.bpextractor.ui.GhostButton
-import com.basetool.bpextractor.ui.GreetingHeader
 import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.KrtDataStyle
 import com.basetool.bpextractor.ui.KrtProgressBar
@@ -56,9 +62,10 @@ import com.basetool.bpextractor.ui.RefineryScreen
 import com.basetool.bpextractor.ui.ResizeCorner
 import com.basetool.bpextractor.ui.StartScreen
 import com.basetool.bpextractor.ui.StatusDot
-import com.basetool.bpextractor.ui.StepperBar
-import com.basetool.bpextractor.ui.TabBar
+import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
+import com.basetool.bpextractor.ui.refinery.AlertBox
+import com.basetool.bpextractor.ui.refinery.KrtChip
 import com.basetool.bpextractor.ui.i18n.Lang
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import com.basetool.bpextractor.ui.i18n.Strings
@@ -93,6 +100,13 @@ private class AppState {
     var status by mutableStateOf("")
     var resultSummary by mutableStateOf("")
     var resultFile by mutableStateOf<File?>(null)
+
+    /**
+     * The last successful export (categories, players, recent blueprints) feeding the structured
+     * summary screen and the config screen's "last run" context line. Deliberately NOT cleared by
+     * "Erneut" — it documents the session's last run until a new one overwrites it.
+     */
+    var resultExport by mutableStateOf<com.basetool.bpextractor.model.BlueprintExport?>(null)
     var isError by mutableStateOf(false)
     var channelError by mutableStateOf<String?>(null)
     var outputError by mutableStateOf<String?>(null)
@@ -114,6 +128,18 @@ private class AppState {
             return if (standard.isDirectory) standard.absolutePath else ""
         }
     }
+}
+
+/**
+ * The state-driven blueprint step (design spec §4): Konfiguration while idle, the transient
+ * Extraktion while running, Zusammenfassung once a result exists. Errors fall back to
+ * Konfiguration with the status line carrying the diagnosis. Shared by the [CommandStrip]
+ * inline stepper and the screen body so the two can never disagree.
+ */
+private fun blueprintStep(state: AppState): Int = when {
+    state.running -> 1
+    state.resultSummary.isNotBlank() -> 2
+    else -> 0
 }
 
 /** A read-only validity hint for the channel-folder field, rendered under it in KRT style. */
@@ -147,36 +173,71 @@ private fun channelFolderHint(path: String, strings: Strings): FolderHint {
 
 @Composable
 private fun ExtractorScreen(state: AppState) {
+    val honeycomb = rememberHoneycombPainter()
+    Box(modifier = Modifier.fillMaxSize().background(Krt.Black).tiled(honeycomb)) {
+        when (blueprintStep(state)) {
+            0 -> BpConfigStep(state)
+            1 -> BpRunningStep(state)
+            else -> BpSummaryStep(state)
+        }
+
+        // Transient completion toast (auto-dismisses), overlaid bottom-right and
+        // clear of the footer. The status line + summary stay the persistent
+        // record; this is just a glanceable confirmation, not a second source.
+        state.toast?.let { t ->
+            LaunchedEffect(t) {
+                delay(4500)
+                state.toast = null
+            }
+            Box(
+                modifier = Modifier.fillMaxSize().padding(24.dp),
+                contentAlignment = Alignment.BottomEnd,
+            ) {
+                KrtToast(title = t.title, message = t.message, error = t.error)
+            }
+        }
+    }
+}
+
+/**
+ * Blueprint step 1 — Konfiguration (`REDESIGN_IMPLEMENTATION.md` §4.2): a two-column body (the
+ * path form on the left, a "what gets read" + "last run" context panel on the right) so the wide
+ * window is used and no bottom void forms; the one orange CTA is pinned in the footer.
+ */
+@Composable
+private fun BpConfigStep(state: AppState) {
     val strings = LocalStrings.current
     val scope = rememberCoroutineScope()
-    val honeycomb = rememberHoneycombPainter()
-    // Whether we can offer "open folder / open file" actions on this platform.
-    val canOpenFiles = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
-
-    // State-driven step (design spec §4): Konfiguration while idle, the transient Extraktion
-    // while running, Zusammenfassung once a result exists. Errors fall back to Konfiguration
-    // with the status line carrying the diagnosis.
-    val bpStep = when {
-        state.running -> 1
-        state.resultSummary.isNotBlank() -> 2
-        else -> 0
-    }
-
-    Box(modifier = Modifier.fillMaxSize().background(Krt.Black).tiled(honeycomb)) {
-        Column(modifier = Modifier.fillMaxSize()) {
-        StepperBar(steps = strings.bpSteps, current = bpStep)
-        Column(
-            modifier = Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            GreetingHeader(
-                title = strings.bpGreetingTitle,
-                subtitle = strings.bpGreetingSubtitle,
+    StepScaffold(
+        overline = strings.bpStepOverline(1),
+        title = strings.bpSteps[0],
+        subtitle = strings.bpConfigSubtitle,
+        scrollBody = false,
+        footer = {
+            if (state.isError && state.status.isNotBlank()) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusDot(Krt.Danger)
+                    Text(state.status, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+                }
+            } else {
+                FootNote(strings.bpFootReadOnly)
+            }
+            Spacer(Modifier.weight(1f))
+            CtaButton(
+                strings.bpCta,
+                // Stays enabled (variant A): a click validates and marks the
+                // offending field rather than leaving the button greyed out.
+                enabled = !state.running,
+                onClick = { runExtraction(scope, state, strings) },
             )
-
-            if (bpStep == 0) {
-            // --- Channel folder ---
-            Column {
+        },
+    ) {
+        Row(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            // Left: the form.
+            Column(modifier = Modifier.weight(1.25f).fillMaxHeight().hudBox().padding(16.dp)) {
                 FieldLabel(strings.bpLabelChannelFolder)
                 Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     KrtTextField(
@@ -232,10 +293,8 @@ private fun ExtractorScreen(state: AppState) {
                         }
                     }
                 }
-            }
 
-            // --- Output file ---
-            Column {
+                Spacer(Modifier.height(14.dp))
                 FieldLabel(strings.bpLabelOutputJson)
                 Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     KrtTextField(
@@ -261,22 +320,83 @@ private fun ExtractorScreen(state: AppState) {
                         },
                     )
                 }
+
+                Spacer(Modifier.weight(1f))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Krt.Gray3))
+                Spacer(Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusDot(Krt.Gray2)
+                    Text(strings.bpFootAnchored, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+                }
             }
 
-            // --- Primary action ---
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                CtaButton(
-                    strings.bpCta,
-                    // Stays enabled (variant A): a click validates and marks the
-                    // offending field rather than leaving the button greyed out.
-                    enabled = !state.running,
-                    onClick = { runExtraction(scope, state, strings) },
-                )
+            // Right: context panel ("what gets read" + "last run").
+            Column(
+                modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Gray3).padding(16.dp),
+            ) {
+                Text(strings.bpCtxTitle.uppercase(), style = MaterialTheme.typography.labelMedium, color = Krt.Gray2)
+                Spacer(Modifier.height(12.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    strings.bpCtxItems.forEach { item ->
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                            StatusDot(Krt.Orange)
+                            Text(item, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1)
+                        }
+                    }
+                }
+                Spacer(Modifier.weight(1f))
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Krt.Gray3))
+                Spacer(Modifier.height(10.dp))
+                Text(strings.bpCtxLastRun.uppercase(), style = MaterialTheme.typography.labelMedium, color = Krt.Gray2)
+                Spacer(Modifier.height(6.dp))
+                val export = state.resultExport
+                if (export == null) {
+                    Text(strings.bpCtxNoRun, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+                } else {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            export.players.joinToString(" · ") { it.handle }.ifBlank { strings.bpSummaryNoPlayer },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Krt.Gray2,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            strings.bpSumSuccessDetail(export.blueprintCount, export.logFilesScanned),
+                            style = KrtDataStyle,
+                            color = Krt.Gray1,
+                        )
+                    }
+                }
             }
-            } // end bpStep == 0 (Konfiguration)
+        }
+    }
+}
 
-            if (bpStep == 1) {
-                // --- Extraktion (transient): streaming progress ---
+/** Blueprint step 2 — the transient extraction screen: progress centred in the body. */
+@Composable
+private fun BpRunningStep(state: AppState) {
+    val strings = LocalStrings.current
+    StepScaffold(
+        overline = strings.bpStepOverline(2),
+        title = strings.bpRunningTitle,
+        scrollBody = false,
+    ) {
+        Column(
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Column(modifier = Modifier.widthIn(max = 720.dp).fillMaxWidth().hudBox().padding(20.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    StatusDot(Krt.Orange)
+                    Spacer(Modifier.width(8.dp))
+                    Text(strings.bpStatusSearching, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
+                    Spacer(Modifier.weight(1f))
+                    if (state.progressTotal > 0) {
+                        Text("${state.progressDone} / ${state.progressTotal}", style = KrtDataStyle, color = Krt.Gray1)
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
                 // Indeterminate fallback only for the brief "finding files" phase, before
                 // the file count is known; once it is, the determinate bar takes over.
                 if (state.progressTotal == 0) {
@@ -284,87 +404,181 @@ private fun ExtractorScreen(state: AppState) {
                 } else {
                     KrtProgressBar(done = state.progressDone, total = state.progressTotal)
                 }
+                Spacer(Modifier.height(12.dp))
+                Text(state.status, style = KrtDataStyle, color = Krt.Gray2, maxLines = 2)
             }
+        }
+    }
+}
 
-            // --- Status line ---
-            val dotColor = when {
-                state.isError -> Krt.Danger
-                state.running -> Krt.Orange
-                state.resultSummary.isNotBlank() -> Krt.Success
-                else -> Krt.Gray2
-            }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                StatusDot(dotColor)
-                Text(
-                    state.status.ifBlank { strings.bpStatusInitial },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (state.isError) Krt.Danger else Krt.Gray1,
+/**
+ * Blueprint step 3 — Zusammenfassung (`REDESIGN_IMPLEMENTATION.md` §4.2): success alert on top,
+ * then a two-column body — category bars left, the filling "most recently received" table right.
+ * Jump-to-output and "Erneut" live in the head; there is no CTA on this screen.
+ */
+@Composable
+private fun BpSummaryStep(state: AppState) {
+    val strings = LocalStrings.current
+    val scope = rememberCoroutineScope()
+    // Whether we can offer "open folder / open file" actions on this platform.
+    val canOpenFiles = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
+    val export = state.resultExport
+    StepScaffold(
+        overline = strings.bpStepOverline(3),
+        title = strings.bpSummaryTitle,
+        scrollBody = false,
+        headRight = {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                val file = state.resultFile
+                if (canOpenFiles && file != null) {
+                    file.absoluteFile.parentFile?.let { parent ->
+                        GhostButton(strings.bpShowInFolder, onClick = { openWithDesktop(parent, scope, state, strings) })
+                    }
+                    GhostButton(strings.bpOpenJson, onClick = { openWithDesktop(file, scope, state, strings) })
+                }
+                // "Erneut": back to Konfiguration with the fields kept (design §4.3).
+                GhostButton(
+                    strings.bpAgain,
+                    onClick = {
+                        state.resultSummary = ""
+                        state.status = ""
+                        state.isError = false
+                    },
                 )
             }
+        },
+    ) {
+        AlertBox(Krt.Success) {
+            Text(strings.bpSumSuccessTitle, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
+            if (export != null) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "${state.resultFile?.absolutePath ?: ""} · schemaVersion ${export.schemaVersion} · " +
+                        strings.bpSumSuccessDetail(export.blueprintCount, export.logFilesScanned),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Krt.Gray2,
+                )
+            }
+        }
+        if (state.isError && state.status.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusDot(Krt.Danger)
+                Text(state.status, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+            }
+        }
+        Spacer(Modifier.height(14.dp))
 
-            // --- Result panel (HUD box) ---
-            if (state.resultSummary.isNotBlank()) {
-                Column(modifier = Modifier.fillMaxWidth().weight(1f).hudBox()) {
-                    // Header: title + (after a successful write) jump-to-output actions.
-                    // Kept outside the scroll area below so the actions stay visible.
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
+        if (export != null) {
+            Row(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                // Left: category bars + players, vertically centred so the column fills.
+                Column(modifier = Modifier.width(290.dp).fillMaxHeight().hudBox(bracket = Krt.Gray3).padding(14.dp)) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            strings.bpResultTitle.uppercase(),
-                            style = MaterialTheme.typography.headlineSmall,
-                            color = Krt.Orange,
+                            strings.bpSummaryByCategory.uppercase().removeSuffix(":"),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Krt.Gray2,
+                            modifier = Modifier.weight(1f),
                         )
-                        val file = state.resultFile
-                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            if (canOpenFiles && file != null) {
-                                file.absoluteFile.parentFile?.let { parent ->
-                                    GhostButton(strings.bpShowInFolder, onClick = { openWithDesktop(parent, scope, state, strings) })
+                        Text("${export.blueprintCount}", style = KrtDataStyle, color = Krt.White)
+                    }
+                    val categories = remember(export) {
+                        export.blueprints.groupingBy { it.category }.eachCount()
+                            .toList().sortedByDescending { it.second }
+                    }
+                    val maxCount = (categories.maxOfOrNull { it.second } ?: 1).coerceAtLeast(1)
+                    Column(
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        categories.forEach { (category, count) ->
+                            Column(Modifier.padding(vertical = 5.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth()) {
+                                    Text(
+                                        category,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Krt.Gray1,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    Text("$count", style = KrtDataStyle, color = Krt.White)
                                 }
-                                GhostButton(strings.bpOpenJson, onClick = { openWithDesktop(file, scope, state, strings) })
+                                Spacer(Modifier.height(3.dp))
+                                Box(Modifier.fillMaxWidth().height(6.dp).background(Krt.SurfaceInput)) {
+                                    Box(
+                                        Modifier
+                                            .fillMaxWidth(count.toFloat() / maxCount)
+                                            .height(6.dp)
+                                            .background(Krt.Orange),
+                                    )
+                                }
                             }
-                            // "Erneut": back to Konfiguration with the fields kept (design §4.3).
-                            GhostButton(
-                                strings.bpAgain,
-                                onClick = {
-                                    state.resultSummary = ""
-                                    state.status = ""
-                                    state.isError = false
-                                },
-                            )
                         }
                     }
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(Krt.Gray3))
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        strings.bpSummaryPlayers.uppercase().removeSuffix(":"),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Krt.Gray2,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    if (export.players.isEmpty()) {
+                        Text(strings.bpSummaryNoPlayer, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+                    } else {
+                        export.players.forEach { p ->
+                            Row(modifier = Modifier.fillMaxWidth()) {
+                                Text(p.handle, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1, modifier = Modifier.weight(1f))
+                                Text("${p.blueprintCount}", style = KrtDataStyle, color = Krt.Gray1)
+                            }
+                        }
+                    }
+                }
+
+                // Right: the "most recently received" table fills the remaining space.
+                Column(modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Gray3)) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                            .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                            .background(Krt.SurfaceInput)
+                            .drawBehind { drawLine(Krt.Orange, Offset(0f, size.height), Offset(size.width, size.height), 2.dp.toPx()) }
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
                     ) {
-                        Text(state.resultSummary, style = KrtDataStyle, color = Krt.Gray1)
+                        Text(
+                            strings.bpSummaryRecent.uppercase().removeSuffix(":"),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Krt.Gray1,
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                        export.blueprints.asReversed().forEach { bp ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .drawBehind { drawLine(Krt.Gray3, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(
+                                    bp.productName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Krt.White,
+                                    maxLines = 1,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                KrtChip(bp.category)
+                                Text(
+                                    bp.receivedAt.take(16).replace('T', ' '),
+                                    style = KrtDataStyle,
+                                    color = Krt.Gray2,
+                                )
+                            }
+                        }
                     }
                 }
-            }
-        }
-        }
-
-        // Transient completion toast (auto-dismisses), overlaid bottom-right and
-        // clear of the footer. The status line + result panel stay the persistent
-        // record; this is just a glanceable confirmation, not a second source.
-        state.toast?.let { t ->
-            LaunchedEffect(t) {
-                delay(4500)
-                state.toast = null
-            }
-            Box(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
-                contentAlignment = Alignment.BottomEnd,
-            ) {
-                KrtToast(title = t.title, message = t.message, error = t.error)
             }
         }
     }
@@ -439,7 +653,10 @@ private fun runExtraction(
             state.isError = false
             state.status = strings.bpStatusDone(export.blueprintCount, export.logFilesScanned, output.absolutePath)
             state.resultFile = output
-            state.resultSummary = buildSummary(export, strings)
+            state.resultExport = export
+            // Non-blank marker that drives blueprintStep() to the summary screen; the
+            // structured panels render from resultExport, not from this text.
+            state.resultSummary = strings.bpSumSuccessTitle
             state.toast = ToastInfo(strings.bpToastDoneTitle, strings.bpToastDoneBody(export.blueprintCount), error = false)
         } catch (t: Throwable) {
             state.isError = true
@@ -465,27 +682,6 @@ private fun openWithDesktop(target: File, scope: CoroutineScope, state: AppState
             state.isError = true
             state.status = strings.cannotOpen(target.name, t.message ?: t::class.simpleName ?: strings.unknownError)
         }
-    }
-}
-
-private fun buildSummary(export: com.basetool.bpextractor.model.BlueprintExport, strings: Strings): String = buildString {
-    appendLine(strings.bpSummaryPlayers)
-    if (export.players.isEmpty()) {
-        appendLine("  ${strings.bpSummaryNoPlayer}")
-    } else {
-        export.players.forEach { p ->
-            appendLine("  • ${p.handle} — ${p.blueprintCount} Blueprint(s)")
-        }
-    }
-    appendLine()
-    appendLine(strings.bpSummaryByCategory)
-    export.blueprints.groupingBy { it.category }.eachCount()
-        .toList().sortedByDescending { it.second }
-        .forEach { (cat, n) -> appendLine("  • $cat: $n") }
-    appendLine()
-    appendLine(strings.bpSummaryRecent)
-    export.blueprints.takeLast(15).reversed().forEach {
-        appendLine("  • ${it.receivedAt}  ${it.productName}  [${it.category}]")
     }
 }
 
@@ -540,7 +736,9 @@ private fun guiMain() = application {
     val refinery = remember { RefineryUiState() }
     var lang by remember { mutableStateOf(Lang.DE) }
     var tab by remember { mutableStateOf(MainTab.START) }
-    val windowState = rememberWindowState(width = 960.dp, height = 760.dp)
+    // Locked decision (REDESIGN_IMPLEMENTATION.md): default window 1180×820, resizable
+    // down to 640×520 (the ResizeCorner enforces the floor).
+    val windowState = rememberWindowState(width = 1180.dp, height = 820.dp)
     val appIcon = remember { useResource("icons/krt-icon.png") { BitmapPainter(loadImageBitmap(it)) } }
     val communityLogo = remember { useResource("MadeByTheCommunity_Black.png") { BitmapPainter(loadImageBitmap(it)) } }
     Window(
@@ -552,8 +750,9 @@ private fun guiMain() = application {
         state = windowState,
     ) {
         val frame = this
+        val strings = remember(lang) { stringsFor(lang) }
         KrtTheme {
-            CompositionLocalProvider(LocalStrings provides stringsFor(lang)) {
+            CompositionLocalProvider(LocalStrings provides strings) {
                 Box(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().background(Krt.Black).border(1.dp, Krt.Gray3)) {
                         frame.KrtTitleBar(
@@ -563,7 +762,42 @@ private fun guiMain() = application {
                             ::exitApplication,
                             actions = { LanguageToggle(lang) { lang = it } },
                         )
-                        TabBar(active = tab, onSelect = { tab = it })
+                        // One navigation band: tabs + the active workflow's inline stepper
+                        // (replaces the former TabBar + per-screen StepperBar stack).
+                        val bpStep = blueprintStep(state)
+                        CommandStrip(
+                            tab = tab,
+                            onTab = { tab = it },
+                            stepLabels = when (tab) {
+                                MainTab.BLUEPRINTS -> strings.bpSteps
+                                MainTab.REFINERY -> strings.rfSteps
+                                MainTab.START -> null
+                            },
+                            stepIndex = when (tab) {
+                                MainTab.BLUEPRINTS -> bpStep
+                                MainTab.REFINERY -> refinery.step
+                                MainTab.START -> 0
+                            },
+                            maxReached = when (tab) {
+                                // Blueprint steps are state-driven: only "back to Setup"
+                                // (resetting the result) is a meaningful stepper jump.
+                                MainTab.BLUEPRINTS -> if (state.running) -1 else 0
+                                MainTab.REFINERY -> if (refinery.running) -1 else refinery.maxReached
+                                MainTab.START -> 0
+                            },
+                            onStep = { target ->
+                                when (tab) {
+                                    MainTab.BLUEPRINTS -> if (target == 0 && !state.running) {
+                                        state.resultSummary = ""
+                                        state.status = ""
+                                        state.isError = false
+                                    }
+                                    // Never jump backwards INTO a running extraction mid-run.
+                                    MainTab.REFINERY -> if (!refinery.running) refinery.step = target
+                                    MainTab.START -> {}
+                                }
+                            },
+                        )
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             when (tab) {
                                 MainTab.START -> StartScreen(onOpen = { tab = it })

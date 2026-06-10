@@ -16,35 +16,21 @@ import com.basetool.bpextractor.ui.refinery.RefineryUiState
 import com.basetool.bpextractor.ui.refinery.ReviewStep
 
 /**
- * The Refinery workflow surface (design spec §5): the five-step stepper (Vorprüfung · Bilder ·
- * Extraktion · Review · Export) above the active step screen. Back-navigation goes through the
- * stepper (steps up to the furthest reached); forward navigation only through each screen's CTA.
- * [onPicker] hosts KRT file-picker requests at the window root (no native dialogs).
+ * The Refinery workflow surface (design spec §5): hosts the active step screen. Step navigation
+ * lives in the window-level [CommandStrip] inline stepper (back up to the furthest reached step;
+ * forward only through each screen's CTA). [onPicker] hosts KRT file-picker requests at the
+ * window root (no native dialogs).
  */
 @Composable
 fun RefineryScreen(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
-    val strings = LocalStrings.current
     val honeycomb = rememberHoneycombPainter()
     Box(modifier = Modifier.fillMaxSize().background(Krt.Black).tiled(honeycomb)) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            StepperBar(
-                steps = strings.rfSteps,
-                current = state.step,
-                maxReached = state.maxReached,
-                onSelect = { target ->
-                    // Never jump backwards INTO a running extraction's screen state mid-run.
-                    if (!state.running) state.step = target
-                },
-            )
-            Box(Modifier.weight(1f).fillMaxWidth()) {
-                when (state.step) {
-                    0 -> PreflightStep(state)
-                    1 -> ImagesStep(state, onPicker)
-                    2 -> ExtractStep(state)
-                    3 -> ReviewStep(state, onPicker)
-                    else -> ExportStep(state)
-                }
-            }
+        when (state.step) {
+            0 -> PreflightStep(state)
+            1 -> ImagesStep(state, onPicker)
+            2 -> ExtractStep(state)
+            3 -> ReviewStep(state, onPicker)
+            else -> ExportStep(state)
         }
     }
 }

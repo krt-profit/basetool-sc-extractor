@@ -4,8 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -17,8 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.GhostButton
-import com.basetool.bpextractor.ui.GreetingHeader
 import com.basetool.bpextractor.ui.Krt
+import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import kotlinx.coroutines.Dispatchers
@@ -27,9 +29,10 @@ import kotlinx.coroutines.withContext
 import java.awt.Desktop
 
 /**
- * §5.5 Export & Upload: the green written-path success alert, the manual-upload v1 instructions
- * card (Refinery → Import order → pick the JSON → review the pre-filled form), the provenance
- * panel mirroring the contract fields, and the "Neue Extraktion" restart.
+ * §5.5 Export & Upload on the [StepScaffold]: the green written-path success alert, then two
+ * height-filling panels side by side — the manual-upload v1 instructions card (Refinery →
+ * Import order → pick the JSON → review the pre-filled form) and the provenance panel mirroring
+ * the contract fields. "Show in folder" and the "Neue Extraktion" CTA sit in the pinned footer.
  */
 @Composable
 fun ExportStep(state: RefineryUiState) {
@@ -40,12 +43,24 @@ fun ExportStep(state: RefineryUiState) {
     val order = extract.orders.first()
     val canOpen = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    StepScaffold(
+        overline = strings.rfStepOverline(5),
+        title = strings.rfExportTitle,
+        scrollBody = false,
+        footer = {
+            if (canOpen) {
+                GhostButton(
+                    strings.bpShowInFolder,
+                    onClick = {
+                        val parent = file.absoluteFile.parentFile ?: return@GhostButton
+                        scope.launch { withContext(Dispatchers.IO) { runCatching { Desktop.getDesktop().open(parent) } } }
+                    },
+                )
+            }
+            Spacer(Modifier.weight(1f))
+            CtaButton(strings.rfNewExtraction, onClick = { state.newExtraction() })
+        },
     ) {
-        GreetingHeader(title = strings.rfExportTitle, subtitle = strings.rfReviewSubtitle)
-
         AlertBox(Krt.Success) {
             Text(
                 strings.rfExportSuccess(file.absolutePath),
@@ -53,11 +68,12 @@ fun ExportStep(state: RefineryUiState) {
                 color = Krt.Gray1,
             )
         }
+        Spacer(Modifier.height(14.dp))
 
         Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             // Manual-upload v1 instructions (no direct upload — Phase 4 is deferred).
             Column(
-                modifier = Modifier.weight(1.4f).hudBox().padding(16.dp),
+                modifier = Modifier.weight(1.4f).fillMaxHeight().hudBox().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
@@ -71,7 +87,7 @@ fun ExportStep(state: RefineryUiState) {
             }
             // Provenance panel mirroring the contract fields.
             Column(
-                modifier = Modifier.weight(1f).hudBox().padding(16.dp),
+                modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Gray3).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
@@ -86,20 +102,6 @@ fun ExportStep(state: RefineryUiState) {
                 KeyValueRow(strings.rfProvPanel, order.panelType)
                 KeyValueRow(strings.rfProvGenerated, extract.generatedAt)
             }
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (canOpen) {
-                GhostButton(
-                    strings.bpShowInFolder,
-                    onClick = {
-                        val parent = file.absoluteFile.parentFile ?: return@GhostButton
-                        scope.launch { withContext(Dispatchers.IO) { runCatching { Desktop.getDesktop().open(parent) } } }
-                    },
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            CtaButton(strings.rfNewExtraction, onClick = { state.newExtraction() })
         }
     }
 }

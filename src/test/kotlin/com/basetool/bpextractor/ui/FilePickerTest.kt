@@ -19,16 +19,73 @@ class FilePickerTest {
     }
 
     @Test
-    fun `folder mode lists only directories, sorted case-insensitively`() {
+    fun `folder mode lists directories first (files follow for the dimmed display)`() {
         val dir = tempDir()
         try {
             File(dir, "Zeta").mkdirs()
             File(dir, "alpha").mkdirs()
             File(dir, "Beta").mkdirs()
-            File(dir, "ignored.json").writeText("x")
-            File(dir, "ignored.txt").writeText("x")
+            File(dir, "dimmed.json").writeText("x")
+            File(dir, "also-dimmed.txt").writeText("x")
 
-            assertEquals(listOf("alpha", "Beta", "Zeta"), namesOf(dir, PickerMode.FOLDER))
+            // Directories first (case-insensitive), then every file — the UI dims files in
+            // FOLDER mode instead of hiding them (REDESIGN_IMPLEMENTATION.md §10).
+            assertEquals(
+                listOf("alpha", "Beta", "Zeta", "also-dimmed.txt", "dimmed.json"),
+                namesOf(dir, PickerMode.FOLDER),
+            )
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `sortEntries keeps directories first and honours key plus direction`() {
+        val dirA = PickerEntry(File("b-dir"), isDirectory = true, size = 0, modified = 50)
+        val dirB = PickerEntry(File("a-dir"), isDirectory = true, size = 0, modified = 10)
+        val small = PickerEntry(File("small.json"), isDirectory = false, size = 10, modified = 300)
+        val big = PickerEntry(File("big.json"), isDirectory = false, size = 999, modified = 100)
+        val all = listOf(small, dirA, big, dirB)
+
+        // by name ascending: dirs (a-dir, b-dir) first, then files by name
+        assertEquals(
+            listOf("a-dir", "b-dir", "big.json", "small.json"),
+            sortEntries(all, PickerSortKey.NAME, ascending = true).map { it.file.name },
+        )
+        // by size descending: dirs stay first
+        assertEquals(
+            listOf("b-dir", "a-dir", "big.json", "small.json"),
+            sortEntries(all, PickerSortKey.SIZE, ascending = false).map { it.file.name },
+        )
+        // by modified ascending
+        assertEquals(
+            listOf("a-dir", "b-dir", "big.json", "small.json"),
+            sortEntries(all, PickerSortKey.MODIFIED, ascending = true).map { it.file.name },
+        )
+    }
+
+    @Test
+    fun `isValidFileName rejects blanks and reserved characters`() {
+        assertTrue(isValidFileName("RefineryExtract.json"))
+        assertTrue(isValidFileName("  padded.json  "))
+        assertFalse(isValidFileName(""))
+        assertFalse(isValidFileName("   "))
+        for (bad in listOf("a\\b", "a/b", "a:b", "a*b", "a?b", "a\"b", "a<b", "a>b", "a|b")) {
+            assertFalse(isValidFileName(bad), "expected '$bad' to be invalid")
+        }
+    }
+
+    @Test
+    fun `parentChain walks from the root to the directory`() {
+        val dir = tempDir()
+        try {
+            val sub = File(dir, "sub").apply { mkdirs() }
+            val chain = parentChain(sub)
+            assertTrue(chain.size >= 2, "expected at least root + sub")
+            assertEquals(sub.absolutePath, chain.last().absolutePath)
+            assertEquals(dir.absolutePath, chain[chain.size - 2].absolutePath)
+            assertNull(chain.first().parentFile, "first element should be a filesystem root")
+            assertTrue(parentChain(null).isEmpty())
         } finally {
             dir.deleteRecursively()
         }

@@ -298,14 +298,15 @@ basetool-bp-extractor/
 │   │   └── model/RefineryExtract.kt  #   eingefrorener JSON-Contract (v1)
 │   ├── ui/Theme.kt                   # KRT-Theme (Farben, Fonts, Typo, Shapes)
 │   ├── ui/KrtComponents.kt           # HUD-Box, CTA-/Ghost-Buttons, Checkbox …
-│   ├── ui/Navigation.kt              # Top-Tabs, Stepper, DE/EN-Toggle
+│   ├── ui/Navigation.kt              # CommandStrip (Tabs + Inline-Stepper), DE/EN-Toggle
+│   ├── ui/StepScaffold.kt            # Schritt-Gerüst: Kopf · Scroll-Body · Footer-CTA
 │   ├── ui/StartScreen.kt             # Launcher (Workflow-Karten)
 │   ├── ui/RefineryScreen.kt          # Refinery-Workflow-Host (5 Schritte)
 │   ├── ui/refinery/                  # die fünf Refinery-Screens + UI-State
 │   ├── ui/i18n/Strings.kt            # DE/EN-Stringkatalog
 │   ├── ui/WindowChrome.kt            # undekorierte Titelleiste + Fenster-Buttons
 │   └── model/Models.kt               # Blueprint-JSON-Datenmodelle
-├── src/main/resources/               # Fonts (Audiowide/Lato), app.ico, Prompt v1,
+├── src/main/resources/               # Fonts (Lato), app.ico, Prompt v1,
 │                                     #   honeycomb-bg.svg, icons/krt-icon.png
 ├── src/test/kotlin/…                 # Unit-Tests
 ├── src/test/resources/sample.log     # Test-Fixture (Edge-Cases)
@@ -317,7 +318,8 @@ basetool-bp-extractor/
 
 Die GUI folgt dem **„Das Kartell" / KRT-Design-System** (Quelle: Claude-Skill
 `das-kartell-design`): dunkles Sci-Fi-„HUD", Hausorange `#E77E23` auf Schwarz,
-Display-Schrift **Audiowide** (UPPERCASE) + Body **Lato**, durchweg scharfe
+**Lato-only-Typografie** (Headlines: Lato **Bold** UPPERCASE mit 0.05em-Tracking,
+Body: Lato Light — keine Audiowide/Ethnocentric mehr), durchweg scharfe
 Ecken mit diagonalen HUD-Eckwinkeln, Orange-Bloom statt weicher Schatten. Umgesetzt
 als Compose-Material3-Theme (`ui/Theme.kt`, `ui/KrtComponents.kt`) mit strenger
 Action-Hierarchie: genau **eine** gefüllte Orange-CTA pro Kontext („Blueprints
@@ -327,11 +329,10 @@ Das **KRT-Logo** dient als App-/Fenster-Icon (`app.ico` für Installer/Exe,
 `icons/krt-icon.png` fürs Fenster), und ein **dezenter Honeycomb-Hintergrund**
 (`honeycomb-bg.svg` — orange Hexagone bei 10 % Deckkraft) liegt als Textur hinter
 dem Inhalt. Logo + Honeycomb (und **Lato**) stammen aus dem Skill
-`das-kartell-design/assets/`. Die Display-Schrift **Audiowide** (OFL/Google Fonts,
-Lizenztext in `fonts/Audiowide-OFL.txt`) ersetzt die markenseitig vorgesehene,
-**kommerzielle** Ethnocentric durch eine frei redistribuierbare, optisch
-verwandte Variante — bewusst gewählt, damit das öffentliche Repo keine
-lizenzpflichtige Schrift mitliefert.
+`das-kartell-design/assets/`. Auf eine separate Display-Schrift wird bewusst
+verzichtet: Das Design-System ist **Lato-only** — die markenseitig vorgesehene,
+**kommerzielle** Ethnocentric wird nicht gebündelt, und Headlines tragen ihren
+Charakter über Lato Bold + UPPERCASE + Tracking statt über eine eigene Schrift.
 
 Das Fenster ist **undekoriert** (kein weißer OS-Rahmen): eine eigene dunkle
 Titelleiste (`ui/WindowChrome.kt`) trägt Logo + Titel und eigene Minimieren-/
@@ -359,11 +360,11 @@ in der Hoffnung verteilt, dass es nützlich ist, jedoch OHNE JEDE GEWÄHRLEISTUN
 | Kotlin, Compose Multiplatform, Material 3, Skiko, kotlinx-serialization/-coroutines | Apache-2.0 |
 | Skia (via Skiko) | BSD-3-Clause |
 | Gebündelte Java-Laufzeit (OpenJDK 25) | GPLv2 **mit Classpath Exception** |
-| Schriften **Audiowide** & **Lato** | SIL Open Font License 1.1 |
+| Schrift **Lato** | SIL Open Font License 1.1 |
 
-Die OFL-Lizenztexte der Schriften liegen unter
-[`src/main/resources/fonts/`](src/main/resources/fonts/) (`Audiowide-OFL.txt`,
-`Lato-OFL.txt`). Die **Classpath Exception** der gebündelten JRE erlaubt die Weitergabe
+Der OFL-Lizenztext der Schrift liegt unter
+[`src/main/resources/fonts/`](src/main/resources/fonts/) (`Lato-OFL.txt`).
+Die **Classpath Exception** der gebündelten JRE erlaubt die Weitergabe
 zusammen mit diesem (GPL-)Programm, ohne dass die JRE selbst dadurch ihre Lizenz ändert;
 ihre Notices liegen im Installationspaket unter `runtime/legal/`.
 
