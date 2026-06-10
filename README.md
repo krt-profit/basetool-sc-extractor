@@ -298,7 +298,8 @@ basetool-bp-extractor/
 │   │   └── model/RefineryExtract.kt  #   eingefrorener JSON-Contract (v1)
 │   ├── ui/Theme.kt                   # KRT-Theme (Farben, Fonts, Typo, Shapes)
 │   ├── ui/KrtComponents.kt           # HUD-Box, CTA-/Ghost-Buttons, Checkbox …
-│   ├── ui/Navigation.kt              # Top-Tabs, Stepper, DE/EN-Toggle
+│   ├── ui/Navigation.kt              # CommandStrip (Tabs + Inline-Stepper), DE/EN-Toggle
+│   ├── ui/StepScaffold.kt            # Schritt-Gerüst: Kopf · Scroll-Body · Footer-CTA
 │   ├── ui/StartScreen.kt             # Launcher (Workflow-Karten)
 │   ├── ui/RefineryScreen.kt          # Refinery-Workflow-Host (5 Schritte)
 │   ├── ui/refinery/                  # die fünf Refinery-Screens + UI-State

@@ -69,9 +69,10 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
    bundled runtime from the Gradle daemon's JDK (often 21) and the shipped app crashes
    at launch with `UnsupportedClassVersionError`. Keep both in lockstep.
 4. **Only OFL-licensed fonts in the repo.** The brand display face (Ethnocentric) is
-   commercial and was intentionally swapped for **Audiowide** (SIL OFL) for the public
-   repo; `fonts/Audiowide-OFL.txt` ships the license. Do not reintroduce a
-   license-restricted font into version control.
+   commercial and ships nowhere; since the Lato-only redesign the GUI uses **Lato**
+   (SIL OFL, `fonts/Lato-OFL.txt`) exclusively — headlines are Lato Bold UPPERCASE,
+   there is no separate display face. Do not reintroduce a license-restricted font
+   (or any second font family) into version control.
 5. **Don't re-litigate the packaging decision.** Single-exe/portable approaches
    (warp-packer, IExpress, .NET bootstrapper) were explored and rejected. Ship the MSI.
 
@@ -94,10 +95,14 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   the GUI a thin shell over `BlueprintExtractor`; business logic stays in the parser/
   extractor so tests cover it without a UI.
 - **`ui/`** — `Theme.kt` (KRT brand tokens), `KrtComponents.kt` (HUD components),
-  `WindowChrome.kt` (custom undecorated title bar), `Navigation.kt` (Top-Tabs bar +
-  step stepper + DE/EN toggle), `StartScreen.kt` (launcher), `RefineryScreen.kt`
-  (refinery workflow surface), `i18n/Strings.kt` (the DE/EN string catalogues +
-  `LocalStrings`).
+  `WindowChrome.kt` (custom undecorated title bar), `Navigation.kt` (`CommandStrip`:
+  Top-Tabs + the active workflow's inline stepper in ONE band, plus the DE/EN toggle),
+  `StepScaffold.kt` (compact `SectionHead` · growing scrollable body · pinned footer —
+  every workflow screen sits on it; the primary CTA always lives in the footer),
+  `StartScreen.kt` (launcher — the only screen with the big `GreetingHeader`),
+  `RefineryScreen.kt` (refinery workflow surface), `FilePicker.kt` (the KRT in-app
+  file/folder picker — never native dialogs), `i18n/Strings.kt` (the DE/EN string
+  catalogues + `LocalStrings`).
 
 ## Conventions
 
@@ -135,9 +140,13 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
 
 - Follows the **`das-kartell-design` Claude skill** (local, gitignored under `.claude/`).
   The tokens are mirrored in `ui/Theme.kt` so contributors without the skill can still
-  match the palette: house orange `#E77E23` on black, Audiowide (display, UPPERCASE) +
-  Lato (body), square corners, diagonal HUD corner-brackets, orange "bloom" instead of
-  soft shadows.
+  match the palette: house orange `#E77E23` on black, **Lato-only typography**
+  (headlines Lato Bold UPPERCASE with 0.05em tracking, body Lato Light — no
+  Audiowide/Ethnocentric), square corners, diagonal HUD corner-brackets, orange
+  "bloom" instead of soft shadows.
+- Default window is **1180×820 dp**, resizable down to **640×520** (the `ResizeCorner`
+  enforces the floor). The small-window guarantee comes from `StepScaffold`: the body
+  scrolls, the footer CTA stays pinned — never put a primary CTA inside a scroll body.
 - **Exactly one filled orange CTA per context** (here: "Blueprints extrahieren").
   Secondary actions are ghost buttons; labels are neutral gray. Reuse the components in
   `KrtComponents.kt` rather than restyling Material defaults ad hoc.
@@ -215,7 +224,7 @@ CI builds the MSI through `package-msi.ps1`, so the WiX-3.x/jpackage workaround
 - Public repo: `https://github.com/krt-iri/basetool-bp-extractor` (branch `main`).
 - **License: GPL-3.0-or-later** (`LICENSE`). Deps are permissive (Apache-2.0/BSD); the
   bundled JRE is GPLv2 + Classpath Exception (redistribution OK, does not infect app
-  code). Bundled fonts (Audiowide, Lato) ship their OFL texts under
+  code). The bundled font (Lato) ships its OFL text under
   `src/main/resources/fonts/` — if you add/replace a bundled font, add its license too.
 - Gitignored and kept out of the published repo: `game-log/` (private logs), `.claude/`
   (the design skill), `_extracted/` (reference material), `tools/`, `build/`, `dist/`,
