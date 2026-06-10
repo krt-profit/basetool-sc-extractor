@@ -33,7 +33,7 @@ class RefineryPipelineTest {
 
         override fun loadedModels(): List<OllamaModel> = emptyList()
 
-        override fun chat(model: String, prompt: String, imageB64: String, numPredict: Int, keepAlive: String): ChatResult =
+        override fun chat(model: String, prompt: String, imageB64: String, numPredict: Int, keepAlive: String, numGpu: Int?): ChatResult =
             if (prompt.contains("header bar")) {
                 calls += "location" to keepAlive
                 ChatResult(locationAnswer, "stop")

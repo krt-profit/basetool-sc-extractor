@@ -56,12 +56,14 @@ import com.basetool.bpextractor.ui.RefineryScreen
 import com.basetool.bpextractor.ui.ResizeCorner
 import com.basetool.bpextractor.ui.StartScreen
 import com.basetool.bpextractor.ui.StatusDot
+import com.basetool.bpextractor.ui.StepperBar
 import com.basetool.bpextractor.ui.TabBar
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.Lang
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import com.basetool.bpextractor.ui.i18n.Strings
 import com.basetool.bpextractor.ui.i18n.stringsFor
+import com.basetool.bpextractor.ui.refinery.RefineryUiState
 import com.basetool.bpextractor.ui.rememberHoneycombPainter
 import com.basetool.bpextractor.ui.tiled
 import kotlinx.coroutines.CoroutineScope
@@ -151,9 +153,20 @@ private fun ExtractorScreen(state: AppState) {
     // Whether we can offer "open folder / open file" actions on this platform.
     val canOpenFiles = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
 
+    // State-driven step (design spec §4): Konfiguration while idle, the transient Extraktion
+    // while running, Zusammenfassung once a result exists. Errors fall back to Konfiguration
+    // with the status line carrying the diagnosis.
+    val bpStep = when {
+        state.running -> 1
+        state.resultSummary.isNotBlank() -> 2
+        else -> 0
+    }
+
     Box(modifier = Modifier.fillMaxSize().background(Krt.Black).tiled(honeycomb)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+        StepperBar(steps = strings.bpSteps, current = bpStep)
         Column(
-            modifier = Modifier.fillMaxSize().padding(24.dp),
+            modifier = Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             GreetingHeader(
@@ -161,6 +174,7 @@ private fun ExtractorScreen(state: AppState) {
                 subtitle = strings.bpGreetingSubtitle,
             )
 
+            if (bpStep == 0) {
             // --- Channel folder ---
             Column {
                 FieldLabel(strings.bpLabelChannelFolder)
@@ -258,16 +272,18 @@ private fun ExtractorScreen(state: AppState) {
                     enabled = !state.running,
                     onClick = { runExtraction(scope, state, strings) },
                 )
-                // Indeterminate fallback only for the brief "finding files" phase, before
-                // the file count is known; once it is, the determinate bar below takes over.
-                if (state.running && state.progressTotal == 0) {
-                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Krt.Orange, strokeWidth = 2.dp)
-                }
             }
+            } // end bpStep == 0 (Konfiguration)
 
-            // Determinate progress: the bar grows file-by-file during extraction.
-            if (state.running && state.progressTotal > 0) {
-                KrtProgressBar(done = state.progressDone, total = state.progressTotal)
+            if (bpStep == 1) {
+                // --- Extraktion (transient): streaming progress ---
+                // Indeterminate fallback only for the brief "finding files" phase, before
+                // the file count is known; once it is, the determinate bar takes over.
+                if (state.progressTotal == 0) {
+                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Krt.Orange, strokeWidth = 2.dp)
+                } else {
+                    KrtProgressBar(done = state.progressDone, total = state.progressTotal)
+                }
             }
 
             // --- Status line ---
@@ -304,13 +320,22 @@ private fun ExtractorScreen(state: AppState) {
                             color = Krt.Orange,
                         )
                         val file = state.resultFile
-                        if (canOpenFiles && file != null) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (canOpenFiles && file != null) {
                                 file.absoluteFile.parentFile?.let { parent ->
                                     GhostButton(strings.bpShowInFolder, onClick = { openWithDesktop(parent, scope, state, strings) })
                                 }
                                 GhostButton(strings.bpOpenJson, onClick = { openWithDesktop(file, scope, state, strings) })
                             }
+                            // "Erneut": back to Konfiguration with the fields kept (design §4.3).
+                            GhostButton(
+                                strings.bpAgain,
+                                onClick = {
+                                    state.resultSummary = ""
+                                    state.status = ""
+                                    state.isError = false
+                                },
+                            )
                         }
                     }
                     Box(
@@ -324,6 +349,7 @@ private fun ExtractorScreen(state: AppState) {
                     }
                 }
             }
+        }
         }
 
         // Transient completion toast (auto-dismisses), overlaid bottom-right and
@@ -511,6 +537,7 @@ private fun runCli(args: Array<String>) {
 
 private fun guiMain() = application {
     val state = remember { AppState() }
+    val refinery = remember { RefineryUiState() }
     var lang by remember { mutableStateOf(Lang.DE) }
     var tab by remember { mutableStateOf(MainTab.START) }
     val windowState = rememberWindowState(width = 960.dp, height = 760.dp)
@@ -541,7 +568,7 @@ private fun guiMain() = application {
                             when (tab) {
                                 MainTab.START -> StartScreen(onOpen = { tab = it })
                                 MainTab.BLUEPRINTS -> ExtractorScreen(state)
-                                MainTab.REFINERY -> RefineryScreen()
+                                MainTab.REFINERY -> RefineryScreen(refinery, onPicker = { state.picker = it })
                             }
                         }
                         CommunityDisclaimerFooter(communityLogo)

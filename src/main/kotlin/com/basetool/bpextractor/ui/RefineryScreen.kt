@@ -1,50 +1,48 @@
 package com.basetool.bpextractor.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.ui.i18n.LocalStrings
+import com.basetool.bpextractor.ui.refinery.ExportStep
+import com.basetool.bpextractor.ui.refinery.ExtractStep
+import com.basetool.bpextractor.ui.refinery.ImagesStep
+import com.basetool.bpextractor.ui.refinery.PreflightStep
+import com.basetool.bpextractor.ui.refinery.RefineryUiState
+import com.basetool.bpextractor.ui.refinery.ReviewStep
 
 /**
  * The Refinery workflow surface (design spec §5): the five-step stepper (Vorprüfung · Bilder ·
- * Extraktion · Review · Export) above the step content. The step screens are filled in over
- * Phase 3 (#436); until each lands, the content area carries a clearly-labelled placeholder so
- * the navigation shell is testable end-to-end.
+ * Extraktion · Review · Export) above the active step screen. Back-navigation goes through the
+ * stepper (steps up to the furthest reached); forward navigation only through each screen's CTA.
+ * [onPicker] hosts KRT file-picker requests at the window root (no native dialogs).
  */
 @Composable
-fun RefineryScreen() {
+fun RefineryScreen(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
     val strings = LocalStrings.current
     val honeycomb = rememberHoneycombPainter()
     Box(modifier = Modifier.fillMaxSize().background(Krt.Black).tiled(honeycomb)) {
         Column(modifier = Modifier.fillMaxSize()) {
-            StepperBar(steps = strings.rfSteps, current = 0)
-            Column(
-                modifier = Modifier.fillMaxWidth().padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Column(modifier = Modifier.fillMaxWidth().hudBox().padding(18.dp)) {
-                    Text(
-                        strings.rfPlaceholderTitle.uppercase(),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = Krt.Orange,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    Text(
-                        strings.rfPlaceholderBody,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = Krt.Gray1,
-                    )
+            StepperBar(
+                steps = strings.rfSteps,
+                current = state.step,
+                maxReached = state.maxReached,
+                onSelect = { target ->
+                    // Never jump backwards INTO a running extraction's screen state mid-run.
+                    if (!state.running) state.step = target
+                },
+            )
+            Box(Modifier.weight(1f).fillMaxWidth()) {
+                when (state.step) {
+                    0 -> PreflightStep(state)
+                    1 -> ImagesStep(state, onPicker)
+                    2 -> ExtractStep(state)
+                    3 -> ReviewStep(state, onPicker)
+                    else -> ExportStep(state)
                 }
             }
         }

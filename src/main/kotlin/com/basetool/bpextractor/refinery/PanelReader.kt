@@ -10,6 +10,8 @@ package com.basetool.bpextractor.refinery
 class PanelReader(
     private val ollama: OllamaApi,
     private val model: String,
+    /** `0` forces CPU-only inference (below-minimum tier); null = Ollama's automatic offload. */
+    private val numGpu: Int? = null,
 ) {
 
     /**
@@ -19,9 +21,9 @@ class PanelReader(
      * to release the VRAM (master plan Phase 3, Ollama integration).
      */
     fun readPanel(imageB64: String, keepAlive: String = KEEP_ALIVE_BATCH): PanelRead? {
-        var result = ollama.chat(model, PROMPT, imageB64, NUM_PREDICT, keepAlive)
+        var result = ollama.chat(model, PROMPT, imageB64, NUM_PREDICT, keepAlive, numGpu)
         if (result.doneReason == "length") {
-            result = ollama.chat(model, PROMPT, imageB64, NUM_PREDICT_RETRY, keepAlive)
+            result = ollama.chat(model, PROMPT, imageB64, NUM_PREDICT_RETRY, keepAlive, numGpu)
         }
         return MarkdownPanelParser.parse(result.text)
     }
@@ -32,7 +34,7 @@ class PanelReader(
      * the Phase 0 golden set at ~3 output tokens.
      */
     fun readLocation(imageB64: String, keepAlive: String = KEEP_ALIVE_BATCH): String? {
-        val result = ollama.chat(model, LOCATION_PROMPT, imageB64, NUM_PREDICT_LOCATION, keepAlive)
+        val result = ollama.chat(model, LOCATION_PROMPT, imageB64, NUM_PREDICT_LOCATION, keepAlive, numGpu)
         val name = result.text.trim().uppercase().trim('.')
         return name.takeUnless { it.isEmpty() || it == "NONE" }
     }

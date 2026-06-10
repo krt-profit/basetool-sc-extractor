@@ -38,8 +38,10 @@ interface OllamaApi {
     /**
      * One vision chat call (`POST /api/chat`): [prompt] + one base64 [imageB64], temperature 0,
      * [numPredict] output budget, [keepAlive] model retention (e.g. `"10m"`, `"0"` to release).
+     * [numGpu] = 0 forces CPU-only inference (the below-minimum hardware tier); null keeps
+     * Ollama's automatic GPU offload.
      */
-    fun chat(model: String, prompt: String, imageB64: String, numPredict: Int, keepAlive: String): ChatResult
+    fun chat(model: String, prompt: String, imageB64: String, numPredict: Int, keepAlive: String, numGpu: Int? = null): ChatResult
 
     /**
      * Pulls [model] (`POST /api/pull`, streaming): [onProgress] receives (completedBytes,
@@ -93,6 +95,7 @@ class HttpOllamaClient(private val endpoint: String = DEFAULT_ENDPOINT) : Ollama
         imageB64: String,
         numPredict: Int,
         keepAlive: String,
+        numGpu: Int?,
     ): ChatResult {
         val body = buildJsonObject {
             put("model", model)
@@ -115,6 +118,9 @@ class HttpOllamaClient(private val endpoint: String = DEFAULT_ENDPOINT) : Ollama
                 buildJsonObject {
                     put("temperature", 0)
                     put("num_predict", numPredict)
+                    if (numGpu != null) {
+                        put("num_gpu", numGpu)
+                    }
                 },
             )
         }

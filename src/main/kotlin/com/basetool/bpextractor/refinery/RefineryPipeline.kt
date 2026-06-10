@@ -67,6 +67,8 @@ class RefineryPipeline(
     private val now: () -> Instant = Instant::now,
     /** Cooperative-cancel gate, checked between images. */
     private val isActive: () -> Boolean = { true },
+    /** `0` forces CPU-only inference (below-minimum tier); null = automatic GPU offload. */
+    private val numGpu: Int? = null,
 ) {
 
     /**
@@ -76,7 +78,7 @@ class RefineryPipeline(
      */
     fun extract(inputs: List<PipelineInput>, listener: PipelineListener = object : PipelineListener {}): PipelineResult {
         require(inputs.isNotEmpty()) { "no input images" }
-        val reader = PanelReader(ollama, model)
+        val reader = PanelReader(ollama, model, numGpu)
 
         val reads = mutableListOf<ImageRead>()
         val sourceImages = mutableListOf<RefineryExtractImage>()
@@ -112,7 +114,7 @@ class RefineryPipeline(
             val panel = reader.readPanel(toBase64Png(prepared.readImage), panelKeepAlive)
             if (readsLocationHere) {
                 val locationKeepAlive = if (lastImage) RELEASE else PanelReader.KEEP_ALIVE_BATCH
-                location = reader.readLocation(toBase64Png(prepared.locationImage!!), locationKeepAlive)
+                location = reader.readLocation(toBase64Png(prepared.locationImage), locationKeepAlive)
                 locationRead = true
                 listener.onLog("· Location — $name: ${location ?: "not readable"}")
             }
