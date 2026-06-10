@@ -209,10 +209,18 @@ object Locate {
 
     /** Locate + Normalize one screenshot into the VLM-ready inputs. */
     fun prepare(img: BufferedImage): PreparedImage {
-        if (isPrecropped(img.width, img.height)) {
+        val box = if (isPrecropped(img.width, img.height)) null else locatePanel(img)
+        return prepare(img, box)
+    }
+
+    /**
+     * Normalize with a pre-computed panel [box] (null = pre-cropped input) — split out so the
+     * pipeline can report Locate and Normalize as separate progress stages (design spec §5.3).
+     */
+    fun prepare(img: BufferedImage, box: PanelBox?): PreparedImage {
+        if (box == null) {
             return PreparedImage(normalize(img), null, null, "precropped")
         }
-        val box = locatePanel(img)
         val panel = img.getSubimage(
             box.x.coerceIn(0, img.width - 1),
             box.y.coerceIn(0, img.height - 1),
