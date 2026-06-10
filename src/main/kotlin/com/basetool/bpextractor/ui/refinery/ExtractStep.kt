@@ -11,9 +11,12 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -26,19 +29,19 @@ import com.basetool.bpextractor.BlueprintExtractor
 import com.basetool.bpextractor.refinery.PipelineStage
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.GhostButton
-import com.basetool.bpextractor.ui.GreetingHeader
 import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.KrtDataStyle
 import com.basetool.bpextractor.ui.KrtProgressBar
 import com.basetool.bpextractor.ui.StatusDot
+import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 
 /**
- * §5.3 Extraktion: overall progress + measured per-image ETA, one row per image with the
- * Locate → Normalize → Read stage track (strictly one image active at a time), the orange-accent
- * console pane, the model chip in the header, the per-image un-quoted ⚠ state and the cancel /
- * "Weiter: Review" footer.
+ * §5.3 Extraktion on the [StepScaffold]: overall progress + measured per-image ETA, one row per
+ * image with the Locate → Normalize → Read stage track (strictly one image active at a time) and
+ * the orange-accent console pane filling the height side by side, the model chip in the head,
+ * the per-image un-quoted ⚠ state, and the pinned cancel / "Weiter: Review" footer.
  */
 @Composable
 fun ExtractStep(state: RefineryUiState) {
@@ -55,14 +58,27 @@ fun ExtractStep(state: RefineryUiState) {
     val done = state.outcomes.size
     val remaining = ((total - done).coerceAtLeast(0)) * state.etaSecondsPerImage
 
-    Column(
-        modifier = Modifier.fillMaxSize().padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
+    StepScaffold(
+        overline = strings.rfStepOverline(3),
+        title = strings.rfExtractTitle,
+        scrollBody = false,
+        headRight = { KrtChip(state.selectedModel, color = Krt.Orange, border = Krt.Orange) },
+        footer = {
+            // Cancel/back left, Review CTA right (enables on completion).
+            if (state.running) {
+                GhostButton(strings.rfCancel, onClick = { state.cancelRequested = true })
+            } else {
+                GhostButton(strings.back, onClick = { state.goTo(1) })
+            }
+            Spacer(Modifier.weight(1f))
+            CtaButton(
+                strings.rfCtaToReview,
+                enabled = !state.running && state.result != null,
+                onClick = { state.goTo(3) },
+            )
+        },
     ) {
-        GreetingHeader(title = strings.rfExtractTitle, subtitle = strings.rfImagesSubtitle)
-
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            KrtChip(state.selectedModel, color = Krt.Orange, border = Krt.Orange)
             Text(
                 strings.rfImageOf(done.coerceAtMost(total), total),
                 style = MaterialTheme.typography.bodyMedium,
@@ -76,12 +92,19 @@ fun ExtractStep(state: RefineryUiState) {
                 )
             }
         }
+        Spacer(Modifier.height(8.dp))
         KrtProgressBar(done = done, total = total)
+        Spacer(Modifier.height(14.dp))
 
         Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            // Left: per-image stage tracks.
+            // Left: per-image stage tracks (scrolls when an order has many captures).
             Column(
-                modifier = Modifier.weight(1f).hudBox().padding(12.dp),
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .hudBox()
+                    .padding(12.dp)
+                    .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 state.images.forEachIndexed { index, image ->
@@ -89,7 +112,7 @@ fun ExtractStep(state: RefineryUiState) {
                 }
             }
             // Right: console pane (orange accent).
-            Column(modifier = Modifier.weight(1f).hudBox(bracket = Krt.Orange).padding(12.dp)) {
+            Column(modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Orange).padding(12.dp)) {
                 Text(
                     strings.rfConsoleTitle.uppercase(),
                     style = MaterialTheme.typography.headlineSmall,
@@ -111,6 +134,7 @@ fun ExtractStep(state: RefineryUiState) {
         // Un-quoted warning (§5.3): any GET-QUOTE capture earns the amber alert.
         val unquotedCount = state.outcomes.values.count { it.quoted == false }
         if (unquotedCount > 0) {
+            Spacer(Modifier.height(12.dp))
             AlertBox(Krt.Warning) {
                 Text(strings.rfUnquotedWarning, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
                 if (!state.running && unquotedCount == state.outcomes.size && state.outcomes.isNotEmpty()) {
@@ -122,30 +146,17 @@ fun ExtractStep(state: RefineryUiState) {
 
         val error = state.extractError
         if (error != null && error != RefineryUiState.CANCELLED_MARKER) {
+            Spacer(Modifier.height(12.dp))
             AlertBox(Krt.Danger) {
                 Text(strings.rfExtractionFailed(error), style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
             }
         }
         if (error == RefineryUiState.CANCELLED_MARKER) {
+            Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusDot(Krt.Gray2)
                 Text(strings.rfCancelled, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
             }
-        }
-
-        // Footer: cancel/back left, Review CTA right (enables on completion).
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            if (state.running) {
-                GhostButton(strings.rfCancel, onClick = { state.cancelRequested = true })
-            } else {
-                GhostButton(strings.back, onClick = { state.goTo(1) })
-            }
-            Spacer(Modifier.weight(1f))
-            CtaButton(
-                strings.rfCtaToReview,
-                enabled = !state.running && state.result != null,
-                onClick = { state.goTo(3) },
-            )
         }
     }
 }
