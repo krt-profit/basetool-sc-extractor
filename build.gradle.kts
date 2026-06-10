@@ -111,10 +111,12 @@ compose.desktop {
 
             // Bundle only the JDK modules the app actually needs instead of the whole
             // JDK — keeps the installer small. The Compose plugin auto-infers the base
-            // set (java.base, java.desktop for AWT/Skiko, …); these two extras come from
+            // set (java.base, java.desktop for AWT/Skiko, …); the extras come from
             // `gradlew suggestRuntimeModules` (jdeps): jdk.unsupported for Skiko's
-            // sun.misc.Unsafe, java.instrument pulled in by the coroutines agent hooks.
-            modules("java.instrument", "jdk.unsupported")
+            // sun.misc.Unsafe, java.instrument pulled in by the coroutines agent hooks,
+            // java.net.http for the Ollama client and jdk.management for the
+            // hardware-preflight RAM probe (OperatingSystemMXBean.getTotalMemorySize).
+            modules("java.instrument", "jdk.unsupported", "java.net.http", "jdk.management")
 
             windows {
                 // Stable identity so future versions upgrade the install in place

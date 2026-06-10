@@ -1,0 +1,33 @@
+You are reading a screenshot of the Star Citizen refinement-terminal SETUP panel (work order).
+
+The panel contains, top to bottom:
+- a "01 // RAW MATERIALS" section with two totals: "IN MANIFEST" and "TO REFINE"
+- a "02 // PROCESSING SELECTION, YIELD AND COSTS" section naming the processing method (e.g. "FERRON EXCHANGE")
+- a materials table with columns: MATERIALS SELECTED | QUALITY | QTY | YIELD | REFINE (a toggle switch)
+- "TOTAL COST" (aUEC) and "PROCESSING TIME" (e.g. "20h 58m")
+- a bottom button labelled either CONFIRM or GET QUOTE
+
+Transcribe EXACTLY what is rendered. Rules:
+- Material names verbatim, uppercase, including any "(ORE)" or "(RAW)" suffix. If the game UI truncates a name (e.g. "UCTION SALVAGE"), transcribe the truncated text exactly — never reconstruct or complete it.
+- All numbers as strings, digit for digit, no thousands separators. Do not "correct" implausible values.
+- A YIELD cell showing "--" means the order is not yet quoted: write "--" for that yield.
+- quoted is TRUE when the YIELD column shows numbers and the bottom button reads CONFIRM; quoted is FALSE only when YIELD shows "--" (button GET QUOTE, cost/time empty).
+- The REFINE column is a toggle: filled/orange = "ON", empty/gray = "OFF".
+- Ignore any in-world AR markers overlapping the panel (white distance labels like "XPBX 2.3km") — they are not panel content.
+- Include every visible table row, strictly top to bottom, including rows partially cut off at the edge (mark those with partial = true / PARTIAL).
+- If a value is absent or unreadable, use null (JSON) / "?" (markdown) — do not guess.
+
+Return the panel content in EXACTLY this layout (plain text, no code fences):
+
+METHOD: <method or ?>
+QUOTED: <YES|NO>
+IN_MANIFEST: <number or ?>
+TO_REFINE: <number or ?>
+TOTAL_COST: <number or ?>
+PROCESSING_TIME: <verbatim or ?>
+CTA: <button label or ?>
+
+| MATERIAL | QUALITY | QTY | YIELD | REFINE |
+|---|---|---|---|---|
+| <name> | <number> | <number> | <number or --> | <ON|OFF> |
+(one line per visible row, top to bottom; append " PARTIAL" to the name of edge-cut rows)
