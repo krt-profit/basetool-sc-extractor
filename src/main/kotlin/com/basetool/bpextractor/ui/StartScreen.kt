@@ -70,7 +70,7 @@ fun StartScreen(onOpen: (MainTab) -> Unit) {
     }
 }
 
-/** One large workflow card: Audiowide title, body description, muted input hint, ghost open action. */
+/** One large workflow card: Lato-Bold title, body description, muted input hint, ghost open action. */
 @Composable
 private fun WorkflowCard(
     title: String,

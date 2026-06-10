@@ -31,7 +31,7 @@ import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.hudBox
 
 /**
- * A §5.1 `PanelCard`: HUD box whose header row carries an orange left bar, an Audiowide title and
+ * A §5.1 `PanelCard`: HUD box whose header row carries an orange left bar, a Lato-Bold title and
  * a status dot (OK = green, warning = amber, missing/error = red, checking = grey).
  */
 @Composable

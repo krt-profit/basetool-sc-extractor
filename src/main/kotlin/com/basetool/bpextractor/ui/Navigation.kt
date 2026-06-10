@@ -84,7 +84,7 @@ fun TabBar(active: MainTab, onSelect: (MainTab) -> Unit) {
     }
 }
 
-/** One tab: Audiowide UPPERCASE label, 2dp orange underline when active, hover tint otherwise. */
+/** One tab: Lato-Bold UPPERCASE label, 2dp orange underline when active, hover tint otherwise. */
 @Composable
 private fun TabItem(label: String, active: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
