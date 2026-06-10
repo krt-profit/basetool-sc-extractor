@@ -1,7 +1,7 @@
 # Phase 0 spike report — refinery screenshot extraction (#433)
 
 > **Doc type:** Spike report — frozen once Phase 0 closes; Phase 3 (#436) consumes its
-> artifacts. **Status: DRAFT — challenger bake-off in progress.**
+> artifacts. **Status: complete** (one owner action open: low-resolution captures, §10).
 > Epic: [krt-iri/basetool#439](https://github.com/krt-iri/basetool/issues/439) ·
 > Plan: `basetool/docs/REFINERY_SCREENSHOT_IMPORT_PLAN.md` §Phase 0.
 > Date: 2026-06-10 · Hardware: RTX 5090 32 GB VRAM, Ryzen 9 9950X3D, 95.6 GB RAM,
@@ -32,17 +32,32 @@ captures still need to be collected; the current set is 4K + pre-cropped only.
 
 ## 2. Model bake-off (deliverable 1)
 
-Primary model, 12 images × 2 strategies (scorer of 2026-06-10, after the `null == "--"`
-fix):
+All 7 models × 2 strategies × 12 images (scorer of 2026-06-10, after the `null == "--"`
+fix); raw outputs under `work/bakeoff/<model>/<strategy>/`:
 
-| Model | Strategy | Cell accuracy | sec/image (RTX 5090) |
-|---|---|---|---|
-| `qwen3-vl:8b-instruct` (q4_K_M) | markdown | **0.9872** | ~50 |
-| `qwen3-vl:8b-instruct` (q4_K_M) | schema | 0.9821 | ~50 |
+| Model | schema | markdown | sec/image (GPU) | Verdict |
+|---|---|---|---|---|
+| `qwen3-vl:8b-instruct` (q4_K_M) | 0.9821 | **0.9872** | 4.2–4.4 | **winner / default pin** |
+| `qwen3-vl:8b-instruct-q8_0` | 0.9796 | 0.9872 | 4.3–7.3 | no gain over q4; not needed |
+| `qwen3-vl:4b-instruct` | 0.9209 | 0.9872 | 3.1–4.3 | **low-VRAM/CPU fallback** |
+| `gemma4:12b` | 0.9235 | 0.8852 | 22–29 | behind, slow |
+| `glm-ocr` (0.9B) | 0.8929 | 0.0714 | 3.8–6.0 | viable only schema-forced; beaten by 4b |
+| `qwen3.5:9b` | 0.5357 | 0.4872 | ~43 | unusable (5 parse failures) |
+| `gemma4:e4b-it-qat` | 0.2755 | 0.3699 | 7.5–10.4 | unusable |
 
-Challenger results (`qwen3-vl:8b-instruct-q8_0`, `qwen3.5:9b`, `gemma4:12b`,
-`qwen3-vl:4b-instruct`, `glm-ocr`, `gemma4:e4b-it-qat`): **TBD — run in progress**,
-raw outputs under `work/bakeoff/<model>/<strategy>/`.
+Decisive tie-breaker among the three 0.9872 results: **which errors survive the
+production mitigations (§6)**. The 8b variants' errors are all absorbed (HUD overlay →
+numeric validation; name garble/trailing dot → fuzzy matching; method → enum
+nearest-match; `? AUEC` → numeric validation). The 4b's two REFINE-toggle misreads
+(OFF→ON, a4) are the **only error class with no validation net** — they also corrupt the
+`SUM_MISMATCH` checksum. Hence: **default `qwen3-vl:8b-instruct` q4_K_M; fallback
+`qwen3-vl:4b-instruct`** (documented weakness: REFINE toggles on small/distant panels).
+
+The documented qwen-vl table-repetition-loop bug never appeared in either quantization
+(0 parse failures, 0 extra rows across 48 runs) — q8_0 is not needed as a mitigation.
+`glm-ocr`'s markdown failure is expected: the OCR specialist does not follow the layout
+instruction; with schema-forcing it is decent but strictly dominated by the 4b. Identical
+accuracy across the re-timed q4 runs confirms temp-0 determinism end-to-end.
 
 ### 2.1 Error taxonomy (primary model, every remaining mismatch)
 
@@ -99,10 +114,12 @@ strings, parsed in code). One amendment shipped during the spike: the positive `
 rule ("quoted is TRUE when the YIELD column shows numbers and the bottom button reads
 CONFIRM; FALSE only when YIELD shows `--`") after a smoke-test miss.
 
-**Recommendation (pending challenger confirmation): freeze strategy (b) — freeform
-markdown read + deterministic reformat** (`harness/read.py: read_markdown`). It beats
-schema-forcing 0.9872 vs 0.9821 and avoids the only semantic-class errors (REFINE
-toggle). The deterministic markdown→JSON parser is ~40 lines and fully unit-testable.
+**FROZEN: strategy (b) — freeform markdown read + deterministic reformat**
+(`harness/read.py: read_markdown` + `_parse_markdown`). It beats schema-forcing on every
+qwen-vl variant (0.9872 vs 0.9821/0.9796/0.9209) and avoids the schema strategy's
+semantic-class errors (REFINE toggle) — the "Format Tax" confirmed on our domain. The
+deterministic markdown→JSON parser is ~40 lines and fully unit-testable. Prompt v1 +
+`MARKDOWN_INSTRUCTION` are the frozen artifacts Phase 3 ships as resources.
 
 Note: the prompt asks the model to ignore overlapping AR markers, but the `2.1KM` case
 (§2.1) shows prompt-hardening alone does not stop overlay bleed-through — the
@@ -110,11 +127,28 @@ Note: the prompt asks the model to ignore overlapping AR markers, but the `2.1KM
 
 ## 5. Hardware tiers (deliverable 5)
 
-Measured so far (RTX 5090): `qwen3-vl:8b-instruct` q4_K_M loads fully on GPU
-(`ollama ps` probe recorded per model under `work/bakeoff/*_ollama_ps.txt`), ~50 s/image
-end-to-end. **TBD with the challenger run:** GB-on-GPU per model, q8 vs q4 timing, the
-low-VRAM fallback ranking, CPU-only minutes/image, and the min/recommended table feeding
-the preflight UI (`DESIGN_SC_EXTRACTOR.md` §5.1).
+Measured on RTX 5090 32 GB / Ryzen 9 9950X3D (16C/32T); loaded sizes from the
+vendor-neutral `ollama ps` probe (recorded per model under
+`work/bakeoff/*_ollama_ps.txt`), **at Ollama's default 32k context**:
+
+| Model | Loaded (GPU) | GPU sec/image | CPU-only sec/image (100% CPU probe) |
+|---|---|---|---|
+| `qwen3-vl:8b-instruct` q4_K_M | 10 GB | 4.2–4.4 | ~53 |
+| `qwen3-vl:8b-instruct-q8_0` | 13 GB | 4.3–7.3 | not measured (not pinned) |
+| `qwen3-vl:4b-instruct` | 7.9 GB | 3.1–4.3 | ~27 |
+| `glm-ocr` | 4.0 GB | 3.8–6.0 | ~21 |
+
+- **Tier table (preflight UI, `DESIGN_SC_EXTRACTOR.md` §5.1):** recommended = ≥12 GB
+  VRAM → default 8b (10 GB loaded); minimum = ≥8 GB VRAM → 4b fallback (7.9 GB);
+  below that → CPU mode with a "~1 minute per screenshot" warning (53 s on a top-tier
+  16-core; weaker CPUs proportionally slower — surface the measured first-image time).
+- **Phase-3 knob:** the loaded sizes include the default 32k context; our prompt + one
+  image need a fraction of that. Shrinking `num_ctx` (e.g. 8k) cuts the KV-cache share
+  and gives 12 GB cards real headroom for the 8b — measure once in Phase 3 and pin it.
+- CPU mode is fully functional (accuracy identical — same model, same weights; verified
+  36/36 on the probe image for both qwen variants).
+- The auto-select policy stands: probe VRAM → pick 8b / 4b / CPU + warn; "close Star
+  Citizen before extracting" stays (the game holds VRAM).
 
 ## 6. Confidence-derivation policy (deliverable 6) — **two-pass rejected**
 
@@ -178,11 +212,12 @@ UI surfaces via the row count.
 touches no production parser code. The manual 179/`greluc` characterization check against
 the private `game-log/` remains a manual step before merging Phase 3.
 
-## 10. Open items before Phase 0 can close
+## 10. Open items
 
-1. Challenger + low-VRAM bake-off results table (§2, run in progress).
-2. Hardware-tier table incl. CPU-only minutes/image (§5).
-3. Final strategy/prompt freeze after the challenger numbers (§4).
-4. Owner: collect native 1080p / 1440p / ultrawide captures (§1) — tracked as a Phase 3
-   risk; the Locate stage is resolution-agnostic by construction but unverified below 4K
-   except via downscaling.
+1. **Owner:** collect native 1080p / 1440p / ultrawide captures (§1) — tracked as a
+   Phase 3 risk; the Locate stage is resolution-agnostic by construction but unverified
+   below 4K except via downscaling.
+2. Phase 3: measure and pin a reduced `num_ctx` (§5) and re-verify the 12 GB tier.
+
+Everything else (model pins, strategy/prompt freeze, hardware tiers, confidence policy,
+header semantics, golden set, parser regression) is **done** — see the sections above.

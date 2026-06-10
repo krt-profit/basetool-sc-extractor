@@ -12,12 +12,16 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import time
 import urllib.request
 from pathlib import Path
 
 OLLAMA = "http://localhost:11434"
+# Hardware-tier probe (issue #433 deliverable 5): HARNESS_NUM_GPU=0 forces CPU-only
+# inference without touching the Ollama service config.
+NUM_GPU = os.environ.get("HARNESS_NUM_GPU")
 PROMPT = (Path(__file__).parent / "prompts" / "setup_panel_v1.txt").read_text(encoding="utf-8")
 
 # All numerics as STRINGS: the model must transcribe, not interpret.
@@ -83,6 +87,8 @@ def _chat(model: str, prompt: str, image_path: str | Path, fmt=None, num_predict
         "options": {"temperature": 0, "num_predict": num_predict},
         "keep_alive": "10m",
     }
+    if NUM_GPU is not None:
+        body["options"]["num_gpu"] = int(NUM_GPU)
     if fmt is not None:
         body["format"] = fmt
     req = urllib.request.Request(
