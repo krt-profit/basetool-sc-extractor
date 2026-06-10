@@ -72,8 +72,9 @@ jobs:
           "APP_VERSION=$v" >> $env:GITHUB_ENV
           Write-Host "Releasing version $v"
 
-      # Always via the script: it strips WiX 4+ from PATH so jpackage uses WiX 3.x
-      # (works around JDK-8356592) and copies the MSI to dist\.
+      # Always via the script: it uses WiX 7 (installed, or bootstrapped as a local
+      # dotnet tool), accepts the WiX OSMF EULA (CI only), ensures the Util/UI wixext
+      # extensions, and copies the MSI to dist\.
       - name: Build MSI installer
         run: .\package-msi.ps1
 

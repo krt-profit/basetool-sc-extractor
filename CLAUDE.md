@@ -157,11 +157,20 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
 
 ## Build & packaging gotchas
 
-- **MSI / WiX:** JDK 25's `jpackage` has a known bug (JDK-8356592) — with WiX **4/5/6/7**
-  it aborts with **error 144**; only **WiX 3.x** works. `package-msi.ps1` strips every
-  "WiX Toolset" (v4+) dir from the build's PATH and uses WiX 3.14 (bundled in `tools/`,
-  gitignored, or the Compose plugin's auto-download). It changes nothing on the system.
-  Do not try to fix this by upgrading WiX or editing system PATH.
+- **MSI / WiX:** built with **WiX 7** (pinned via `$wixRequiredMajor` in
+  `package-msi.ps1`) — jpackage supports WiX 4+ since JDK 24 (JDK-8319457). The
+  notorious "error 144 with WiX 4+" (JDK-8356592) was NOT a jpackage bug: jpackage
+  passes `-ext WixToolset.Util.wixext`/`.UI.` *unversioned* and `wix.exe` resolves them
+  to the *highest* version in the extension cache — with mixed WiX majors installed
+  (e.g. v6 + v7), the older `wix.exe` picks the newer major's extensions, can't load
+  them, and exits 144 (WIX0144); that's also why the pin matters. WiX **v7+** requires
+  a one-time per-user OSMF EULA acceptance (`wix eula accept wix7`; the fee only
+  applies above ~$10k annual revenue — see issue #1). `package-msi.ps1` handles all of
+  it: picks the newest installed WiX 7.x (process-scoped PATH only), preflights EULA +
+  extensions with readable errors (auto-accepts the EULA **only on CI**), and
+  bootstraps a local dotnet-tool WiX under `tools\wix` on bare machines. It changes
+  nothing on the system — keep building the MSI via the script, not
+  `gradlew packageMsi`.
 - **Slim runtime:** the bundle is *not* all-modules. `modules("java.instrument",
   "jdk.unsupported")` plus the plugin's auto-detected base set. If you add a dependency
   that needs another JDK module, re-run `gradlew suggestRuntimeModules`, add it, rebuild,
@@ -206,8 +215,9 @@ stay numeric `major.minor.build`. To cut a release:
 git tag v1.2.0 ; git push origin v1.2.0
 ```
 
-CI builds the MSI through `package-msi.ps1`, so the WiX-3.x/jpackage workaround
-(JDK-8356592) is honored on the runner too. The release job is the only one granted
+CI builds the MSI through `package-msi.ps1`, so the WiX setup (pinned WiX 7 — installed
+or bootstrapped as a local dotnet tool, OSMF-EULA auto-acceptance on CI, Util/UI
+extensions) is honored on the runner too. The release job is the only one granted
 `contents: write`.
 
 ## Repo / publishing

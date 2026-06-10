@@ -94,8 +94,8 @@ compose.desktop {
 
         nativeDistributions {
             // Msi -> classic Windows installer that registers in "Apps & Features"
-            // and is uninstallable like any normal program. (Requires the WiX 3
-            // toolset on PATH at build time — see README.)
+            // and is uninstallable like any normal program. (Requires WiX 7 at
+            // build time — package-msi.ps1 sets that up; see README.)
             targetFormats(TargetFormat.Msi)
 
             // Rebranded for the multi-workflow app (epic #439 Phase 3); the unchanged
