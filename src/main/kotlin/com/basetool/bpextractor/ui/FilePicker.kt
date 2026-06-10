@@ -3,6 +3,9 @@ package com.basetool.bpextractor.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -15,10 +18,15 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,17 +37,33 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.basetool.bpextractor.ui.i18n.LocalStrings
+import com.basetool.bpextractor.ui.i18n.Strings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 // ---------------------------------------------------------------------------
 // Model + pure logic (no Compose) — unit-tested in FilePickerTest.
@@ -48,8 +72,18 @@ import java.io.File
 /** What the picker selects: an existing directory, or a (possibly new) file to save. */
 enum class PickerMode { FOLDER, SAVE_FILE }
 
-/** One row in the browser. */
-data class PickerEntry(val file: File, val isDirectory: Boolean)
+/** Sortable list columns (`REDESIGN_IMPLEMENTATION.md` §10): name, size, last-modified. */
+enum class PickerSortKey { NAME, SIZE, MODIFIED }
+
+/** One row in the browser, with the metadata the sortable columns render. */
+data class PickerEntry(
+    val file: File,
+    val isDirectory: Boolean,
+    /** File size in bytes (0 for directories — the size column shows the folder tag instead). */
+    val size: Long = 0,
+    /** Last-modified epoch millis (0 if unknown). */
+    val modified: Long = 0,
+)
 
 /** Result of listing a directory. [Denied] = it couldn't be read (no access / gone). */
 sealed interface Listing {
@@ -69,13 +103,13 @@ data class PickerRequest(
 
 /**
  * Read-only listing of what to show inside [dir] for [mode]:
- *  - [dir] == null -> the drive roots ("Dieser PC").
- *  - FOLDER        -> sub-directories only.
+ *  - [dir] == null -> the drive roots ("Computer").
+ *  - FOLDER        -> sub-directories plus ALL files (the UI renders files dimmed/unselectable).
  *  - SAVE_FILE     -> sub-directories plus files ending in `.[extension]`.
  *
  * Hidden entries are skipped; results are sorted directories-first, then case-insensitive by
- * name. Returns [Listing.Denied] when the directory can't be enumerated — it never throws and
- * never writes, so a bad path is harmless.
+ * name (re-sortable via [sortEntries]). Returns [Listing.Denied] when the directory can't be
+ * enumerated — it never throws and never writes, so a bad path is harmless.
  */
 fun listChildren(dir: File?, mode: PickerMode, extension: String): Listing {
     if (dir == null) {
@@ -85,21 +119,51 @@ fun listChildren(dir: File?, mode: PickerMode, extension: String): Listing {
     val ext = extension.removePrefix(".").lowercase()
     val entries = children.asSequence()
         .filterNot { it.isHidden }
-        .filter { f -> f.isDirectory || (mode == PickerMode.SAVE_FILE && matchesExtension(f.name, ext)) }
-        .map { PickerEntry(it, it.isDirectory) }
-        .sortedWith(compareByDescending<PickerEntry> { it.isDirectory }.thenBy { it.file.name.lowercase() })
+        .filter { f -> f.isDirectory || mode == PickerMode.FOLDER || matchesExtension(f.name, ext) }
+        .map { PickerEntry(it, it.isDirectory, if (it.isDirectory) 0 else it.length(), it.lastModified()) }
         .toList()
-    return Listing.Ok(entries)
+    return Listing.Ok(sortEntries(entries, PickerSortKey.NAME, ascending = true))
 }
 
 private fun matchesExtension(name: String, extLower: String): Boolean =
     extLower.isEmpty() || name.lowercase().endsWith(".$extLower")
+
+/** Sort [entries] directories-first, then by [key] in the given direction (§10 sortable list). */
+fun sortEntries(entries: List<PickerEntry>, key: PickerSortKey, ascending: Boolean): List<PickerEntry> {
+    val comparator: Comparator<PickerEntry> = when (key) {
+        PickerSortKey.NAME -> compareBy { it.file.name.lowercase() }
+        PickerSortKey.SIZE -> compareBy { it.size }
+        PickerSortKey.MODIFIED -> compareBy { it.modified }
+    }
+    val directed = if (ascending) comparator else comparator.reversed()
+    return entries.sortedWith(compareByDescending<PickerEntry> { it.isDirectory }.then(directed))
+}
 
 /** Append `.[extension]` to [name] unless it already ends with it (case-insensitive). */
 fun ensureExtension(name: String, extension: String): String {
     val ext = extension.removePrefix(".")
     if (ext.isEmpty()) return name
     return if (name.lowercase().endsWith(".${ext.lowercase()}")) name else "$name.$ext"
+}
+
+/**
+ * Whether [name] is a legal Windows file name for the SAVE footer validation: non-blank and free
+ * of the reserved characters `\ / : * ? " < > |`.
+ */
+fun isValidFileName(name: String): Boolean {
+    val trimmed = name.trim()
+    return trimmed.isNotEmpty() && trimmed.none { it in "\\/:*?\"<>|" }
+}
+
+/** The breadcrumb chain of [dir], root-first (e.g. `C:\ › Users › greluc`); empty for null. */
+fun parentChain(dir: File?): List<File> {
+    val chain = ArrayDeque<File>()
+    var cursor = dir
+    while (cursor != null) {
+        chain.addFirst(cursor)
+        cursor = cursor.parentFile
+    }
+    return chain.toList()
 }
 
 /** Directory to open in, derived from a pre-filled [path] (null = show drive roots). */
@@ -121,14 +185,15 @@ fun initialDirectory(path: String, mode: PickerMode): File? {
 fun initialFileName(path: String, default: String): String =
     File(path.trim()).name.ifBlank { default }
 
-/** Result of resolving a typed/pasted address-bar path: a target [dir] (null = roots) + optional [fileName]. */
+/** Result of resolving a typed/pasted path: a target [dir] (null = roots) + optional [fileName]. */
 data class TypedPath(val dir: File?, val fileName: String?)
 
 /**
  * Resolve a typed/pasted [text] into a target directory (and, in SAVE_FILE mode, a filename).
  * Strips surrounding quotes — Windows Explorer's "Copy as path" wraps the path in `"`. Returns a
  * [TypedPath] with `dir == null` for empty input (drive roots), or null if it can't resolve to an
- * existing directory. Read-only — never creates or writes anything.
+ * existing directory. Read-only — never creates or writes anything. The picker's filter field
+ * doubles as the path entry point: pressing Enter on a pasted path navigates there.
  */
 fun resolveTypedPath(text: String, mode: PickerMode): TypedPath? {
     val raw = text.trim().removeSurrounding("\"").trim()
@@ -143,16 +208,46 @@ fun resolveTypedPath(text: String, mode: PickerMode): TypedPath? {
 }
 
 /** Roots report an empty name (`File("C:\\").name == ""`) — fall back to the path so they show. */
-private fun displayName(entry: PickerEntry): String = entry.file.name.ifBlank { entry.file.path }
+private fun displayName(file: File): String = file.name.ifBlank { file.path.removeSuffix("\\") }
+
+/** Human-readable size for the list column (B / KB / MB / GB). */
+private fun formatSize(bytes: Long): String = when {
+    bytes < 1024 -> "$bytes B"
+    bytes < 1024L * 1024 -> "${bytes / 1024} KB"
+    bytes < 1024L * 1024 * 1024 -> String.format("%.1f MB", bytes / (1024.0 * 1024))
+    else -> String.format("%.1f GB", bytes / (1024.0 * 1024 * 1024))
+}
+
+private val MODIFIED_FORMAT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yy HH:mm")
+
+/** Last-modified column text; blank when the filesystem reported nothing. */
+private fun formatModified(epochMillis: Long): String =
+    if (epochMillis <= 0) "" else MODIFIED_FORMAT.format(Instant.ofEpochMilli(epochMillis).atZone(ZoneId.systemDefault()))
+
+/** The quick-access sidebar targets that exist on this machine (Home/Documents/Desktop/Downloads). */
+private fun quickAccess(strings: Strings): List<Pair<String, File>> {
+    val home = File(System.getProperty("user.home"))
+    return listOf(
+        strings.pickerHome to home,
+        strings.pickerDocuments to File(home, "Documents"),
+        strings.pickerDesktop to File(home, "Desktop"),
+        strings.pickerDownloads to File(home, "Downloads"),
+    ).filter { it.second.isDirectory }
+}
 
 // ---------------------------------------------------------------------------
 // Composable UI
 // ---------------------------------------------------------------------------
 
 /**
- * KRT-styled, in-app file/folder browser shown as a modal overlay. Pure Compose — no OS dialog —
- * so it matches the HUD instead of the legacy Win32 chooser. Browsing is read-only (`java.io.File`
- * listing); the caller's path text field stays as a typed-path fallback for anything this can't reach.
+ * KRT-styled, in-app file/folder browser shown as a modal overlay (`REDESIGN_IMPLEMENTATION.md`
+ * §10) — never a native OS dialog. Layout: header · toolbar (parent-folder button, clickable
+ * breadcrumb, filter field that also accepts a pasted path, new-folder in SAVE mode) ·
+ * quick-access/drives sidebar + sortable folders-first list (type icons, size, date) · footer
+ * with the filename field (SAVE: overwrite warning + name validation) or the selected path
+ * (FOLDER), and the one orange CTA. Keyboard: Esc closes, Enter confirms, Backspace goes up.
+ * FOLDER mode shows files dimmed and unselectable. Browsing is read-only; the only write is the
+ * explicit new-folder action.
  */
 @Composable
 fun FilePickerDialog(
@@ -164,193 +259,788 @@ fun FilePickerDialog(
     onDismiss: () -> Unit,
     extension: String = "json",
 ) {
+    val strings = LocalStrings.current
     var currentDir by remember { mutableStateOf(initialDirectory(initialPath, mode)) }
     var fileName by remember {
         mutableStateOf(if (mode == PickerMode.SAVE_FILE) initialFileName(initialPath, "blueprints.$extension") else "")
     }
     var listing by remember { mutableStateOf<Listing?>(null) } // null = (re)loading
-    var pathText by remember { mutableStateOf(currentDir?.absolutePath ?: "") }
-    var pathError by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<File?>(null) }
+    var sortKey by remember { mutableStateOf(PickerSortKey.NAME) }
+    var sortAscending by remember { mutableStateOf(true) }
+    var query by remember { mutableStateOf("") }
+    var newFolderOpen by remember { mutableStateOf(false) }
+    var createError by remember { mutableStateOf(false) }
+    var reloadTick by remember { mutableStateOf(0) }
 
-    // List off the UI thread so a slow/network directory never janks composition; also re-sync the
-    // editable address bar to wherever navigation lands.
-    LaunchedEffect(currentDir) {
-        pathText = currentDir?.absolutePath ?: ""
-        pathError = false
+    // List off the UI thread so a slow/network directory never janks composition.
+    LaunchedEffect(currentDir, reloadTick) {
         listing = null
         listing = withContext(Dispatchers.IO) { listChildren(currentDir, mode, extension) }
     }
 
-    // Commit a typed/pasted path from the address bar (Enter / "Gehe zu"). Read-only resolution.
-    fun navigateTo() {
-        val resolved = resolveTypedPath(pathText, mode)
-        if (resolved == null) {
-            pathError = true
-        } else {
-            currentDir = resolved.dir
-            resolved.fileName?.let { fileName = it }
-            pathError = false
-        }
+    fun navigateTo(dir: File?) {
+        currentDir = dir
+        selected = null
+        query = ""
+        createError = false
+        newFolderOpen = false
     }
 
+    val entries = (listing as? Listing.Ok)?.entries.orEmpty()
+    val view = remember(entries, query, sortKey, sortAscending) {
+        val filtered = if (query.isBlank()) {
+            entries
+        } else {
+            entries.filter { it.file.name.contains(query.trim(), ignoreCase = true) }
+        }
+        sortEntries(filtered, sortKey, sortAscending)
+    }
+
+    val nameValid = mode != PickerMode.SAVE_FILE || isValidFileName(fileName)
+    val finalName = if (mode == PickerMode.SAVE_FILE) ensureExtension(fileName.trim(), extension) else ""
+    val fileExists = mode == PickerMode.SAVE_FILE &&
+        entries.any { !it.isDirectory && it.file.name.equals(finalName, ignoreCase = true) }
+    val selectedDir = selected?.takeIf { it.isDirectory }
+    val targetPath = when (mode) {
+        PickerMode.FOLDER -> (selectedDir ?: currentDir)?.absolutePath
+        PickerMode.SAVE_FILE -> currentDir?.let { File(it, finalName).absolutePath }
+    }
+    val canConfirm = currentDir != null && targetPath != null && (mode == PickerMode.FOLDER || nameValid)
+
+    fun confirm() {
+        if (canConfirm && targetPath != null) onConfirm(targetPath)
+    }
+
+    fun goUp() {
+        if (currentDir != null) navigateTo(currentDir?.parentFile)
+    }
+
+    val rootFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { rootFocus.requestFocus() }
     val swallow = remember { MutableInteractionSource() }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Krt.Black.copy(alpha = 0.72f))
+            .background(Krt.Black.copy(alpha = 0.82f))
+            .focusRequester(rootFocus)
+            .focusable()
+            // Bubbling (child-first) so text fields keep their own Enter/Backspace handling.
+            .onKeyEvent { e ->
+                if (e.type != KeyEventType.KeyDown) return@onKeyEvent false
+                when (e.key) {
+                    Key.Escape -> {
+                        onDismiss()
+                        true
+                    }
+                    Key.Enter, Key.NumPadEnter -> {
+                        if (canConfirm && !newFolderOpen) {
+                            confirm()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    Key.Backspace -> {
+                        goUp()
+                        true
+                    }
+                    else -> false
+                }
+            }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 onClick = onDismiss, // click outside the panel = cancel
-            ),
+            )
+            .padding(22.dp),
         contentAlignment = Alignment.Center,
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth(0.92f)
-                .fillMaxHeight(0.86f)
-                .hudBox(fill = Krt.Gray4)
-                .clickable(interactionSource = swallow, indication = null, onClick = {}) // swallow panel clicks
-                .padding(18.dp),
+                .widthIn(max = 880.dp)
+                .heightIn(max = 620.dp)
+                .fillMaxSize()
+                .drawBehind {
+                    val grow = 26.dp.toPx()
+                    drawRect(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Krt.Orange.copy(alpha = 0.16f), Color.Transparent),
+                            center = center,
+                            radius = size.maxDimension / 2f + grow,
+                        ),
+                        topLeft = Offset(-grow, -grow),
+                        size = Size(size.width + 2f * grow, size.height + 2f * grow),
+                    )
+                }
+                .background(Krt.Black.copy(alpha = 0.98f))
+                .border(1.dp, Krt.Orange)
+                .drawWithContent {
+                    drawContent()
+                    val len = 12.dp.toPx()
+                    val w = 2.dp.toPx()
+                    val o = w / 2f
+                    drawLine(Krt.Orange, Offset(o, o), Offset(len, o), w)
+                    drawLine(Krt.Orange, Offset(o, o), Offset(o, len), w)
+                    drawLine(Krt.Orange, Offset(size.width - o, size.height - o), Offset(size.width - len, size.height - o), w)
+                    drawLine(Krt.Orange, Offset(size.width - o, size.height - o), Offset(size.width - o, size.height - len), w)
+                }
+                .clickable(interactionSource = swallow, indication = null, onClick = {}), // swallow panel clicks
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            // --- Header ---
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Krt.Gray4)
+                    .drawBehind { drawLine(Krt.Orange, Offset(0f, size.height), Offset(size.width, size.height), 2.dp.toPx()) }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
                 Text(
                     title.uppercase(),
                     style = MaterialTheme.typography.headlineSmall,
                     color = Krt.Orange,
                     modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                CloseButton(onDismiss)
+                PickerSquareButton("✕", strings.close, onClick = onDismiss)
             }
 
-            Spacer(Modifier.height(14.dp))
-
-            // Address bar: jump to roots, go up, or type/paste a path and commit it (Enter / "Gehe zu").
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                GhostButton("Dieser PC", enabled = currentDir != null, onClick = { currentDir = null })
-                GhostButton("Hoch", enabled = currentDir != null, onClick = { currentDir = currentDir?.parentFile })
-                KrtTextField(
-                    value = pathText,
-                    onValueChange = { pathText = it; pathError = false },
-                    placeholder = "Pfad einfügen und Enter …",
-                    modifier = Modifier
-                        .weight(1f)
-                        .onPreviewKeyEvent { e ->
-                            if (e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter)) {
-                                navigateTo()
-                                true
-                            } else {
-                                false
-                            }
-                        },
-                )
-                GhostButton("Gehe zu", onClick = { navigateTo() })
-            }
-            if (pathError) {
-                Spacer(Modifier.height(6.dp))
-                Text("Ordner nicht gefunden.", style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            Box(
+            // --- Toolbar: parent + breadcrumb + filter (+ new folder in SAVE mode) ---
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .weight(1f)
-                    .background(Krt.SurfaceInput)
-                    .border(1.dp, Krt.Gray3),
+                    .background(Krt.Gray4.copy(alpha = 0.5f))
+                    .drawBehind { drawLine(Krt.Gray3, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                when (val l = listing) {
-                    null -> CenteredNote("Lädt…")
-                    is Listing.Denied -> CenteredNote("Kein Zugriff auf diesen Ordner.")
-                    is Listing.Ok -> if (l.entries.isEmpty()) {
-                        CenteredNote(
-                            if (mode == PickerMode.FOLDER) "Keine Unterordner hier."
-                            else "Keine Ordner oder .$extension-Dateien hier.",
-                        )
-                    } else {
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            items(l.entries, key = { it.file.path }) { entry ->
-                                PickerRow(entry) {
-                                    if (entry.isDirectory) currentDir = entry.file else fileName = entry.file.name
+                PickerSquareButton("↑", strings.pickerParentFolder, enabled = currentDir != null, onClick = ::goUp)
+                Breadcrumb(currentDir, onNavigate = ::navigateTo, modifier = Modifier.weight(1f))
+                FilterField(
+                    value = query,
+                    onValueChange = { query = it },
+                    placeholder = strings.pickerFilter,
+                    onCommitPath = { text ->
+                        resolveTypedPath(text, mode)?.let { resolved ->
+                            navigateTo(resolved.dir)
+                            resolved.fileName?.let { fileName = it }
+                            true
+                        } ?: false
+                    },
+                )
+                if (mode == PickerMode.SAVE_FILE) {
+                    PickerSquareButton("+", strings.pickerNewFolder, enabled = currentDir != null) {
+                        newFolderOpen = true
+                        createError = false
+                    }
+                }
+            }
+
+            // --- Body: sidebar + list ---
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                // Sidebar: quick access + drives.
+                Column(
+                    modifier = Modifier
+                        .width(188.dp)
+                        .fillMaxHeight()
+                        .background(Krt.Gray4)
+                        .drawBehind { drawLine(Krt.Gray3, Offset(size.width, 0f), Offset(size.width, size.height), 1.dp.toPx()) }
+                        .padding(vertical = 10.dp),
+                ) {
+                    Text(
+                        strings.pickerQuickAccess.uppercase(),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Krt.Gray2,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                    val quick = remember(strings) { quickAccess(strings) }
+                    quick.forEach { (label, dir) ->
+                        SideItem(label, active = currentDir?.absolutePath == dir.absolutePath) { navigateTo(dir) }
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        strings.pickerDrives.uppercase(),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Krt.Gray2,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                    )
+                    val drives = remember { File.listRoots().orEmpty().toList() }
+                    drives.forEach { root ->
+                        SideItem(
+                            displayName(root),
+                            active = currentDir?.absolutePath == root.absolutePath,
+                        ) { navigateTo(root) }
+                    }
+                }
+
+                // List: sortable header + rows + extension-filter note.
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    ListHeader(
+                        sortKey = sortKey,
+                        ascending = sortAscending,
+                        onSort = { key ->
+                            if (sortKey == key) sortAscending = !sortAscending else {
+                                sortKey = key
+                                sortAscending = true
+                            }
+                        },
+                    )
+                    Box(Modifier.weight(1f).fillMaxWidth().background(Krt.SurfaceInput.copy(alpha = 0.4f))) {
+                        when (val l = listing) {
+                            null -> CenteredNote(strings.pickerLoading)
+                            is Listing.Denied -> CenteredNote(strings.pickerDenied)
+                            is Listing.Ok -> Column(Modifier.fillMaxSize()) {
+                                if (newFolderOpen) {
+                                    NewFolderRow(
+                                        onCreate = { name ->
+                                            val dir = currentDir
+                                            val ok = dir != null && isValidFileName(name) &&
+                                                runCatching { File(dir, name.trim()).mkdir() }.getOrDefault(false)
+                                            if (ok) {
+                                                newFolderOpen = false
+                                                createError = false
+                                                reloadTick++
+                                            } else {
+                                                createError = true
+                                            }
+                                        },
+                                        onCancel = {
+                                            newFolderOpen = false
+                                            createError = false
+                                        },
+                                        error = createError,
+                                    )
+                                }
+                                if (view.isEmpty() && !newFolderOpen) {
+                                    CenteredNote(if (query.isBlank()) strings.pickerEmpty else strings.pickerNoMatch)
+                                } else {
+                                    LazyColumn(Modifier.fillMaxSize()) {
+                                        items(view, key = { it.file.path }) { entry ->
+                                            val dimmed = mode == PickerMode.FOLDER && !entry.isDirectory
+                                            PickerRow(
+                                                entry = entry,
+                                                strings = strings,
+                                                selected = selected?.path == entry.file.path,
+                                                dimmed = dimmed,
+                                                onSelect = {
+                                                    if (!dimmed) {
+                                                        selected = entry.file
+                                                        if (mode == PickerMode.SAVE_FILE && !entry.isDirectory) {
+                                                            fileName = entry.file.name
+                                                        }
+                                                    }
+                                                },
+                                                onActivate = {
+                                                    when {
+                                                        entry.isDirectory -> navigateTo(entry.file)
+                                                        mode == PickerMode.SAVE_FILE -> {
+                                                            fileName = entry.file.name
+                                                            confirm()
+                                                        }
+                                                        else -> {}
+                                                    }
+                                                },
+                                            )
+                                        }
+                                    }
                                 }
                             }
+                        }
+                    }
+                    if (mode == PickerMode.SAVE_FILE) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Krt.SurfaceInput)
+                                .drawBehind { drawLine(Krt.Gray3, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
+                                .padding(horizontal = 12.dp, vertical = 5.dp),
+                        ) {
+                            Text(
+                                strings.pickerShowing("*.${extension.removePrefix(".")}"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Krt.Gray2,
+                            )
                         }
                     }
                 }
             }
 
-            Spacer(Modifier.height(14.dp))
-
-            if (mode == PickerMode.SAVE_FILE) {
-                FieldLabel("Dateiname")
-                KrtTextField(
-                    value = fileName,
-                    onValueChange = { fileName = it },
-                    placeholder = "blueprints.$extension",
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(14.dp))
-            }
-
-            val canConfirm = currentDir != null && (mode == PickerMode.FOLDER || fileName.isNotBlank())
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                CtaButton(
-                    confirmLabel,
-                    enabled = canConfirm,
-                    onClick = {
-                        val dir = currentDir
-                        if (dir != null) {
-                            val chosen = if (mode == PickerMode.FOLDER) dir.absolutePath
-                            else File(dir, ensureExtension(fileName.trim(), extension)).absolutePath
-                            onConfirm(chosen)
+            // --- Footer: filename (SAVE) / selected path (FOLDER) + warnings + actions ---
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Krt.Gray4)
+                    .drawBehind { drawLine(Krt.Orange, Offset(0f, 0f), Offset(size.width, 0f), 2.dp.toPx()) }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+            ) {
+                if (mode == PickerMode.SAVE_FILE) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            strings.pickerFileName.uppercase(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Krt.Gray1,
+                        )
+                        val borderColor = when {
+                            !nameValid -> Krt.Danger
+                            fileExists -> Krt.Warning
+                            else -> Krt.Gray3
                         }
-                    },
-                )
-                GhostButton("Abbrechen", onClick = onDismiss)
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(38.dp)
+                                .background(Krt.SurfaceInput)
+                                .border(1.dp, borderColor)
+                                .padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            BasicTextField(
+                                value = fileName,
+                                onValueChange = { fileName = it },
+                                singleLine = true,
+                                textStyle = KrtDataStyle.copy(color = Krt.White),
+                                cursorBrush = SolidColor(Krt.Orange),
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(".${extension.removePrefix(".")}", style = KrtDataStyle, color = Krt.Gray2)
+                        }
+                    }
+                    if (fileExists && nameValid) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(strings.pickerOverwrite, style = MaterialTheme.typography.bodySmall, color = Krt.Warning)
+                    }
+                    if (!nameValid) {
+                        Spacer(Modifier.height(6.dp))
+                        Text(strings.pickerInvalidName, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+                    }
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            strings.pickerSelected.uppercase(),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Krt.Gray2,
+                        )
+                        Text(
+                            targetPath ?: strings.pickerComputer,
+                            style = KrtDataStyle,
+                            color = Krt.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                if (createError) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(strings.pickerCreateFailed, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        currentDir?.absolutePath ?: strings.pickerComputer,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Krt.Gray2,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    GhostButton(strings.cancel, onClick = onDismiss)
+                    Spacer(Modifier.width(10.dp))
+                    CtaButton(confirmLabel, enabled = canConfirm, onClick = ::confirm)
+                }
             }
         }
     }
 }
 
+/** A 32dp square hairline button (parent-folder, new-folder, close) with orange hover. */
 @Composable
-private fun PickerRow(entry: PickerEntry, onClick: () -> Unit) {
+private fun PickerSquareButton(
+    glyph: String,
+    description: String,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val active = hovered && enabled
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .background(Krt.SurfaceInput)
+            .border(1.dp, if (active) Krt.Orange else Krt.Gray3)
+            .hoverable(interaction, enabled = enabled)
+            .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            glyph,
+            style = MaterialTheme.typography.labelLarge,
+            color = when {
+                active -> Krt.Orange
+                enabled -> Krt.Gray1
+                else -> Krt.Gray3
+            },
+        )
+        // description is conveyed via the surrounding context; kept as parameter for call-site clarity
+    }
+}
+
+/** The clickable breadcrumb: Computer › C:\ › Users › … (horizontally scrollable). */
+@Composable
+private fun Breadcrumb(currentDir: File?, onNavigate: (File?) -> Unit, modifier: Modifier = Modifier) {
+    val strings = LocalStrings.current
+    val chain = remember(currentDir) { parentChain(currentDir) }
+    Row(
+        modifier = modifier
+            .height(32.dp)
+            .background(Krt.SurfaceInput)
+            .border(1.dp, Krt.Gray3)
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        CrumbButton(strings.pickerComputer, active = currentDir == null) { onNavigate(null) }
+        chain.forEachIndexed { index, segment ->
+            Text("›", style = MaterialTheme.typography.bodySmall, color = Krt.Gray3, modifier = Modifier.padding(horizontal = 2.dp))
+            CrumbButton(displayName(segment), active = index == chain.lastIndex) { onNavigate(segment) }
+        }
+    }
+}
+
+/** One breadcrumb segment: white when current, grey otherwise; orange on hover. */
+@Composable
+private fun CrumbButton(label: String, active: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    Text(
+        label,
+        style = KrtDataStyle,
+        color = when {
+            hovered -> Krt.Orange
+            active -> Krt.White
+            else -> Krt.Gray2
+        },
+        maxLines = 1,
+        modifier = Modifier
+            .hoverable(interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 4.dp, vertical = 4.dp),
+    )
+}
+
+/** The compact type-to-filter field; Enter with a pasted path navigates there instead. */
+@Composable
+private fun FilterField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    onCommitPath: (String) -> Boolean,
+) {
+    Row(
+        modifier = Modifier
+            .width(180.dp)
+            .height(32.dp)
+            .background(Krt.SurfaceInput)
+            .border(1.dp, Krt.Gray3)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f)) {
+            if (value.isEmpty()) {
+                Text(placeholder, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodySmall.copy(color = Krt.White),
+                cursorBrush = SolidColor(Krt.Orange),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onPreviewKeyEvent { e ->
+                        if (e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter)) {
+                            onCommitPath(value)
+                        } else {
+                            false
+                        }
+                    },
+            )
+        }
+    }
+}
+
+/** One sidebar item (quick access / drive): 2dp orange left edge + wash when active. */
+@Composable
+private fun SideItem(label: String, active: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(if (hovered) Krt.Gray3 else Color.Transparent)
+            .height(34.dp)
+            .background(
+                when {
+                    active -> Krt.Orange.copy(alpha = 0.1f)
+                    hovered -> Krt.Orange.copy(alpha = 0.05f)
+                    else -> Color.Transparent
+                },
+            )
+            .drawBehind {
+                if (active) drawRect(Krt.Orange, size = Size(2.dp.toPx(), size.height))
+            }
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        StatusDot(if (entry.isDirectory) Krt.Orange else Krt.Gray2)
+        Box(Modifier.size(7.dp).background(if (active || hovered) Krt.Orange else Krt.Gray2))
         Text(
-            displayName(entry),
-            style = MaterialTheme.typography.bodyMedium,
-            color = if (entry.isDirectory) Krt.Gray1 else Krt.Gray2,
+            label,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (active || hovered) Krt.Orange else Krt.Gray1,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
     }
 }
 
+/** The sortable column header: Name · Größe · Geändert; clicking toggles direction. */
 @Composable
-private fun CloseButton(onClick: () -> Unit) {
+private fun ListHeader(sortKey: PickerSortKey, ascending: Boolean, onSort: (PickerSortKey) -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Krt.SurfaceInput)
+            .drawBehind { drawLine(Krt.Gray3, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        val strings = LocalStrings.current
+        HeaderCell(strings.pickerColName, PickerSortKey.NAME, sortKey, ascending, Modifier.weight(1f), onSort)
+        HeaderCell(strings.pickerColSize, PickerSortKey.SIZE, sortKey, ascending, Modifier.width(86.dp), onSort, alignEnd = true)
+        HeaderCell(strings.pickerColModified, PickerSortKey.MODIFIED, sortKey, ascending, Modifier.width(120.dp), onSort, alignEnd = true)
+    }
+}
+
+/** One sortable header cell with the ▲/▼ direction marker on the active column. */
+@Composable
+private fun HeaderCell(
+    label: String,
+    key: PickerSortKey,
+    activeKey: PickerSortKey,
+    ascending: Boolean,
+    modifier: Modifier,
+    onSort: (PickerSortKey) -> Unit,
+    alignEnd: Boolean = false,
+) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    val active = key == activeKey
+    val marker = if (!active) "" else if (ascending) " ▲" else " ▼"
+    Text(
+        (label + marker).uppercase(),
+        style = MaterialTheme.typography.labelMedium,
+        color = when {
+            hovered -> Krt.Orange
+            active -> Krt.Gray1
+            else -> Krt.Gray2
+        },
+        maxLines = 1,
+        textAlign = if (alignEnd) androidx.compose.ui.text.style.TextAlign.End else androidx.compose.ui.text.style.TextAlign.Start,
+        modifier = modifier
+            .hoverable(interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = { onSort(key) }),
+    )
+}
+
+/**
+ * One list row: type icon (folder orange / image / file), name, size and modified columns.
+ * Single click selects (orange wash + left edge), double click enters a directory or confirms a
+ * file (SAVE mode). [dimmed] rows (files in FOLDER mode) are faded and ignore clicks.
+ */
+@Composable
+private fun PickerRow(
+    entry: PickerEntry,
+    strings: Strings,
+    selected: Boolean,
+    dimmed: Boolean,
+    onSelect: () -> Unit,
+    onActivate: () -> Unit,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val contentAlpha = if (dimmed) 0.45f else 1f
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                when {
+                    selected -> Krt.Orange.copy(alpha = 0.14f)
+                    hovered && !dimmed -> Krt.Gray3
+                    else -> Color.Transparent
+                },
+            )
+            .drawBehind {
+                if (selected) drawRect(Krt.Orange, size = Size(2.dp.toPx(), size.height))
+            }
+            .hoverable(interaction, enabled = !dimmed)
+            .pointerInput(entry.file.path, dimmed) {
+                detectTapGestures(
+                    onTap = { if (!dimmed) onSelect() },
+                    onDoubleTap = { if (!dimmed) onActivate() },
+                )
+            }
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        EntryIcon(entry, alpha = contentAlpha)
+        Text(
+            displayName(entry.file),
+            style = MaterialTheme.typography.bodySmall,
+            color = (if (selected) Krt.White else Krt.Gray1).copy(alpha = contentAlpha),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        Text(
+            if (entry.isDirectory) strings.pickerFolderType else formatSize(entry.size),
+            style = KrtDataStyle,
+            color = Krt.Gray2.copy(alpha = contentAlpha),
+            maxLines = 1,
+            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+            modifier = Modifier.width(86.dp),
+        )
+        Text(
+            formatModified(entry.modified),
+            style = KrtDataStyle,
+            color = Krt.Gray2.copy(alpha = contentAlpha),
+            maxLines = 1,
+            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+            modifier = Modifier.width(120.dp),
+        )
+    }
+}
+
+/** Image-file extensions that earn the image type icon in the list. */
+private val IMAGE_EXTENSIONS = setOf("png", "jpg", "jpeg", "bmp", "webp")
+
+/**
+ * The 16dp type icon, hand-drawn in the HUD idiom (no icon-font dependency): folders are an
+ * orange folder silhouette, images a framed picture with a horizon line, other files a plain
+ * document outline.
+ */
+@Composable
+private fun EntryIcon(entry: PickerEntry, alpha: Float) {
+    val isImage = !entry.isDirectory && entry.file.extension.lowercase() in IMAGE_EXTENSIONS
     Box(
         modifier = Modifier
-            .size(32.dp)
-            .border(1.dp, if (hovered) Krt.Orange else Krt.Gray3)
-            .hoverable(interaction)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
-        contentAlignment = Alignment.Center,
+            .size(16.dp)
+            .drawBehind {
+                val s = 1.3.dp.toPx()
+                when {
+                    entry.isDirectory -> {
+                        val tabW = size.width * 0.42f
+                        val tabH = size.height * 0.2f
+                        val bodyTop = tabH * 0.8f
+                        drawRect(
+                            Krt.Orange.copy(alpha = alpha),
+                            topLeft = Offset(0f, bodyTop),
+                            size = Size(size.width, size.height - bodyTop - 1f),
+                        )
+                        drawRect(Krt.Orange.copy(alpha = alpha), topLeft = Offset(0f, 0f), size = Size(tabW, tabH))
+                    }
+                    isImage -> {
+                        drawRect(Krt.Gray1.copy(alpha = alpha), style = Stroke(s))
+                        drawLine(
+                            Krt.Gray1.copy(alpha = alpha),
+                            Offset(size.width * 0.15f, size.height * 0.72f),
+                            Offset(size.width * 0.45f, size.height * 0.4f),
+                            s,
+                        )
+                        drawLine(
+                            Krt.Gray1.copy(alpha = alpha),
+                            Offset(size.width * 0.45f, size.height * 0.4f),
+                            Offset(size.width * 0.85f, size.height * 0.72f),
+                            s,
+                        )
+                    }
+                    else -> {
+                        drawRect(
+                            Krt.Gray2.copy(alpha = alpha),
+                            topLeft = Offset(size.width * 0.12f, 0f),
+                            size = Size(size.width * 0.76f, size.height),
+                            style = Stroke(s),
+                        )
+                        drawLine(
+                            Krt.Gray2.copy(alpha = alpha),
+                            Offset(size.width * 0.28f, size.height * 0.35f),
+                            Offset(size.width * 0.72f, size.height * 0.35f),
+                            s,
+                        )
+                        drawLine(
+                            Krt.Gray2.copy(alpha = alpha),
+                            Offset(size.width * 0.28f, size.height * 0.6f),
+                            Offset(size.width * 0.72f, size.height * 0.6f),
+                            s,
+                        )
+                    }
+                }
+            },
+    )
+}
+
+/** The inline new-folder row (SAVE mode): name field + create/cancel; Enter creates, Esc cancels. */
+@Composable
+private fun NewFolderRow(onCreate: (String) -> Unit, onCancel: () -> Unit, error: Boolean) {
+    val strings = LocalStrings.current
+    var name by remember { mutableStateOf(strings.pickerNewFolder) }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Krt.Orange.copy(alpha = 0.08f))
+            .drawBehind { drawRect(Krt.Orange, size = Size(2.dp.toPx(), size.height)) }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("✕", style = MaterialTheme.typography.labelLarge, color = if (hovered) Krt.Orange else Krt.Gray1)
+        BasicTextField(
+            value = name,
+            onValueChange = { name = it },
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodySmall.copy(color = Krt.White),
+            cursorBrush = SolidColor(Krt.Orange),
+            modifier = Modifier
+                .weight(1f)
+                .focusRequester(focus)
+                .onPreviewKeyEvent { e ->
+                    if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    when (e.key) {
+                        Key.Enter, Key.NumPadEnter -> {
+                            if (name.isNotBlank()) onCreate(name)
+                            true
+                        }
+                        Key.Escape -> {
+                            onCancel()
+                            true
+                        }
+                        else -> false
+                    }
+                },
+        )
+        if (error) {
+            Text(strings.pickerCreateFailed, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+        }
+        GhostButton(strings.pickerCreate, onClick = { if (name.isNotBlank()) onCreate(name) })
+        GhostButton(strings.cancel, onClick = onCancel)
     }
 }
 
