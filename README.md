@@ -232,14 +232,24 @@ Die fertige MSI liegt danach unter `dist\Basetool SC Extractor-<version>.msi`
 (das Skript kopiert sie dorthin; das Gradle-Original liegt unter
 `build\compose\binaries\main\msi\`).
 
-### Hinweis zu WiX (MSI-Erzeugung) — wichtig unter JDK 25
+### Hinweis zu WiX (MSI-Erzeugung)
 
-`packageMsi` nutzt `jpackage`, und das hat einen bekannten Bug
-([JDK-8356592](https://bugs.openjdk.org/browse/JDK-8356592)): mit WiX **4/5/6/7**
-bricht es mit Fehlercode **144** ab. Zuverlässig läuft nur **WiX 3.x**
-(`candle.exe`/`light.exe`). Das Compose-Plugin lädt WiX 3 automatisch — **aber**
-sobald ein neueres `wix.exe` (z. B. ein installiertes „WiX Toolset v6/v7") auf dem
-`PATH` liegt, bevorzugt jpackage dieses und scheitert.
+`packageMsi` nutzt `jpackage`, das seit JDK 24 mit modernem WiX (**4+**) arbeitet
+([JDK-8319457](https://bugs.openjdk.org/browse/JDK-8319457)): Es ruft das erste
+`wix.exe` im `PATH` auf und braucht die Extensions `WixToolset.Util.wixext` und
+`WixToolset.UI.wixext` im globalen Extension-Cache. Dabei gibt es zwei
+Stolperfallen:
+
+- **Gemischte WiX-Versionen:** jpackage übergibt die Extensions *unversioniert*,
+  und `wix.exe` löst sie zur *höchsten* Version im Cache auf. Liegen dort
+  Extensions eines neueren Majors (z. B. v7 neben einem v6-Toolset), bricht ein
+  älteres `wix.exe` mit **Fehler WIX0144 / Exit-Code 144** ab — lange fälschlich
+  für einen jpackage-Bug gehalten
+  ([JDK-8356592](https://bugs.openjdk.org/browse/JDK-8356592)).
+- **OSMF-EULA:** WiX **v7+** verweigert jeden Befehl, bis einmalig pro
+  Benutzerkonto `wix eula accept wix7` ausgeführt wurde (Open Source Maintenance
+  Fee; zahlungspflichtig erst ab ca. 10.000 US$ Jahresumsatz — Details:
+  <https://docs.firegiant.com/wix/osmf/>).
 
 Deshalb die MSI **immer** über das mitgelieferte Skript bauen:
 
@@ -247,8 +257,11 @@ Deshalb die MSI **immer** über das mitgelieferte Skript bauen:
 .\package-msi.ps1
 ```
 
-Es nimmt alle „WiX Toolset"-Verzeichnisse (v4+) aus dem PATH des Builds und nutzt
-WiX 3.14 (`tools\wix3` bzw. den Auto-Download des Plugins). Am System wird **nichts**
+Der Build ist auf **WiX 7** gepinnt: Das Skript nimmt das neueste installierte
+WiX 7.x und stellt es nur für diesen Build-Prozess an den Anfang des `PATH`,
+prüft EULA und Extensions vorab mit klaren Fehlermeldungen (die EULA wird nur auf
+CI automatisch akzeptiert) und bootstrappt auf Maschinen ohne WiX 7 ein lokales
+Exemplar unter `tools\wix` (dotnet tool, Version 7.0.0). Am System wird **nichts**
 geändert; die fertige MSI landet in `dist\`.
 
 ### Installer-Verhalten anpassen
@@ -283,7 +296,7 @@ basetool-bp-extractor/
 ├── settings.gradle.kts
 ├── gradle.properties
 ├── gradlew(.bat)                     # Gradle-Wrapper (9.5.1)
-├── package-msi.ps1                   # MSI-Build (umgeht den jpackage/WiX-Bug)
+├── package-msi.ps1                   # MSI-Build (WiX-Auswahl, EULA-/Extension-Preflight)
 ├── src/main/kotlin/com/basetool/bpextractor/
 │   ├── Main.kt                       # Compose-GUI (Tabs/Shell) + CLI-Einstieg
 │   ├── BlueprintParser.kt            # Blueprint-Zeilen-Parsing (Kern)
