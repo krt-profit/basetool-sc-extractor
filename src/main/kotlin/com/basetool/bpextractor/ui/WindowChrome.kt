@@ -57,6 +57,7 @@ fun FrameWindowScope.KrtTitleBar(
     icon: Painter,
     title: String,
     onClose: () -> Unit,
+    actions: @Composable () -> Unit = {},
 ) {
     Column {
         Row(
@@ -98,6 +99,10 @@ fun FrameWindowScope.KrtTitleBar(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
+
+            // App-specific title-bar actions (e.g. the DE/EN language toggle) sit between
+            // the draggable title region and the window controls.
+            actions()
 
             val maximized = state.placement == WindowPlacement.Maximized
             WindowControlButton(onClick = { state.isMinimized = true }) { c ->

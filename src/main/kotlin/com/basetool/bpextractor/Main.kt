@@ -18,6 +18,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,13 +46,22 @@ import com.basetool.bpextractor.ui.KrtDataStyle
 import com.basetool.bpextractor.ui.KrtProgressBar
 import com.basetool.bpextractor.ui.KrtTextField
 import com.basetool.bpextractor.ui.KrtTheme
-import com.basetool.bpextractor.ui.KrtToast
 import com.basetool.bpextractor.ui.KrtTitleBar
+import com.basetool.bpextractor.ui.KrtToast
+import com.basetool.bpextractor.ui.LanguageToggle
+import com.basetool.bpextractor.ui.MainTab
 import com.basetool.bpextractor.ui.PickerMode
 import com.basetool.bpextractor.ui.PickerRequest
+import com.basetool.bpextractor.ui.RefineryScreen
 import com.basetool.bpextractor.ui.ResizeCorner
+import com.basetool.bpextractor.ui.StartScreen
 import com.basetool.bpextractor.ui.StatusDot
+import com.basetool.bpextractor.ui.TabBar
 import com.basetool.bpextractor.ui.hudBox
+import com.basetool.bpextractor.ui.i18n.Lang
+import com.basetool.bpextractor.ui.i18n.LocalStrings
+import com.basetool.bpextractor.ui.i18n.Strings
+import com.basetool.bpextractor.ui.i18n.stringsFor
 import com.basetool.bpextractor.ui.rememberHoneycombPainter
 import com.basetool.bpextractor.ui.tiled
 import kotlinx.coroutines.CoroutineScope
@@ -65,14 +75,20 @@ import java.io.File
 /** A transient completion notification (success or failure), shown as a toast. */
 private data class ToastInfo(val title: String, val message: String, val error: Boolean)
 
-/** UI state for the single-screen extractor. */
+/** UI state for the blueprint workflow. */
 private class AppState {
     var channelFolder by mutableStateOf(defaultChannelFolder())
     var outputFile by mutableStateOf(defaultOutputPath())
     var running by mutableStateOf(false)
     var progressDone by mutableStateOf(0)
     var progressTotal by mutableStateOf(0)
-    var status by mutableStateOf("Wähle den Star-Citizen-Channel-Ordner (z. B. …\\StarCitizen\\LIVE) und einen Ziel-Pfad für die JSON.")
+
+    /**
+     * Live status line. Blank means "initial" — the screen then renders the localized initial
+     * hint from the active string catalogue, so the pre-first-action text follows the DE/EN
+     * toggle. Event-driven statuses are localized at event time.
+     */
+    var status by mutableStateOf("")
     var resultSummary by mutableStateOf("")
     var resultFile by mutableStateOf<File?>(null)
     var isError by mutableStateOf(false)
@@ -106,48 +122,30 @@ private data class FolderHint(val dot: Color, val text: String, val textColor: C
  * it never writes or browses, so it can't fail destructively; a bad path just yields a warning
  * hint, and the extraction re-validates the path itself before running.
  */
-private fun channelFolderHint(path: String): FolderHint {
+private fun channelFolderHint(path: String, strings: Strings): FolderHint {
     val p = path.trim()
     if (p.isEmpty()) {
-        return FolderHint(
-            Krt.Gray2,
-            "Liest die Game.log in diesem Ordner und alle Logs im Unterordner „logbackups\".",
-            Krt.Gray2,
-        )
+        return FolderHint(Krt.Gray2, strings.bpHintReadsLogs, Krt.Gray2)
     }
     val dir = File(p)
     if (!dir.isDirectory) {
-        return FolderHint(Krt.Danger, "Ordner existiert nicht.", Krt.Danger)
+        return FolderHint(Krt.Danger, strings.bpHintFolderMissing, Krt.Danger)
     }
     val hasGameLog = File(dir, "Game.log").isFile
     val hasBackups = File(dir, "logbackups").isDirectory
     if (!hasGameLog && !hasBackups) {
-        return FolderHint(
-            Krt.Orange,
-            "Ordner gefunden, aber keine Game.log/logbackups — evtl. der falsche Ordner.",
-            Krt.Gray1,
-        )
+        return FolderHint(Krt.Orange, strings.bpHintWrongFolder, Krt.Gray1)
     }
     val found = listOfNotNull(
         "Game.log".takeIf { hasGameLog },
         "logbackups".takeIf { hasBackups },
     ).joinToString(" + ")
-    return FolderHint(Krt.Success, "Gültiger Channel-Ordner ($found erkannt).", Krt.Gray1)
-}
-
-/**
- * Note shown under the channel field when the picked folder is the LIVE channel and a sibling
- * `HOTFIX` folder with logs sits next to it. The extractor sweeps that channel too (so blueprints
- * farmed on HOTFIX aren't missed); this line tells the user it's happening. `null` ⇒ no such
- * sibling, so no note is rendered.
- */
-private fun siblingHotfixNote(path: String): String? {
-    BlueprintExtractor.siblingHotfixFolder(File(path.trim())) ?: return null
-    return "HOTFIX-Ordner daneben gefunden — dessen Logs werden zusätzlich ausgelesen."
+    return FolderHint(Krt.Success, strings.bpHintValidFolder(found), Krt.Gray1)
 }
 
 @Composable
 private fun ExtractorScreen(state: AppState) {
+    val strings = LocalStrings.current
     val scope = rememberCoroutineScope()
     val honeycomb = rememberHoneycombPainter()
     // Whether we can offer "open folder / open file" actions on this platform.
@@ -159,32 +157,32 @@ private fun ExtractorScreen(state: AppState) {
             verticalArrangement = Arrangement.spacedBy(18.dp),
         ) {
             GreetingHeader(
-                title = "Basetool Blueprint Extractor",
-                subtitle = "Liest die erhaltenen Blueprints aus Star-Citizen-Game.log-Dateien aus und schreibt sie als JSON.",
+                title = strings.bpGreetingTitle,
+                subtitle = strings.bpGreetingSubtitle,
             )
 
             // --- Channel folder ---
             Column {
-                FieldLabel("Star-Citizen-Channel-Ordner")
+                FieldLabel(strings.bpLabelChannelFolder)
                 Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     KrtTextField(
                         value = state.channelFolder,
                         onValueChange = { state.channelFolder = it; state.channelError = null },
-                        placeholder = "z. B. C:\\Program Files\\Roberts Space Industries\\StarCitizen\\LIVE",
+                        placeholder = strings.bpPlaceholderChannel,
                         enabled = !state.running,
                         isError = state.channelError != null,
                         supportingText = state.channelError,
                         modifier = Modifier.weight(1f),
                     )
                     GhostButton(
-                        "Durchsuchen…",
+                        strings.browse,
                         enabled = !state.running,
                         modifier = Modifier.height(56.dp),
                         onClick = {
                             state.picker = PickerRequest(
                                 mode = PickerMode.FOLDER,
-                                title = "Channel-Ordner wählen",
-                                confirmLabel = "Diesen Ordner wählen",
+                                title = strings.bpPickerChannelTitle,
+                                confirmLabel = strings.bpPickerChannelConfirm,
                                 initialPath = state.channelFolder,
                             ) { state.channelFolder = it; state.channelError = null }
                         },
@@ -194,7 +192,7 @@ private fun ExtractorScreen(state: AppState) {
                 // Live validity hint — suppressed while an on-click validation error is
                 // shown for this field, so the red border + "⚠ …" line isn't duplicated.
                 if (state.channelError == null) {
-                    val channelHint = remember(state.channelFolder) { channelFolderHint(state.channelFolder) }
+                    val channelHint = remember(state.channelFolder, strings) { channelFolderHint(state.channelFolder, strings) }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         StatusDot(channelHint.dot)
                         Text(
@@ -205,13 +203,15 @@ private fun ExtractorScreen(state: AppState) {
                     }
                     // When LIVE is picked and a sibling HOTFIX channel with logs sits beside it,
                     // tell the user it's swept in too (its blueprints would otherwise be missed).
-                    val hotfixNote = remember(state.channelFolder) { siblingHotfixNote(state.channelFolder) }
-                    if (hotfixNote != null) {
+                    val hasHotfixSibling = remember(state.channelFolder) {
+                        BlueprintExtractor.siblingHotfixFolder(File(state.channelFolder.trim())) != null
+                    }
+                    if (hasHotfixSibling) {
                         Spacer(Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatusDot(Krt.Orange)
                             Text(
-                                hotfixNote,
+                                strings.bpHotfixNote,
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Krt.Gray1,
                             )
@@ -222,26 +222,26 @@ private fun ExtractorScreen(state: AppState) {
 
             // --- Output file ---
             Column {
-                FieldLabel("Ausgabe-JSON (Ziel)")
+                FieldLabel(strings.bpLabelOutputJson)
                 Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     KrtTextField(
                         value = state.outputFile,
                         onValueChange = { state.outputFile = it; state.outputError = null },
-                        placeholder = "z. B. …\\Dokumente\\blueprints.json",
+                        placeholder = strings.bpPlaceholderOutput,
                         enabled = !state.running,
                         isError = state.outputError != null,
                         supportingText = state.outputError,
                         modifier = Modifier.weight(1f),
                     )
                     GhostButton(
-                        "Durchsuchen…",
+                        strings.browse,
                         enabled = !state.running,
                         modifier = Modifier.height(56.dp),
                         onClick = {
                             state.picker = PickerRequest(
                                 mode = PickerMode.SAVE_FILE,
-                                title = "JSON-Ausgabedatei wählen",
-                                confirmLabel = "Speichern",
+                                title = strings.bpPickerSaveTitle,
+                                confirmLabel = strings.bpPickerSaveConfirm,
                                 initialPath = state.outputFile,
                             ) { state.outputFile = it; state.outputError = null }
                         },
@@ -252,11 +252,11 @@ private fun ExtractorScreen(state: AppState) {
             // --- Primary action ---
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 CtaButton(
-                    "Blueprints extrahieren",
+                    strings.bpCta,
                     // Stays enabled (variant A): a click validates and marks the
                     // offending field rather than leaving the button greyed out.
                     enabled = !state.running,
-                    onClick = { runExtraction(scope, state) },
+                    onClick = { runExtraction(scope, state, strings) },
                 )
                 // Indeterminate fallback only for the brief "finding files" phase, before
                 // the file count is known; once it is, the determinate bar below takes over.
@@ -280,7 +280,7 @@ private fun ExtractorScreen(state: AppState) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 StatusDot(dotColor)
                 Text(
-                    state.status,
+                    state.status.ifBlank { strings.bpStatusInitial },
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (state.isError) Krt.Danger else Krt.Gray1,
                 )
@@ -299,7 +299,7 @@ private fun ExtractorScreen(state: AppState) {
                         horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Text(
-                            "Ergebnis".uppercase(),
+                            strings.bpResultTitle.uppercase(),
                             style = MaterialTheme.typography.headlineSmall,
                             color = Krt.Orange,
                         )
@@ -307,9 +307,9 @@ private fun ExtractorScreen(state: AppState) {
                         if (canOpenFiles && file != null) {
                             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 file.absoluteFile.parentFile?.let { parent ->
-                                    GhostButton("Im Ordner anzeigen", onClick = { openWithDesktop(parent, scope, state) })
+                                    GhostButton(strings.bpShowInFolder, onClick = { openWithDesktop(parent, scope, state, strings) })
                                 }
-                                GhostButton("JSON öffnen", onClick = { openWithDesktop(file, scope, state) })
+                                GhostButton(strings.bpOpenJson, onClick = { openWithDesktop(file, scope, state, strings) })
                             }
                         }
                     }
@@ -347,6 +347,7 @@ private fun ExtractorScreen(state: AppState) {
 private fun runExtraction(
     scope: CoroutineScope,
     state: AppState,
+    strings: Strings,
 ) {
     val folder = File(state.channelFolder.trim())
     val output = File(state.outputFile.trim())
@@ -357,17 +358,17 @@ private fun runExtraction(
     var valid = true
     when {
         state.channelFolder.isBlank() -> {
-            state.channelError = "Bitte einen Channel-Ordner auswählen."
+            state.channelError = strings.bpErrSelectChannel
             valid = false
         }
         !folder.isDirectory -> {
-            state.channelError = "Ordner nicht gefunden: ${folder.absolutePath}"
+            state.channelError = strings.bpErrFolderNotFound(folder.absolutePath)
             valid = false
         }
         else -> state.channelError = null
     }
     if (state.outputFile.isBlank()) {
-        state.outputError = "Bitte einen Ziel-Pfad für die JSON angeben."
+        state.outputError = strings.bpErrSelectOutput
         valid = false
     } else {
         state.outputError = null
@@ -375,7 +376,7 @@ private fun runExtraction(
     if (!valid) {
         state.isError = true
         state.resultSummary = ""
-        state.status = "Bitte die markierten Felder korrigieren."
+        state.status = strings.bpStatusFixFields
         return
     }
 
@@ -384,25 +385,25 @@ private fun runExtraction(
     state.resultSummary = ""
     state.progressDone = 0
     state.progressTotal = 0
-    state.status = "Suche Log-Dateien…"
+    state.status = strings.bpStatusSearching
 
     scope.launch {
         try {
             val export = withContext(Dispatchers.IO) {
                 BlueprintExtractor.extract(folder) { done, total, current ->
-                    val label = if (current.isBlank()) "Werte aus…" else current
+                    val label = if (current.isBlank()) strings.bpStatusEvaluating else current
                     scope.launch {
                         state.progressDone = done
                         state.progressTotal = total
-                        state.status = "Verarbeite Datei $done/$total: $label"
+                        state.status = strings.bpStatusProcessing(done, total, label)
                     }
                 }
             }
 
             if (export.logFilesScanned == 0) {
                 state.isError = true
-                state.status = "Keine Game.log und kein „logbackups\"-Ordner im Channel-Ordner gefunden."
-                state.toast = ToastInfo("Keine Logs gefunden", "Im Channel-Ordner wurde keine Game.log gefunden.", error = true)
+                state.status = strings.bpStatusNoLogs
+                state.toast = ToastInfo(strings.bpToastNoLogsTitle, strings.bpToastNoLogsBody, error = true)
                 state.running = false
                 return@launch
             }
@@ -410,14 +411,14 @@ private fun runExtraction(
             withContext(Dispatchers.IO) { BlueprintExtractor.writeJson(export, output) }
 
             state.isError = false
-            state.status = "Fertig: ${export.blueprintCount} Blueprint(s) aus ${export.logFilesScanned} Datei(en) geschrieben nach ${output.absolutePath}"
+            state.status = strings.bpStatusDone(export.blueprintCount, export.logFilesScanned, output.absolutePath)
             state.resultFile = output
-            state.resultSummary = buildSummary(export)
-            state.toast = ToastInfo("Fertig", "${export.blueprintCount} Blueprint(s) gespeichert.", error = false)
+            state.resultSummary = buildSummary(export, strings)
+            state.toast = ToastInfo(strings.bpToastDoneTitle, strings.bpToastDoneBody(export.blueprintCount), error = false)
         } catch (t: Throwable) {
             state.isError = true
-            state.status = "Fehler: ${t.message ?: t::class.simpleName}"
-            state.toast = ToastInfo("Fehler", t.message ?: t::class.simpleName ?: "Unbekannter Fehler", error = true)
+            state.status = strings.bpStatusError(t.message ?: t::class.simpleName ?: strings.unknownError)
+            state.toast = ToastInfo(strings.bpToastErrorTitle, t.message ?: t::class.simpleName ?: strings.unknownError, error = true)
         } finally {
             state.running = false
         }
@@ -430,33 +431,33 @@ private fun runExtraction(
  * rather than thrown. Callers only show the buttons when [Desktop] OPEN is
  * supported, but the try/catch still guards the headless/unsupported edge.
  */
-private fun openWithDesktop(target: File, scope: CoroutineScope, state: AppState) {
+private fun openWithDesktop(target: File, scope: CoroutineScope, state: AppState, strings: Strings) {
     scope.launch {
         try {
             withContext(Dispatchers.IO) { Desktop.getDesktop().open(target) }
         } catch (t: Throwable) {
             state.isError = true
-            state.status = "Konnte „${target.name}\" nicht öffnen: ${t.message ?: t::class.simpleName}"
+            state.status = strings.cannotOpen(target.name, t.message ?: t::class.simpleName ?: strings.unknownError)
         }
     }
 }
 
-private fun buildSummary(export: com.basetool.bpextractor.model.BlueprintExport): String = buildString {
-    appendLine("Spieler:")
+private fun buildSummary(export: com.basetool.bpextractor.model.BlueprintExport, strings: Strings): String = buildString {
+    appendLine(strings.bpSummaryPlayers)
     if (export.players.isEmpty()) {
-        appendLine("  (keiner erkannt)")
+        appendLine("  ${strings.bpSummaryNoPlayer}")
     } else {
         export.players.forEach { p ->
             appendLine("  • ${p.handle} — ${p.blueprintCount} Blueprint(s)")
         }
     }
     appendLine()
-    appendLine("Blueprints nach Kategorie:")
+    appendLine(strings.bpSummaryByCategory)
     export.blueprints.groupingBy { it.category }.eachCount()
         .toList().sortedByDescending { it.second }
         .forEach { (cat, n) -> appendLine("  • $cat: $n") }
     appendLine()
-    appendLine("Letzte erhaltene Blueprints:")
+    appendLine(strings.bpSummaryRecent)
     export.blueprints.takeLast(15).reversed().forEach {
         appendLine("  • ${it.receivedAt}  ${it.productName}  [${it.category}]")
     }
@@ -480,7 +481,7 @@ fun main(args: Array<String>) {
 private fun runCli(args: Array<String>) {
     val positional = args.filterNot { it.startsWith("--") }
     if (positional.size < 2) {
-        System.err.println("Usage: basetool-bp-extractor <channelFolder> <outputJson>")
+        System.err.println("Usage: basetool-sc-extractor <channelFolder> <outputJson>")
         System.err.println("  channelFolder: a Star Citizen channel dir, e.g. ...\\StarCitizen\\LIVE")
         System.err.println("  (reads its Game.log + every *.log in its logbackups subfolder)")
         kotlin.system.exitProcess(2)
@@ -510,12 +511,14 @@ private fun runCli(args: Array<String>) {
 
 private fun guiMain() = application {
     val state = remember { AppState() }
-    val windowState = rememberWindowState(width = 860.dp, height = 720.dp)
+    var lang by remember { mutableStateOf(Lang.DE) }
+    var tab by remember { mutableStateOf(MainTab.START) }
+    val windowState = rememberWindowState(width = 960.dp, height = 760.dp)
     val appIcon = remember { useResource("icons/krt-icon.png") { BitmapPainter(loadImageBitmap(it)) } }
     val communityLogo = remember { useResource("MadeByTheCommunity_Black.png") { BitmapPainter(loadImageBitmap(it)) } }
     Window(
         onCloseRequest = ::exitApplication,
-        title = "Basetool Blueprint Extractor",
+        title = "Basetool SC Extractor",
         icon = appIcon,
         undecorated = true,
         resizable = true,
@@ -523,28 +526,39 @@ private fun guiMain() = application {
     ) {
         val frame = this
         KrtTheme {
-            Box(Modifier.fillMaxSize()) {
-                Column(Modifier.fillMaxSize().background(Krt.Black).border(1.dp, Krt.Gray3)) {
-                    // Short title here — GreetingHeader already carries the full name,
-                    // so this avoids duplication and the ellipsis on narrow windows.
-                    frame.KrtTitleBar(windowState, appIcon, "Blueprint Extractor", ::exitApplication)
-                    Box(Modifier.weight(1f).fillMaxWidth()) {
-                        ExtractorScreen(state)
+            CompositionLocalProvider(LocalStrings provides stringsFor(lang)) {
+                Box(Modifier.fillMaxSize()) {
+                    Column(Modifier.fillMaxSize().background(Krt.Black).border(1.dp, Krt.Gray3)) {
+                        frame.KrtTitleBar(
+                            windowState,
+                            appIcon,
+                            "Basetool SC Extractor",
+                            ::exitApplication,
+                            actions = { LanguageToggle(lang) { lang = it } },
+                        )
+                        TabBar(active = tab, onSelect = { tab = it })
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            when (tab) {
+                                MainTab.START -> StartScreen(onOpen = { tab = it })
+                                MainTab.BLUEPRINTS -> ExtractorScreen(state)
+                                MainTab.REFINERY -> RefineryScreen()
+                            }
+                        }
+                        CommunityDisclaimerFooter(communityLogo)
                     }
-                    CommunityDisclaimerFooter(communityLogo)
-                }
-                ResizeCorner(windowState)
-                // KRT file/folder picker overlay (replaces the legacy OS dialogs). Full-window modal.
-                state.picker?.let { req ->
-                    FilePickerDialog(
-                        mode = req.mode,
-                        title = req.title,
-                        confirmLabel = req.confirmLabel,
-                        initialPath = req.initialPath,
-                        extension = req.extension,
-                        onConfirm = { path -> req.onConfirm(path); state.picker = null },
-                        onDismiss = { state.picker = null },
-                    )
+                    ResizeCorner(windowState)
+                    // KRT file/folder picker overlay (replaces the legacy OS dialogs). Full-window modal.
+                    state.picker?.let { req ->
+                        FilePickerDialog(
+                            mode = req.mode,
+                            title = req.title,
+                            confirmLabel = req.confirmLabel,
+                            initialPath = req.initialPath,
+                            extension = req.extension,
+                            onConfirm = { path -> req.onConfirm(path); state.picker = null },
+                            onDismiss = { state.picker = null },
+                        )
+                    }
                 }
             }
         }

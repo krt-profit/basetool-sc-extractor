@@ -5,14 +5,25 @@ current when the build, architecture, or the rules below change.
 
 ## What this is
 
-**Basetool Blueprint Extractor** — a Kotlin + Compose-for-Desktop (Windows) app that
-reads Star Citizen `Game.log` files and exports **which blueprints a player received**
-as JSON. It ships as an MSI installer with a bundled JDK runtime (no separate Java
-needed) and also runs headless as a CLI.
+**Basetool SC Extractor** (formerly *Basetool Blueprint Extractor*) — a Kotlin +
+Compose-for-Desktop (Windows) app that extracts Star Citizen data locally and writes
+JSON files for the basetool. Two workflows behind a Top-Tabs launcher
+(`docs/DESIGN_SC_EXTRACTOR.md` in the basetool repo is the binding design):
 
-**Scope discipline:** only *received blueprints*. Mission data is deliberately out of
-scope — do **not** add mission parsing or unrelated log analysis. The whole point is
-capturing every detail the log carries about each blueprint; keep the tool focused.
+- **Blueprints** — reads `Game.log` files and exports **which blueprints a player
+  received** (the original tool, behaviour unchanged).
+- **Refinery** — reads refinery work-order SETUP screenshots via a **local VLM**
+  (Ollama) and emits the frozen `RefineryExtract` JSON contract (epic
+  krt-iri/basetool#439, Phase 3 = #436; model/prompt/strategy decisions in
+  `docs/refinery-extractor/PHASE0_FINDINGS.md`).
+
+It ships as an MSI installer with a bundled JDK runtime (no separate Java needed) and
+also runs headless as a CLI (blueprint workflow).
+
+**Scope discipline:** exactly these two workflows. Mission data and other log analysis
+stay out of scope — for blueprints, capture every detail the log carries; for refinery,
+read the SETUP panel only (PROCESSING is deferred). Inference always runs locally via
+the user's Ollama; never add a cloud-inference path.
 
 ## Commands
 
@@ -42,6 +53,11 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
    Never commit it, paste its contents, or echo log lines into anything that could be
    published. Sample/edge-case data for tests lives in `src/test/resources/sample.log`
    (safe, synthetic) — use that, not `game-log/`.
+1a. **Real refinery screenshots are private too — never commit them.** Captures of the
+   refinement terminal contain the player handle and the account balance. They live
+   only under the gitignored `spike-phase0/work/` (or outside the repo); anything
+   committed (test fixtures, README imagery) must be synthetic or fully redacted. The
+   same applies to anything derived from them that quotes personal fields.
 2. **The app must write nothing into its own install directory.** Clean uninstall is a
    verified feature and works *because* the program is stateless on disk (no config,
    no logs next to the exe). Exported JSON goes to the user-chosen path only. If you
@@ -78,16 +94,20 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   the GUI a thin shell over `BlueprintExtractor`; business logic stays in the parser/
   extractor so tests cover it without a UI.
 - **`ui/`** — `Theme.kt` (KRT brand tokens), `KrtComponents.kt` (HUD components),
-  `WindowChrome.kt` (custom undecorated title bar).
+  `WindowChrome.kt` (custom undecorated title bar), `Navigation.kt` (Top-Tabs bar +
+  step stepper + DE/EN toggle), `StartScreen.kt` (launcher), `RefineryScreen.kt`
+  (refinery workflow surface), `i18n/Strings.kt` (the DE/EN string catalogues +
+  `LocalStrings`).
 
 ## Conventions
 
 - **Kotlin official code style** (`kotlin.code.style=official`). Match the surrounding
   style; small, pure functions; data classes for models.
-- **Comments in English; user-facing UI/CLI strings in German.** The existing strings
-  are German (the user base is a German-speaking SC org) — keep new UI text German and
-  consistent in tone with what's there. README is German; this file is English by
-  convention (it's agent/dev guidance).
+- **Comments in English; user-facing UI strings via the i18n catalogue.** Every
+  UI string lives in `ui/i18n/Strings.kt` (German default + full English parity,
+  switched by the title-bar DE/EN toggle — design spec §6). Never hardcode UI text at a
+  call site; add a property to BOTH catalogues. CLI output stays English (scripting
+  surface). README is German; this file is English by convention (agent/dev guidance).
 - **Model fields are nullable when the log may omit them** (`player`, `notificationId`,
   `queueSize`, `gameBuild`). `productName`/`receivedAt` are always present. JSON uses
   `encodeDefaults = true` + `prettyPrint`; `schemaVersion` is explicit — bump it if you
