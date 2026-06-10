@@ -17,7 +17,9 @@ typealias ProgressListener = (done: Int, total: Int, current: String) -> Unit
  */
 object BlueprintExtractor {
 
-    const val TOOL_NAME = "Basetool Blueprint Extractor"
+    // Rebranded for the multi-workflow app (epic #439 Phase 3). The blueprint import in the
+    // basetool parses exports by structure, not by this provenance string, so renaming is safe.
+    const val TOOL_NAME = "Basetool SC Extractor"
 
     /**
      * App version shown in the CLI banner and written as the export's `toolVersion`. Generated from

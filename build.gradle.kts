@@ -98,20 +98,25 @@ compose.desktop {
             // toolset on PATH at build time — see README.)
             targetFormats(TargetFormat.Msi)
 
-            packageName = "Basetool Blueprint Extractor"
+            // Rebranded for the multi-workflow app (epic #439 Phase 3); the unchanged
+            // upgradeUuid below makes the renamed app REPLACE an installed
+            // "Basetool Blueprint Extractor" in place instead of installing side by side.
+            packageName = "Basetool SC Extractor"
             // MSI ProductVersion must be strictly numeric (major.minor.build), so drop
             // any pre-release suffix (e.g. -rc1) — jpackage/WiX would otherwise reject it.
             packageVersion = project.version.toString().substringBefore('-').ifBlank { "1.0.0" }
-            description = "Extracts received Star Citizen blueprints from Game.log files into JSON."
+            description = "Extracts Star Citizen data (blueprints from Game.log, refinery orders from screenshots) into JSON."
             vendor = "Basetool"
             copyright = "© 2026 Basetool. GPL-3.0-or-later. Unofficial Star Citizen fan tool, not affiliated with the Cloud Imperium group of companies. Star Citizen®, Roberts Space Industries® and Cloud Imperium® are registered trademarks of Cloud Imperium Rights LLC."
 
             // Bundle only the JDK modules the app actually needs instead of the whole
             // JDK — keeps the installer small. The Compose plugin auto-infers the base
-            // set (java.base, java.desktop for AWT/Skiko, …); these two extras come from
+            // set (java.base, java.desktop for AWT/Skiko, …); the extras come from
             // `gradlew suggestRuntimeModules` (jdeps): jdk.unsupported for Skiko's
-            // sun.misc.Unsafe, java.instrument pulled in by the coroutines agent hooks.
-            modules("java.instrument", "jdk.unsupported")
+            // sun.misc.Unsafe, java.instrument pulled in by the coroutines agent hooks,
+            // java.net.http for the Ollama client and jdk.management for the
+            // hardware-preflight RAM probe (OperatingSystemMXBean.getTotalMemorySize).
+            modules("java.instrument", "jdk.unsupported", "java.net.http", "jdk.management")
 
             windows {
                 // Stable identity so future versions upgrade the install in place

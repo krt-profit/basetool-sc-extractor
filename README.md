@@ -1,9 +1,17 @@
-# Basetool Blueprint Extractor
+# Basetool SC Extractor
 
-Eine kleine **Kotlin-Desktop-App** (Compose for Desktop), die aus Star-Citizen-
-`Game.log`-Dateien ausliest, **welche Blueprints ein Spieler erhalten hat**, und
-das Ergebnis als JSON schreibt. Inspiriert vom „SCMDB Log Watcher", aber bewusst
-auf **Blueprints fokussiert** — Missionsdaten werden nicht ausgewertet.
+Eine **Kotlin-Desktop-App** (Compose for Desktop), die Star-Citizen-Daten **lokal**
+ausliest und als JSON für das Basetool exportiert — nichts verlässt deinen Rechner.
+Zwei Workflows unter einem Dach (Top-Tabs: Start · Blueprints · Refinery, Sprache
+über den DE/EN-Schalter in der Titelleiste):
+
+- **Blueprints** — liest aus den `Game.log`-Dateien aus, **welche Blueprints ein
+  Spieler erhalten hat** (inspiriert vom „SCMDB Log Watcher", bewusst auf
+  Blueprints fokussiert — Missionsdaten werden nicht ausgewertet).
+- **Refinery** — liest **Raffinerie-Auftragsdaten aus SETUP-Screenshots** per
+  lokalem KI-Modell (Ollama-VLM) aus und erzeugt eine `RefineryExtract`-JSON, die
+  das Basetool beim Anlegen eines Raffinerie-Auftrags vorausfüllt (Epic
+  krt-iri/basetool#439).
 
 <table>
 <tr>
@@ -27,7 +35,7 @@ Startmenü, Desktop-Verknüpfung).
 
 ### Installieren
 
-1. `Basetool Blueprint Extractor-1.1.0.msi` doppelklicken.
+1. `Basetool SC Extractor-<version>.msi` doppelklicken.
 2. Dem Installations-Assistenten folgen (es lässt sich ein Installationsordner
    wählen). Es werden **keine Administratorrechte** benötigt — die Installation
    erfolgt pro Benutzer.
@@ -37,9 +45,9 @@ Startmenü, Desktop-Verknüpfung).
 > Ein separates Java/JRE muss **nicht** installiert werden — die Laufzeit ist im
 > Installer enthalten.
 
-### Benutzen
+### Benutzen — Blueprints
 
-1. App starten.
+1. App starten und auf der Start-Seite **Blueprints** öffnen.
 2. **Star-Citizen-Channel-Ordner** wählen — z. B.
    `C:\Program Files\Roberts Space Industries\StarCitizen\LIVE`. Ausgelesen werden
    die `Game.log` in diesem Ordner **und** alle Logs im Unterordner `logbackups`
@@ -52,10 +60,59 @@ Nach dem Lauf zeigt die App eine Zusammenfassung (erkannte Spieler, Blueprints
 nach Kategorie, die zuletzt erhaltenen Blueprints) und schreibt die vollständige
 Liste in die gewählte JSON-Datei.
 
+### Benutzen — Refinery (Screenshot-Extraktion)
+
+Der Refinery-Workflow liest die **SETUP-Ansicht** eines Raffinerie-Auftrags
+(REFINEMENT CENTER) aus Screenshots aus — Materialien, Qualität, Menge, Ausbeute,
+Refine-Schalter, Standort, Methode, Kosten und Dauer — und exportiert eine
+`RefineryExtract.json`, die im Basetool unter *Refinery → Aufträge → Auftrag
+importieren* das Anlege-Formular vorausfüllt.
+
+**Voraussetzung: Ollama (lokales KI-Modell).** Die Bilder werden zu **keinem**
+Zeitpunkt hochgeladen — die Auswertung läuft komplett lokal über
+[Ollama](https://ollama.com):
+
+1. Ollama von ollama.com installieren und starten (`ollama serve`,
+   Standard-Port 11434).
+2. Das Modell laden: `ollama pull qwen3-vl:8b-instruct` — oder einfach die
+   App machen lassen: Die **Vorprüfung** erkennt ein fehlendes Modell und lädt es
+   auf Klick mit Fortschrittsanzeige herunter.
+
+**Hardware-Stufen** (von der App automatisch erkannt und vorgewählt):
+
+| Stufe | GPU-VRAM | Modell | Dauer pro Bild (gemessen) |
+|---|---|---|---|
+| Empfohlen | ≥ 12 GB | `qwen3-vl:8b-instruct` | ≈ 4–5 s |
+| Minimum | ≥ 8 GB | `qwen3-vl:4b-instruct` | ≈ 4 s |
+| Darunter | — | `qwen3-vl:4b-instruct`, CPU-Modus | ≈ 30 s (funktioniert, langsam) |
+
+**Wichtig für gute Ergebnisse:**
+
+- **Star Citizen vorher schließen.** Das KI-Modell und das Spiel teilen sich
+  GPU und VRAM — bei laufendem SC drohen Ruckler bis hin zum Absturz und sehr
+  langsame Extraktion. Die Vorprüfung erkennt ein laufendes
+  `StarCitizen.exe` und warnt (fortfahren ist möglich, aber bewusst zu
+  bestätigen).
+- **Erst im Spiel „GET QUOTE" drücken, dann den Screenshot aufnehmen.** Vor der
+  Quote zeigt das Panel keine Ausbeute, Kosten und Dauer (`--`) — solche
+  Aufnahmen werden erkannt und als unvollständig markiert.
+- **1 Ordner = 1 Auftrag.** Alle Screenshots desselben Auftrags (auch gescrollte
+  Teilansichten der Materialliste) in einen Ordner legen; die App fügt die
+  Zeilen automatisch zusammen. Auflösung 1080p bis 8K (auch Ultrawide) wird
+  unterstützt; alternativ kann ein bereits **manuell zugeschnittenes**
+  Panel-Bild verwendet werden (wird als „vorgecroppt" erkannt).
+- Stehen mehrere Auftrags-Panels nebeneinander, wird das **linkeste** (= der
+  neueste Auftrag) ausgelesen.
+
+Die Extraktion verarbeitet **ein Bild nach dem anderen** (Drosselung), zeigt
+pro Bild die Stufen *Locate → Normalize → Read* und endet in einem
+Review-Schritt: Alle gelesenen Werte mit abgeleiteter Konfidenz prüfen, dann
+**Als JSON exportieren**. Gespeichert wird erst beim Import im Basetool.
+
 ### Deinstallieren
 
 Wie jedes Windows-Programm:
-**Einstellungen → Apps → Installierte Apps → „Basetool Blueprint Extractor" →
+**Einstellungen → Apps → Installierte Apps → „Basetool SC Extractor" →
 Deinstallieren** (oder klassisch über *Systemsteuerung → Programme und Features*).
 
 **Restlose Entfernung — verifiziert.** Ein Install→Deinstall-Testzyklus bestätigt,
@@ -63,7 +120,7 @@ dass die Deinstallation **alles** entfernt:
 
 | Artefakt | nach Deinstallation |
 |---|---|
-| Programmordner `%LOCALAPPDATA%\Basetool Blueprint Extractor\` (gebündelte JRE, ~515 Dateien) | entfernt |
+| Programmordner `%LOCALAPPDATA%\Basetool SC Extractor\` (gebündelte JRE, ~515 Dateien) | entfernt |
 | Startmenü-Gruppe „Basetool" inkl. Verknüpfung | entfernt |
 | Desktop-Verknüpfung | entfernt |
 | „Apps & Features"-/Registry-Eintrag | entfernt |
@@ -171,7 +228,7 @@ Wrapper bereitgestellt.
 .\package-msi.ps1
 ```
 
-Die fertige MSI liegt danach unter `dist\Basetool Blueprint Extractor-1.0.0.msi`
+Die fertige MSI liegt danach unter `dist\Basetool SC Extractor-<version>.msi`
 (das Skript kopiert sie dorthin; das Gradle-Original liegt unter
 `build\compose\binaries\main\msi\`).
 
@@ -208,9 +265,11 @@ In [`build.gradle.kts`](build.gradle.kts) unter `windows { … }`:
 | `iconFile` | eigenes Icon (`src/main/resources/app.ico` ablegen) |
 
 > Die MSI ist ~60 MB. Gebündelt wird eine **schlanke** JDK-25-Laufzeit — nur die
-> wirklich benötigten Module: `modules("java.instrument", "jdk.unsupported")` plus die
-> vom Compose-Plugin automatisch erkannten (`java.desktop` etc.), ermittelt via
-> `gradlew suggestRuntimeModules`. Der Nutzer braucht trotzdem kein eigenes Java.
+> wirklich benötigten Module: `modules("java.instrument", "jdk.unsupported",
+> "java.net.http", "jdk.management")` (HTTP-Client für Ollama, Speicher-Probe für
+> die Hardware-Vorprüfung) plus die vom Compose-Plugin automatisch erkannten
+> (`java.desktop` etc.), ermittelt via `gradlew suggestRuntimeModules`. Der Nutzer
+> braucht trotzdem kein eigenes Java.
 > (`jvmArgs += "--enable-native-access=ALL-UNNAMED"` unterdrückt die JDK-25-
 > „native access"-Warnungen, die Skikos `System.load()` sonst auf stderr schreibt.)
 
@@ -226,18 +285,32 @@ basetool-bp-extractor/
 ├── gradlew(.bat)                     # Gradle-Wrapper (9.5.1)
 ├── package-msi.ps1                   # MSI-Build (umgeht den jpackage/WiX-Bug)
 ├── src/main/kotlin/com/basetool/bpextractor/
-│   ├── Main.kt                       # Compose-GUI + CLI-Einstieg
-│   ├── BlueprintParser.kt            # Zeilen-Parsing (Kern)
+│   ├── Main.kt                       # Compose-GUI (Tabs/Shell) + CLI-Einstieg
+│   ├── BlueprintParser.kt            # Blueprint-Zeilen-Parsing (Kern)
 │   ├── BlueprintExtractor.kt         # Ordner-Scan, Aggregation, JSON
+│   ├── refinery/                     # Refinery-Pipeline (pur, ohne UI)
+│   │   ├── Locate.kt                 #   Panel-Detektion + Normalisierung (CV)
+│   │   ├── PanelReader.kt / PanelRead.kt  # VLM-Read + Markdown-Reformat
+│   │   ├── Stitcher.kt / Validation.kt    # Zeilen-Stitching + Konfidenz-Politik
+│   │   ├── RefineryPipeline.kt       #   Orchestrierung + JSON-Export
+│   │   ├── Preflight.kt              #   Hardware-Probes + Stufen-Entscheidung
+│   │   ├── OllamaClient.kt           #   Ollama-HTTP-API (tags/ps/chat/pull)
+│   │   └── model/RefineryExtract.kt  #   eingefrorener JSON-Contract (v1)
 │   ├── ui/Theme.kt                   # KRT-Theme (Farben, Fonts, Typo, Shapes)
 │   ├── ui/KrtComponents.kt           # HUD-Box, CTA-/Ghost-Buttons, Checkbox …
+│   ├── ui/Navigation.kt              # Top-Tabs, Stepper, DE/EN-Toggle
+│   ├── ui/StartScreen.kt             # Launcher (Workflow-Karten)
+│   ├── ui/RefineryScreen.kt          # Refinery-Workflow-Host (5 Schritte)
+│   ├── ui/refinery/                  # die fünf Refinery-Screens + UI-State
+│   ├── ui/i18n/Strings.kt            # DE/EN-Stringkatalog
 │   ├── ui/WindowChrome.kt            # undekorierte Titelleiste + Fenster-Buttons
-│   └── model/Models.kt               # JSON-Datenmodelle
-├── src/main/resources/               # Fonts (Audiowide/Lato), app.ico,
+│   └── model/Models.kt               # Blueprint-JSON-Datenmodelle
+├── src/main/resources/               # Fonts (Audiowide/Lato), app.ico, Prompt v1,
 │                                     #   honeycomb-bg.svg, icons/krt-icon.png
 ├── src/test/kotlin/…                 # Unit-Tests
 ├── src/test/resources/sample.log     # Test-Fixture (Edge-Cases)
-└── game-log/                         # Beispiel-Logs (Eingabe)
+├── docs/refinery-extractor/          # Phase-0-Findings (Modell-Bake-off etc.)
+└── game-log/                         # private Beispiel-Logs (nicht im Repo)
 ```
 
 ## Design
