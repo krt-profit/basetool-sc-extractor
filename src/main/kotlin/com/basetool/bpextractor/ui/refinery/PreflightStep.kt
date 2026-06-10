@@ -16,7 +16,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -33,6 +32,7 @@ import com.basetool.bpextractor.ui.KrtTextField
 import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.i18n.LocalStrings
+import kotlinx.coroutines.CoroutineScope
 
 /**
  * §5.1 Vorprüfung & Setup on the [StepScaffold] (`REDESIGN_IMPLEMENTATION.md` §4.3 — the most
@@ -43,11 +43,10 @@ import com.basetool.bpextractor.ui.i18n.LocalStrings
  * the SC soft-warning banner below.
  */
 @Composable
-fun PreflightStep(state: RefineryUiState) {
+fun PreflightStep(state: RefineryUiState, appScope: CoroutineScope) {
     val strings = LocalStrings.current
-    val scope = rememberCoroutineScope()
     var helpOpen by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { state.runPreflight(scope) }
+    LaunchedEffect(Unit) { state.runPreflight(appScope) }
 
     Box(Modifier.fillMaxSize()) {
         StepScaffold(
@@ -71,8 +70,8 @@ fun PreflightStep(state: RefineryUiState) {
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.Top,
             ) {
-                OllamaCard(state, Modifier.weight(1f))
-                HardwareCard(state, Modifier.weight(1f))
+                OllamaCard(state, appScope, Modifier.weight(1f))
+                HardwareCard(state, appScope, Modifier.weight(1f))
             }
             Spacer(Modifier.height(14.dp))
             ScBanner(state)
@@ -85,9 +84,8 @@ fun PreflightStep(state: RefineryUiState) {
 }
 
 @Composable
-private fun OllamaCard(state: RefineryUiState, modifier: Modifier) {
+private fun OllamaCard(state: RefineryUiState, appScope: CoroutineScope, modifier: Modifier) {
     val strings = LocalStrings.current
-    val scope = rememberCoroutineScope()
     val status = state.ollamaStatus
     val dot = when (status) {
         OllamaStatus.Checking -> Krt.Gray2
@@ -133,7 +131,7 @@ private fun OllamaCard(state: RefineryUiState, modifier: Modifier) {
                         color = Krt.Gray2,
                     )
                 }
-                CtaButton(strings.rfPullCta, onClick = { state.pullModel(scope) })
+                CtaButton(strings.rfPullCta, onClick = { state.pullModel(appScope) })
             }
             is OllamaStatus.Pulling -> {
                 val completed = status.completed
@@ -152,7 +150,7 @@ private fun OllamaCard(state: RefineryUiState, modifier: Modifier) {
                 AlertBox(Krt.Danger) {
                     Text(strings.rfPullFailed(status.message), style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
                 }
-                GhostButton(strings.rfRetry, onClick = { state.recheckOllama(scope) })
+                GhostButton(strings.rfRetry, onClick = { state.recheckOllama(appScope) })
             }
             is OllamaStatus.Unreachable -> {
                 AlertBox(Krt.Danger) {
@@ -161,16 +159,15 @@ private fun OllamaCard(state: RefineryUiState, modifier: Modifier) {
                     Text(strings.rfInstallHint1, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
                     Text(strings.rfInstallHint2, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
                 }
-                GhostButton(strings.rfRetry, onClick = { state.recheckOllama(scope) })
+                GhostButton(strings.rfRetry, onClick = { state.recheckOllama(appScope) })
             }
         }
     }
 }
 
 @Composable
-private fun HardwareCard(state: RefineryUiState, modifier: Modifier) {
+private fun HardwareCard(state: RefineryUiState, appScope: CoroutineScope, modifier: Modifier) {
     val strings = LocalStrings.current
-    val scope = rememberCoroutineScope()
     val hardware = state.hardware
     val decision = state.decision
     val dot = when (decision?.tier) {
@@ -235,7 +232,7 @@ private fun HardwareCard(state: RefineryUiState, modifier: Modifier) {
             style = MaterialTheme.typography.bodySmall,
             color = Krt.Gray2,
         )
-        GhostButton(strings.rfRetry, onClick = { state.runPreflight(scope, force = true) })
+        GhostButton(strings.rfRetry, onClick = { state.runPreflight(appScope, force = true) })
     }
 }
 

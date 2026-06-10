@@ -172,11 +172,11 @@ private fun channelFolderHint(path: String, strings: Strings): FolderHint {
 }
 
 @Composable
-private fun ExtractorScreen(state: AppState) {
+private fun ExtractorScreen(state: AppState, appScope: CoroutineScope) {
     val honeycomb = rememberHoneycombPainter()
     Box(modifier = Modifier.fillMaxSize().background(Krt.Black).tiled(honeycomb)) {
         when (blueprintStep(state)) {
-            0 -> BpConfigStep(state)
+            0 -> BpConfigStep(state, appScope)
             1 -> BpRunningStep(state)
             else -> BpSummaryStep(state)
         }
@@ -203,11 +203,14 @@ private fun ExtractorScreen(state: AppState) {
  * Blueprint step 1 — Konfiguration (`REDESIGN_IMPLEMENTATION.md` §4.2): a two-column body (the
  * path form on the left, a "what gets read" + "last run" context panel on the right) so the wide
  * window is used and no bottom void forms; the one orange CTA is pinned in the footer.
+ *
+ * [appScope] is the window-root scope: the extraction must outlive this composable, which leaves
+ * the composition the moment `running` flips the workflow to the transient step-2 screen — a
+ * local `rememberCoroutineScope` would be cancelled right there ("left the composition").
  */
 @Composable
-private fun BpConfigStep(state: AppState) {
+private fun BpConfigStep(state: AppState, appScope: CoroutineScope) {
     val strings = LocalStrings.current
-    val scope = rememberCoroutineScope()
     StepScaffold(
         overline = strings.bpStepOverline(1),
         title = strings.bpSteps[0],
@@ -228,7 +231,7 @@ private fun BpConfigStep(state: AppState) {
                 // Stays enabled (variant A): a click validates and marks the
                 // offending field rather than leaving the button greyed out.
                 enabled = !state.running,
-                onClick = { runExtraction(scope, state, strings) },
+                onClick = { runExtraction(appScope, state, strings) },
             )
         },
     ) {
@@ -751,6 +754,10 @@ private fun guiMain() = application {
     ) {
         val frame = this
         val strings = remember(lang) { stringsFor(lang) }
+        // Window-root scope for long-running work (extraction, model pull, export): it must
+        // survive step/tab switches, which destroy the per-screen composables and would cancel
+        // any scope remembered inside them.
+        val appScope = rememberCoroutineScope()
         KrtTheme {
             CompositionLocalProvider(LocalStrings provides strings) {
                 Box(Modifier.fillMaxSize()) {
@@ -801,8 +808,8 @@ private fun guiMain() = application {
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             when (tab) {
                                 MainTab.START -> StartScreen(onOpen = { tab = it })
-                                MainTab.BLUEPRINTS -> ExtractorScreen(state)
-                                MainTab.REFINERY -> RefineryScreen(refinery, onPicker = { state.picker = it })
+                                MainTab.BLUEPRINTS -> ExtractorScreen(state, appScope)
+                                MainTab.REFINERY -> RefineryScreen(refinery, appScope, onPicker = { state.picker = it })
                             }
                         }
                         CommunityDisclaimerFooter(communityLogo)

@@ -18,7 +18,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,6 +34,7 @@ import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
+import kotlinx.coroutines.CoroutineScope
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -46,9 +46,8 @@ import kotlin.math.roundToInt
  * coloured 3dp edge). The "stays manual" note and the export CTA sit in the pinned footer.
  */
 @Composable
-fun ReviewStep(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
+fun ReviewStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (PickerRequest) -> Unit) {
     val strings = LocalStrings.current
-    val scope = rememberCoroutineScope()
     val result = state.result ?: return
     val order = result.extract.orders.first()
     val validated = result.validated
@@ -83,7 +82,7 @@ fun ReviewStep(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
                             title = strings.rfPickerExportTitle,
                             confirmLabel = strings.rfPickerExportConfirm,
                             initialPath = defaultExportPath(state),
-                        ) { path -> state.export(scope, File(path), strings) },
+                        ) { path -> state.export(appScope, File(path), strings) },
                     )
                 },
             )

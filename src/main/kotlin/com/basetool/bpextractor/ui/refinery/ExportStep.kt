@@ -13,7 +13,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -23,6 +22,7 @@ import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -35,9 +35,8 @@ import java.awt.Desktop
  * the contract fields. "Show in folder" and the "Neue Extraktion" CTA sit in the pinned footer.
  */
 @Composable
-fun ExportStep(state: RefineryUiState) {
+fun ExportStep(state: RefineryUiState, appScope: CoroutineScope) {
     val strings = LocalStrings.current
-    val scope = rememberCoroutineScope()
     val file = state.exportedFile ?: return
     val extract = state.result?.extract ?: return
     val order = extract.orders.first()
@@ -53,7 +52,7 @@ fun ExportStep(state: RefineryUiState) {
                     strings.bpShowInFolder,
                     onClick = {
                         val parent = file.absoluteFile.parentFile ?: return@GhostButton
-                        scope.launch { withContext(Dispatchers.IO) { runCatching { Desktop.getDesktop().open(parent) } } }
+                        appScope.launch { withContext(Dispatchers.IO) { runCatching { Desktop.getDesktop().open(parent) } } }
                     },
                 )
             }

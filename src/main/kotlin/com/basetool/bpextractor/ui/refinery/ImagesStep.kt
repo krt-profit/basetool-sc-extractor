@@ -20,7 +20,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -35,6 +34,7 @@ import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
+import kotlinx.coroutines.CoroutineScope
 
 /**
  * §5.2 Bilder laden on the [StepScaffold]: the "1 folder = 1 order" framing, a folder bar, the
@@ -43,9 +43,8 @@ import com.basetool.bpextractor.ui.i18n.LocalStrings
  * footer.
  */
 @Composable
-fun ImagesStep(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
+fun ImagesStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (PickerRequest) -> Unit) {
     val strings = LocalStrings.current
-    val scope = rememberCoroutineScope()
 
     StepScaffold(
         overline = strings.rfStepOverline(2),
@@ -89,7 +88,7 @@ fun ImagesStep(state: RefineryUiState, onPicker: (PickerRequest) -> Unit) {
                                 title = strings.rfPickerImagesTitle,
                                 confirmLabel = strings.rfPickerImagesConfirm,
                                 initialPath = state.folder,
-                            ) { state.loadFolder(scope, it) },
+                            ) { state.loadFolder(appScope, it) },
                         )
                     },
                 )

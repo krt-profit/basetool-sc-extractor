@@ -21,7 +21,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -36,6 +35,7 @@ import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
+import kotlinx.coroutines.CoroutineScope
 
 /**
  * §5.3 Extraktion on the [StepScaffold]: overall progress + measured per-image ETA, one row per
@@ -44,13 +44,13 @@ import com.basetool.bpextractor.ui.i18n.LocalStrings
  * the per-image un-quoted ⚠ state, and the pinned cancel / "Weiter: Review" footer.
  */
 @Composable
-fun ExtractStep(state: RefineryUiState) {
+fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
     val strings = LocalStrings.current
-    val scope = rememberCoroutineScope()
-    // Auto-start once when the step is entered with no result yet.
+    // Auto-start once when the step is entered with no result yet. The run lives on the
+    // window-root scope so leaving this composable (step/tab switch) cannot cancel it.
     LaunchedEffect(Unit) {
         if (!state.running && state.result == null && state.extractError == null) {
-            state.runExtraction(scope, BlueprintExtractor.TOOL_VERSION)
+            state.runExtraction(appScope, BlueprintExtractor.TOOL_VERSION)
         }
     }
 
