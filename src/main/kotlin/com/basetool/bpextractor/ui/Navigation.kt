@@ -2,19 +2,21 @@ package com.basetool.bpextractor.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -66,27 +68,73 @@ private fun LangItem(label: String, active: Boolean, onClick: () -> Unit) {
     )
 }
 
+/** Visual state of one inline-stepper pill: completed (green ✔), the current step, or upcoming. */
+private enum class StepState { DONE, ACTIVE, TODO }
+
 /**
- * The Top-Tabs bar under the title bar: Start · Blueprints · Refinery. The active tab carries an
- * orange underline + orange label (design spec §3); inactive tabs are neutral and light up on
- * hover. Tab labels come from the active string catalogue.
+ * The single navigation band of the redesign (`REDESIGN_IMPLEMENTATION.md` §2): the three
+ * top-level tabs on the left and — only while a workflow tab is active — the workflow's inline
+ * stepper on the right. Replaces the former separate `TabBar` + `StepperBar` stack. Completed
+ * steps render as green ✔ squares, the active one orange, upcoming ones grey; steps up to
+ * [maxReached] are clickable for going back (forward navigation stays CTA-only). The stepper row
+ * scrolls horizontally so it stays usable at the 640dp minimum window width.
+ *
+ * [stepLabels] is null on the START tab (no workflow → no stepper).
  */
 @Composable
-fun TabBar(active: MainTab, onSelect: (MainTab) -> Unit) {
+fun CommandStrip(
+    tab: MainTab,
+    onTab: (MainTab) -> Unit,
+    stepLabels: List<String>?,
+    stepIndex: Int = 0,
+    maxReached: Int = 0,
+    onStep: (Int) -> Unit = {},
+) {
     val strings = LocalStrings.current
     Column {
-        Row(modifier = Modifier.fillMaxWidth().background(Krt.Gray4)) {
-            TabItem(strings.tabStart, active == MainTab.START) { onSelect(MainTab.START) }
-            TabItem(strings.tabBlueprints, active == MainTab.BLUEPRINTS) { onSelect(MainTab.BLUEPRINTS) }
-            TabItem(strings.tabRefinery, active == MainTab.REFINERY) { onSelect(MainTab.REFINERY) }
+        Row(
+            modifier = Modifier.fillMaxWidth().height(46.dp).background(Krt.Gray4),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            CmdTab(strings.tabStart, tab == MainTab.START) { onTab(MainTab.START) }
+            CmdTab(strings.tabBlueprints, tab == MainTab.BLUEPRINTS) { onTab(MainTab.BLUEPRINTS) }
+            CmdTab(strings.tabRefinery, tab == MainTab.REFINERY) { onTab(MainTab.REFINERY) }
+            Spacer(Modifier.weight(1f))
+            if (stepLabels != null) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()).padding(end = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    stepLabels.forEachIndexed { i, label ->
+                        val state = when {
+                            i < stepIndex -> StepState.DONE
+                            i == stepIndex -> StepState.ACTIVE
+                            else -> StepState.TODO
+                        }
+                        StepPill(
+                            number = i + 1,
+                            label = label,
+                            state = state,
+                            enabled = i <= maxReached && state != StepState.ACTIVE,
+                            onClick = { onStep(i) },
+                        )
+                        if (i < stepLabels.lastIndex) {
+                            Box(Modifier.width(12.dp).height(1.dp).background(Krt.Gray3))
+                        }
+                    }
+                }
+            }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(Krt.Gray3))
     }
 }
 
-/** One tab: Lato-Bold UPPERCASE label, 2dp orange underline when active, hover tint otherwise. */
+/**
+ * One tab of the [CommandStrip]: Lato-Bold UPPERCASE label filling the 46dp band height, a 2dp
+ * orange underline plus a faint orange wash when active, orange hover tint otherwise.
+ */
 @Composable
-private fun TabItem(label: String, active: Boolean, onClick: () -> Unit) {
+private fun CmdTab(label: String, active: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val fg = when {
@@ -96,16 +144,15 @@ private fun TabItem(label: String, active: Boolean, onClick: () -> Unit) {
     }
     Column(
         modifier = Modifier
+            .fillMaxHeight()
+            .background(if (active) Krt.Orange.copy(alpha = 0.07f) else Color.Transparent)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(
-            label.uppercase(),
-            style = MaterialTheme.typography.headlineSmall,
-            color = fg,
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
-        )
+        Box(Modifier.weight(1f).padding(horizontal = 17.dp), contentAlignment = Alignment.Center) {
+            Text(label.uppercase(), style = MaterialTheme.typography.headlineSmall, color = fg)
+        }
         Box(
             Modifier
                 .fillMaxWidth()
@@ -116,65 +163,58 @@ private fun TabItem(label: String, active: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * The per-workflow step stepper (design spec §3): numbered squares, done = green check, active =
- * orange, upcoming = grey. Steps up to the highest reached one are clickable for going back;
- * forward navigation happens only through each screen's CTA.
+ * One inline-stepper entry of the [CommandStrip]: a 19dp square carrying the step number (or a ✔
+ * once done) plus a short UPPERCASE label. DONE = success-filled square with black check, ACTIVE
+ * = orange, TODO = grey; [enabled] steps (back-navigation up to the furthest reached) react to
+ * clicks and hover.
  */
 @Composable
-fun StepperBar(
-    steps: List<String>,
-    current: Int,
-    maxReached: Int = current,
-    onSelect: ((Int) -> Unit)? = null,
+private fun StepPill(
+    number: Int,
+    label: String,
+    state: StepState,
+    enabled: Boolean,
+    onClick: () -> Unit,
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val accent = when (state) {
+        StepState.ACTIVE -> Krt.Orange
+        StepState.DONE -> Krt.Success
+        StepState.TODO -> Krt.Gray2
+    }
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        modifier = Modifier
+            .hoverable(interaction, enabled = enabled)
+            .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 8.dp),
     ) {
-        steps.forEachIndexed { index, label ->
-            val done = index < current
-            val active = index == current
-            val color = when {
-                active -> Krt.Orange
-                done -> Krt.Success
-                else -> Krt.Gray2
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.let { m ->
-                    val select = onSelect
-                    if (select != null && index <= maxReached && !active) {
-                        m.clickable { select(index) }
-                    } else {
-                        m
-                    }
+        Box(
+            modifier = Modifier
+                .size(19.dp)
+                .background(if (state == StepState.DONE) Krt.Success else Krt.Gray4),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (state == StepState.DONE) "✓" else "$number",
+                style = MaterialTheme.typography.labelMedium,
+                color = when (state) {
+                    StepState.DONE -> Krt.Black
+                    StepState.ACTIVE -> Krt.Orange
+                    StepState.TODO -> Krt.Gray2
                 },
-            ) {
-                Box(
-                    modifier = Modifier.size(22.dp).background(if (active) Krt.Orange else Krt.Gray4),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        if (done) "✓" else "${index + 1}",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = when {
-                            active -> Krt.Black
-                            done -> Krt.Success
-                            else -> Krt.Gray2
-                        },
-                    )
-                }
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    label.uppercase(),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = color,
-                )
-            }
-            if (index < steps.lastIndex) {
-                Box(Modifier.weight(1f).height(1.dp).background(Krt.Gray3))
-            }
+            )
         }
+        Spacer(Modifier.width(6.dp))
+        Text(
+            label.uppercase(),
+            style = MaterialTheme.typography.labelMedium,
+            color = when {
+                hovered && enabled -> Krt.OrangeHover
+                state == StepState.TODO -> Krt.Gray2
+                else -> Krt.White
+            },
+        )
     }
 }

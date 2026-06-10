@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.basetool.bpextractor.ui.CommandStrip
 import com.basetool.bpextractor.ui.CommunityDisclaimerFooter
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.FieldLabel
@@ -56,8 +57,6 @@ import com.basetool.bpextractor.ui.RefineryScreen
 import com.basetool.bpextractor.ui.ResizeCorner
 import com.basetool.bpextractor.ui.StartScreen
 import com.basetool.bpextractor.ui.StatusDot
-import com.basetool.bpextractor.ui.StepperBar
-import com.basetool.bpextractor.ui.TabBar
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.Lang
 import com.basetool.bpextractor.ui.i18n.LocalStrings
@@ -116,6 +115,18 @@ private class AppState {
     }
 }
 
+/**
+ * The state-driven blueprint step (design spec §4): Konfiguration while idle, the transient
+ * Extraktion while running, Zusammenfassung once a result exists. Errors fall back to
+ * Konfiguration with the status line carrying the diagnosis. Shared by the [CommandStrip]
+ * inline stepper and the screen body so the two can never disagree.
+ */
+private fun blueprintStep(state: AppState): Int = when {
+    state.running -> 1
+    state.resultSummary.isNotBlank() -> 2
+    else -> 0
+}
+
 /** A read-only validity hint for the channel-folder field, rendered under it in KRT style. */
 private data class FolderHint(val dot: Color, val text: String, val textColor: Color)
 
@@ -153,18 +164,10 @@ private fun ExtractorScreen(state: AppState) {
     // Whether we can offer "open folder / open file" actions on this platform.
     val canOpenFiles = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
 
-    // State-driven step (design spec §4): Konfiguration while idle, the transient Extraktion
-    // while running, Zusammenfassung once a result exists. Errors fall back to Konfiguration
-    // with the status line carrying the diagnosis.
-    val bpStep = when {
-        state.running -> 1
-        state.resultSummary.isNotBlank() -> 2
-        else -> 0
-    }
+    val bpStep = blueprintStep(state)
 
     Box(modifier = Modifier.fillMaxSize().background(Krt.Black).tiled(honeycomb)) {
         Column(modifier = Modifier.fillMaxSize()) {
-        StepperBar(steps = strings.bpSteps, current = bpStep)
         Column(
             modifier = Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
@@ -540,7 +543,9 @@ private fun guiMain() = application {
     val refinery = remember { RefineryUiState() }
     var lang by remember { mutableStateOf(Lang.DE) }
     var tab by remember { mutableStateOf(MainTab.START) }
-    val windowState = rememberWindowState(width = 960.dp, height = 760.dp)
+    // Locked decision (REDESIGN_IMPLEMENTATION.md): default window 1180×820, resizable
+    // down to 640×520 (the ResizeCorner enforces the floor).
+    val windowState = rememberWindowState(width = 1180.dp, height = 820.dp)
     val appIcon = remember { useResource("icons/krt-icon.png") { BitmapPainter(loadImageBitmap(it)) } }
     val communityLogo = remember { useResource("MadeByTheCommunity_Black.png") { BitmapPainter(loadImageBitmap(it)) } }
     Window(
@@ -552,8 +557,9 @@ private fun guiMain() = application {
         state = windowState,
     ) {
         val frame = this
+        val strings = remember(lang) { stringsFor(lang) }
         KrtTheme {
-            CompositionLocalProvider(LocalStrings provides stringsFor(lang)) {
+            CompositionLocalProvider(LocalStrings provides strings) {
                 Box(Modifier.fillMaxSize()) {
                     Column(Modifier.fillMaxSize().background(Krt.Black).border(1.dp, Krt.Gray3)) {
                         frame.KrtTitleBar(
@@ -563,7 +569,42 @@ private fun guiMain() = application {
                             ::exitApplication,
                             actions = { LanguageToggle(lang) { lang = it } },
                         )
-                        TabBar(active = tab, onSelect = { tab = it })
+                        // One navigation band: tabs + the active workflow's inline stepper
+                        // (replaces the former TabBar + per-screen StepperBar stack).
+                        val bpStep = blueprintStep(state)
+                        CommandStrip(
+                            tab = tab,
+                            onTab = { tab = it },
+                            stepLabels = when (tab) {
+                                MainTab.BLUEPRINTS -> strings.bpSteps
+                                MainTab.REFINERY -> strings.rfSteps
+                                MainTab.START -> null
+                            },
+                            stepIndex = when (tab) {
+                                MainTab.BLUEPRINTS -> bpStep
+                                MainTab.REFINERY -> refinery.step
+                                MainTab.START -> 0
+                            },
+                            maxReached = when (tab) {
+                                // Blueprint steps are state-driven: only "back to Setup"
+                                // (resetting the result) is a meaningful stepper jump.
+                                MainTab.BLUEPRINTS -> if (state.running) -1 else 0
+                                MainTab.REFINERY -> if (refinery.running) -1 else refinery.maxReached
+                                MainTab.START -> 0
+                            },
+                            onStep = { target ->
+                                when (tab) {
+                                    MainTab.BLUEPRINTS -> if (target == 0 && !state.running) {
+                                        state.resultSummary = ""
+                                        state.status = ""
+                                        state.isError = false
+                                    }
+                                    // Never jump backwards INTO a running extraction mid-run.
+                                    MainTab.REFINERY -> if (!refinery.running) refinery.step = target
+                                    MainTab.START -> {}
+                                }
+                            },
+                        )
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             when (tab) {
                                 MainTab.START -> StartScreen(onOpen = { tab = it })
