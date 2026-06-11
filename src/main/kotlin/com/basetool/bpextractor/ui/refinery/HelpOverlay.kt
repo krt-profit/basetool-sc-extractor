@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -41,7 +42,10 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.FootNote
@@ -49,9 +53,16 @@ import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.KrtDataStyle
 import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.i18n.LocalStrings
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.awt.Desktop
+import java.net.URI
 
 /** The three terminal commands shown in the install section — language-invariant literals. */
 private val INSTALL_CODE_LINES = listOf("ollama.com/download", "ollama serve", "ollama pull qwen3-vl:8b-instruct")
+
+/** The browser target behind the first install code line. */
+private const val OLLAMA_DOWNLOAD_URL = "https://ollama.com/download"
 
 /**
  * The preflight help page (`REDESIGN_IMPLEMENTATION.md` §4.3a): a KRT modal (no native dialog)
@@ -194,7 +205,7 @@ fun HelpOverlay(onClose: () -> Unit) {
                 }
 
                 HelpSection("03", strings.helpSec3Title) {
-                    HelpStep(1, strings.helpStep1Title, strings.helpStep1Body, INSTALL_CODE_LINES[0])
+                    HelpStep(1, strings.helpStep1Title, strings.helpStep1Body, INSTALL_CODE_LINES[0], url = OLLAMA_DOWNLOAD_URL)
                     HelpStep(2, strings.helpStep2Title, strings.helpStep2Body, INSTALL_CODE_LINES[1])
                     HelpStep(3, strings.helpStep3Title, strings.helpStep3Body, INSTALL_CODE_LINES[2])
                     AlertBox(Krt.Info) {
@@ -264,7 +275,7 @@ private fun HelpSection(number: String, title: String, content: @Composable () -
 
 /** One numbered install step: a 22dp orange-bordered number square, title, body and a code line. */
 @Composable
-private fun HelpStep(number: Int, title: String, body: String, code: String) {
+private fun HelpStep(number: Int, title: String, body: String, code: String, url: String? = null) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Box(
             modifier = Modifier.size(22.dp).border(1.dp, Krt.Orange),
@@ -280,26 +291,51 @@ private fun HelpStep(number: Int, title: String, body: String, code: String) {
             )
             Text(body, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
             Spacer(Modifier.height(5.dp))
-            CodeLine(code)
+            CodeLine(code, url)
         }
     }
 }
 
-/** A terminal-style code line: dark input fill, 3dp orange left edge, "$" prompt + the command. */
+/**
+ * A terminal-style code line: dark input fill, 3dp orange left edge, "$" prompt + the command.
+ * With a [url] (and BROWSE support) the line becomes a link: hand cursor, orange underline on
+ * hover, click opens the URL in the default browser.
+ */
 @Composable
-private fun CodeLine(code: String) {
+private fun CodeLine(code: String, url: String? = null) {
+    val canBrowse = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE) }
+    val linked = url != null && canBrowse
+    val scope = rememberCoroutineScope()
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(Krt.SurfaceInput)
             .border(1.dp, Krt.Gray3)
             .drawBehind { drawRect(Krt.Orange, size = Size(3.dp.toPx(), size.height)) }
+            .then(
+                if (url != null && canBrowse) {
+                    Modifier
+                        .hoverable(interaction)
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .clickable(interactionSource = interaction, indication = null) {
+                            scope.launch(Dispatchers.IO) { runCatching { Desktop.getDesktop().browse(URI(url)) } }
+                        }
+                } else {
+                    Modifier
+                },
+            )
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Text("$", style = KrtDataStyle, color = Krt.Gray2)
-        Text(code, style = KrtDataStyle, color = Krt.White)
+        Text(
+            code,
+            style = if (linked) KrtDataStyle.copy(textDecoration = TextDecoration.Underline) else KrtDataStyle,
+            color = if (linked && hovered) Krt.Orange else Krt.White,
+        )
     }
 }
 
