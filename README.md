@@ -111,6 +111,11 @@ Zeitpunkt hochgeladen — die Auswertung läuft komplett lokal über
   auf das Vorschaubild schaltet um) — nur angehakte Bilder gehen in die
   Extraktion. Abgewählte Bilder bleiben im Raster sichtbar, werden aber
   ausgegraut dargestellt und übersprungen.
+- **Ordner wird laufend überwacht:** Solange der Schritt *Bilder laden* offen
+  ist, prüft die App den gewählten Ordner einmal pro Sekunde auf Änderungen —
+  nachträglich abgelegte Screenshots erscheinen automatisch im Raster, aus dem
+  Ordner gelöschte verschwinden. Gesetzte bzw. entfernte Haken bleiben dabei
+  erhalten, und per ✕ entfernte Bilder werden nicht erneut hinzugefügt.
 - Stehen mehrere Auftrags-Panels nebeneinander, wird das **linkeste** (= der
   neueste Auftrag) ausgelesen.
 
