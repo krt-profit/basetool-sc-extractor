@@ -116,6 +116,17 @@ private fun ImagesStepContent(
         }
     }
 
+    // §5.2 folder watch: while this step is on screen and a folder is loaded, poll it once per
+    // second so screenshots dropped into the folder afterwards appear by themselves. The tick
+    // diffs instead of reloading — checkbox choices and ✕-removed tiles survive every rescan.
+    LaunchedEffect(state.loadedFolder) {
+        val path = state.loadedFolder ?: return@LaunchedEffect
+        while (true) {
+            delay(1_000)
+            state.rescanFolder(appScope, path)
+        }
+    }
+
     StepScaffold(
         overline = strings.rfStepOverline(2),
         title = strings.rfImagesTitle,

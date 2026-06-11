@@ -34,6 +34,7 @@ import java.awt.Toolkit
 import java.awt.datatransfer.Transferable
 import java.awt.image.BufferedImage
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
 import javax.imageio.ImageIO
 
 /** The Ollama-runtime card states of design spec §5.1, one object per visual state. */
@@ -102,6 +103,12 @@ class RefineryUiState(
     val images = mutableStateListOf<RefineryImage>()
     var imagesNote by mutableStateOf<String?>(null)
     var loadingImages by mutableStateOf(false)
+
+    /** Paths the user removed via the tile ✕ — the §5.2 folder watch must not re-add them. */
+    private val dismissedPaths: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+    /** True while a folder-watch tick is diffing — overlapping ticks are skipped. */
+    private var rescanning by mutableStateOf(false)
 
     // --- §5.3 extraction ---
     /** The selection snapshot the active/last run works on (drives the §5.3 stage rows). */
@@ -204,24 +211,11 @@ class RefineryUiState(
         loadedFolder = path
         loadingImages = true
         imagesNote = null
+        dismissedPaths.clear()
         images.clear()
         scope.launch(Dispatchers.IO) {
             try {
-                val files = File(path).listFiles { f ->
-                    f.isFile && f.extension.lowercase() in setOf("png", "jpg", "jpeg")
-                }?.sortedBy { it.name.lowercase() } ?: emptyList()
-                val loaded = files.mapNotNull { file ->
-                    runCatching {
-                        val img = ImageIO.read(file) ?: return@runCatching null
-                        RefineryImage(
-                            file = file,
-                            width = img.width,
-                            height = img.height,
-                            precropped = Locate.isPrecropped(img.width, img.height),
-                            thumbnail = thumbnail(img),
-                        )
-                    }.getOrNull()
-                }.filterNotNull()
+                val loaded = imageFilesIn(File(path)).mapNotNull(::loadImage)
                 withContext(Dispatchers.Default) {
                     images.clear()
                     images.addAll(loaded)
@@ -232,8 +226,45 @@ class RefineryUiState(
         }
     }
 
+    /**
+     * §5.2 folder watch — one poll tick: diff [path] against the loaded grid instead of
+     * reloading it. New image files appear at the end of the grid (selected by default), images
+     * whose file vanished from the folder drop out, and every surviving tile keeps its checkbox
+     * state untouched. Images removed via the tile ✕ stay out ([dismissedPaths]); a file still
+     * being written simply fails to decode and is retried on the next tick. No-op while the
+     * initial load or a previous tick is in flight, or when [path] is no longer the loaded
+     * folder.
+     */
+    fun rescanFolder(scope: CoroutineScope, path: String) {
+        if (loadingImages || rescanning || path != loadedFolder) return
+        rescanning = true
+        scope.launch(Dispatchers.IO) {
+            try {
+                val dir = File(path)
+                if (!dir.isDirectory) return@launch
+                val files = imageFilesIn(dir)
+                val onDisk = files.mapTo(HashSet()) { it.absolutePath }
+                val known = images.mapTo(HashSet()) { it.file.absolutePath }
+                val added = files
+                    .filter { it.absolutePath !in known && it.absolutePath !in dismissedPaths }
+                    .mapNotNull(::loadImage)
+                withContext(Dispatchers.Default) {
+                    if (path != loadedFolder) return@withContext
+                    images.removeAll {
+                        it.file.absoluteFile.parentFile == dir.absoluteFile &&
+                            it.file.absolutePath !in onDisk
+                    }
+                    images.addAll(added)
+                }
+            } finally {
+                rescanning = false
+            }
+        }
+    }
+
     /** Drop one loaded image from the order (the §5.2 tile's remove action). */
     fun removeImage(image: RefineryImage) {
+        dismissedPaths += image.file.absolutePath
         images.remove(image)
     }
 
@@ -290,19 +321,12 @@ class RefineryUiState(
                     ImageIntake.rawImageFrom(t)?.let { saved += ImageIntake.saveClipboardImage(it, dir) }
                 }
                 val known = images.mapTo(HashSet()) { it.file.absolutePath }
-                val loaded = saved.filter { it.absolutePath !in known }.distinct().mapNotNull { file ->
-                    runCatching {
-                        val img = ImageIO.read(file) ?: return@runCatching null
-                        RefineryImage(
-                            file = file,
-                            width = img.width,
-                            height = img.height,
-                            precropped = Locate.isPrecropped(img.width, img.height),
-                            thumbnail = thumbnail(img),
-                        )
-                    }.getOrNull()
+                val loaded = saved.filter { it.absolutePath !in known }.distinct().mapNotNull(::loadImage)
+                withContext(Dispatchers.Default) {
+                    // A re-paste of a previously ✕-removed image is an explicit re-add.
+                    loaded.forEach { dismissedPaths -= it.file.absolutePath }
+                    images.addAll(loaded)
                 }
-                withContext(Dispatchers.Default) { images.addAll(loaded) }
             } finally {
                 loadingImages = false
             }
@@ -400,6 +424,7 @@ class RefineryUiState(
         loadedFolder = null
         images.clear()
         imagesNote = null
+        dismissedPaths.clear()
         runImages.clear()
         running = false
         cancelRequested = false
@@ -414,6 +439,23 @@ class RefineryUiState(
         maxReached = 1
         step = 1
     }
+
+    /** The PNG/JPG files of [dir], name-sorted — the view shared by [loadFolder] and the watch. */
+    private fun imageFilesIn(dir: File): List<File> =
+        dir.listFiles { f -> f.isFile && f.extension.lowercase() in ImageIntake.IMAGE_EXTENSIONS }
+            ?.sortedBy { it.name.lowercase() } ?: emptyList()
+
+    /** Decode [file] into a grid tile (native size, crop tag, thumbnail), null when unreadable. */
+    private fun loadImage(file: File): RefineryImage? = runCatching {
+        val img = ImageIO.read(file) ?: return@runCatching null
+        RefineryImage(
+            file = file,
+            width = img.width,
+            height = img.height,
+            precropped = Locate.isPrecropped(img.width, img.height),
+            thumbnail = thumbnail(img),
+        )
+    }.getOrNull()
 
     private fun readFull(file: File): BufferedImage =
         requireNotNull(ImageIO.read(file)) { "cannot decode ${file.name}" }

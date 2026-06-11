@@ -103,7 +103,10 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   every workflow screen sits on it; the primary CTA always lives in the footer),
   `StartScreen.kt` (launcher — the only screen with the big `GreetingHeader`),
   `RefineryScreen.kt` (refinery workflow surface), `refinery/` (the five step screens +
-  `RefineryUiState` — per-image checkboxes decide which images get extracted;
+  `RefineryUiState` — per-image checkboxes decide which images get extracted; while the
+  images step is on screen the picked folder is polled once per second
+  (`rescanFolder`): a pure add/remove diff, so checkbox choices and ✕-removed tiles
+  survive every tick;
   `ImageIntake.kt` is the pure intake logic for clipboard pastes — the window-level
   Strg+V handler lives in `Main.kt` — and external drag & drop: images persist into
   the picked folder or, without one, into the session temp dir from guardrail 2),
