@@ -12,7 +12,12 @@ import java.util.Base64
 import javax.imageio.ImageIO
 
 /** One input screenshot, already decoded — decoding stays at the edge so tests build images. */
-data class PipelineInput(val name: String, val image: BufferedImage)
+data class PipelineInput(
+    val name: String,
+    val image: BufferedImage,
+    /** Capture instant ([CaptureTime], read at the file edge); null when undeterminable. */
+    val capturedAt: Instant? = null,
+)
 
 /** The per-image pipeline stages, in run order — the §5.3 stage track of the extraction UI. */
 enum class PipelineStage { LOCATE, NORMALIZE, READ }
@@ -124,6 +129,7 @@ class RefineryPipeline(
                 width = input.image.width,
                 height = input.image.height,
                 cropMode = prepared.cropMode,
+                capturedAt = input.capturedAt?.truncatedTo(ChronoUnit.SECONDS)?.toString(),
             )
             val outcome = if (panel == null) {
                 listener.onLog("⚠ Read — $name: no recognizable panel layout in the answer")

@@ -43,7 +43,7 @@ class RefineryExtractContractTest {
               "durationMinutes": 1258,
               "totalYieldScu": null,
               "sourceImages": [
-                { "name": "frame_213823.png", "width": 3840, "height": 2160, "cropMode": "vlm" }
+                { "name": "frame_213823.png", "width": 3840, "height": 2160, "cropMode": "vlm", "capturedAt": "2026-06-05T19:38:23Z" }
               ],
               "goods": [
                 {
@@ -77,6 +77,8 @@ class RefineryExtractContractTest {
         assertEquals(48928.0, order.expenses)
         assertEquals(1258L, order.durationMinutes)
         assertNull(order.totalYieldScu)
+        val image = order.sourceImages.single()
+        assertEquals("2026-06-05T19:38:23Z", image.capturedAt)
         val good = order.goods.single()
         assertEquals(0, good.rowIndex)
         assertEquals("LINDINIUM (ORE)", good.rawMaterialName)
@@ -117,6 +119,7 @@ class RefineryExtractContractTest {
         val encoded = json.encodeToString(RefineryExtract.serializer(), extract)
         val root = json.parseToJsonElement(encoded).jsonObject
         val order = root["orders"]!!.jsonObject(0)
+        val image = order["sourceImages"]!!.jsonObject(0)
         val good = order["goods"]!!.jsonObject(0)
 
         // Required keys present at every level (the backend's @NotNull gate).
@@ -129,6 +132,9 @@ class RefineryExtractContractTest {
             "totalYieldScu", "sourceImages", "goods",
         )) {
             assertTrue(key in order, "missing order key $key")
+        }
+        for (key in listOf("name", "width", "height", "cropMode", "capturedAt")) {
+            assertTrue(key in image, "missing source-image key $key")
         }
         for (key in listOf(
             "rowIndex", "rawMaterialName", "quality", "inputQuantity", "outputQuantity",

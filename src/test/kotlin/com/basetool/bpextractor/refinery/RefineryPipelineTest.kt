@@ -101,7 +101,14 @@ class RefineryPipelineTest {
         val ollama = FakeOllama(listOf(upperAnswer, lowerAnswer))
 
         val result = pipeline(ollama).extract(
-            listOf(PipelineInput("a_upper.png", fullFrame()), PipelineInput("b_lower.png", fullFrame())),
+            listOf(
+                PipelineInput(
+                    "a_upper.png",
+                    fullFrame(),
+                    capturedAt = java.time.Instant.parse("2026-06-01T21:38:23.456Z"),
+                ),
+                PipelineInput("b_lower.png", fullFrame()),
+            ),
         )
 
         val extract = result.extract
@@ -123,6 +130,8 @@ class RefineryPipelineTest {
         assertEquals(2, order.sourceImages.size)
         assertEquals(listOf("vlm", "vlm"), order.sourceImages.map { it.cropMode })
         assertEquals(1920, order.sourceImages[0].width)
+        // capturedAt flows per image, truncated to seconds; an unknown capture stays null.
+        assertEquals(listOf("2026-06-01T21:38:23Z", null), order.sourceImages.map { it.capturedAt })
     }
 
     @Test
