@@ -1,7 +1,11 @@
 package com.basetool.bpextractor.ui.refinery
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,13 +25,23 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.awtTransferable
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.GhostButton
 import com.basetool.bpextractor.ui.Krt
+import com.basetool.bpextractor.ui.KrtCheckbox
 import com.basetool.bpextractor.ui.KrtTextField
 import com.basetool.bpextractor.ui.PickerMode
 import com.basetool.bpextractor.ui.PickerRequest
@@ -43,10 +57,52 @@ import java.io.File
  * §5.2 Bilder laden on the [StepScaffold]: the "1 folder = 1 order" framing, a folder bar, the
  * mini-stats row and the thumbnail grid (each tile with resolution chip, file name, crop tag and
  * a remove ×) filling the remaining height; back + "Extraktion starten" live in the pinned
- * footer.
+ * footer. The whole step is a drop target for external image files/images (same intake as the
+ * window-level Strg+V paste); while a drag hovers, an orange border marks the step.
  */
+@OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
 @Composable
 fun ImagesStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (PickerRequest) -> Unit) {
+    var dragOver by remember { mutableStateOf(false) }
+    val dropTarget = remember(state, appScope) {
+        object : DragAndDropTarget {
+            override fun onEntered(event: DragAndDropEvent) {
+                dragOver = true
+            }
+
+            override fun onExited(event: DragAndDropEvent) {
+                dragOver = false
+            }
+
+            override fun onEnded(event: DragAndDropEvent) {
+                dragOver = false
+            }
+
+            override fun onDrop(event: DragAndDropEvent): Boolean {
+                dragOver = false
+                // A foreign Transferable can throw on access — never let that crash the UI.
+                return runCatching { state.importTransferable(appScope, event.awtTransferable) }
+                    .getOrDefault(false)
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .dragAndDropTarget(shouldStartDragAndDrop = { true }, target = dropTarget)
+            .then(if (dragOver) Modifier.border(1.dp, Krt.Orange) else Modifier),
+    ) {
+        ImagesStepContent(state, appScope, onPicker)
+    }
+}
+
+@Composable
+private fun ImagesStepContent(
+    state: RefineryUiState,
+    appScope: CoroutineScope,
+    onPicker: (PickerRequest) -> Unit,
+) {
     val strings = LocalStrings.current
 
     // Mirror the file-picker for typed/pasted paths: once the path settles on an existing
@@ -70,8 +126,8 @@ fun ImagesStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
             Spacer(Modifier.weight(1f))
             CtaButton(
                 strings.rfCtaStartExtraction,
-                enabled = state.images.isNotEmpty() && !state.loadingImages,
-                onClick = { state.goTo(2) },
+                enabled = state.selectedImages.isNotEmpty() && !state.loadingImages,
+                onClick = { state.startExtraction() },
             )
         },
     ) {
@@ -107,12 +163,22 @@ fun ImagesStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
                     },
                 )
             }
+            // Intake hint: clipboard paste (Strg+V) and drag & drop both add images here.
+            Spacer(Modifier.height(6.dp))
+            Text(strings.rfPasteDropHint, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
         }
         Spacer(Modifier.height(12.dp))
 
-        // Mini-stats row (Bilder · Auftrag · Auflösung · Modell).
+        // Mini-stats row (Bilder · Ausgewählt · Auftrag · Auflösung · Modell).
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             KrtChip("${strings.rfStatImages}: ${state.images.size}")
+            val selectedCount = state.selectedImages.size
+            if (state.images.isNotEmpty()) {
+                KrtChip(
+                    "${strings.rfStatSelected}: $selectedCount",
+                    color = if (selectedCount == 0) Krt.Warning else Krt.Gray1,
+                )
+            }
             KrtChip("${strings.rfStatOrder}: 1")
             val resolutions = state.images.map { "${it.width}×${it.height}" }.distinct()
             if (resolutions.isNotEmpty()) {
@@ -135,6 +201,13 @@ fun ImagesStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
                     Text(strings.rfNoImagesInFolder, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
                 }
             }
+            // Pasted/dropped images without a picked folder live in the session temp dir.
+            state.hasTempImages -> {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    StatusDot(Krt.Orange)
+                    Text(strings.rfTempNote, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
+                }
+            }
             else -> {}
         }
         Spacer(Modifier.height(10.dp))
@@ -147,18 +220,28 @@ fun ImagesStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             items(state.images, key = { it.file.absolutePath }) { image ->
-                ImageTile(image, onRemove = { state.removeImage(image) })
+                ImageTile(
+                    image,
+                    onToggle = { state.toggleImageSelected(image) },
+                    onRemove = { state.removeImage(image) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ImageTile(image: RefineryImage, onRemove: () -> Unit) {
+private fun ImageTile(image: RefineryImage, onToggle: () -> Unit, onRemove: () -> Unit) {
     val strings = LocalStrings.current
     Column(modifier = Modifier.hudBox().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        // Thumbnail click toggles selection too; deselected tiles render dimmed.
         Box(
-            modifier = Modifier.fillMaxWidth().height(110.dp).background(Krt.SurfaceInput),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(110.dp)
+                .background(Krt.SurfaceInput)
+                .clickable(onClick = onToggle)
+                .alpha(if (image.selected) 1f else 0.35f),
             contentAlignment = Alignment.Center,
         ) {
             val thumb = image.thumbnail
@@ -173,11 +256,13 @@ private fun ImageTile(image: RefineryImage, onRemove: () -> Unit) {
                 StatusDot(Krt.Gray2)
             }
         }
-        Text(
-            image.file.name,
-            style = MaterialTheme.typography.bodySmall,
-            color = Krt.Gray1,
-            maxLines = 1,
+        // Checkbox + file name in one line: ticked = part of the extraction run.
+        KrtCheckbox(
+            checked = image.selected,
+            onCheckedChange = { onToggle() },
+            label = image.file.name,
+            labelStyle = MaterialTheme.typography.bodySmall,
+            labelMaxLines = 1,
         )
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             KrtChip("${image.width}×${image.height}")

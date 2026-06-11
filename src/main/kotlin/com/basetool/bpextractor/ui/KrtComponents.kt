@@ -46,6 +46,7 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.loadSvgPainter
 import androidx.compose.ui.res.useResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.Legal
@@ -266,6 +267,8 @@ fun KrtCheckbox(
     label: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    labelStyle: TextStyle? = null,
+    labelMaxLines: Int = Int.MAX_VALUE,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
@@ -299,7 +302,12 @@ fun KrtCheckbox(
         }
         Spacer(Modifier.width(10.dp))
         DisableSelection {
-            Text(label, style = MaterialTheme.typography.bodyMedium, color = if (enabled) Krt.Gray1 else Krt.Gray2)
+            Text(
+                label,
+                style = labelStyle ?: MaterialTheme.typography.bodyMedium,
+                color = if (enabled) Krt.Gray1 else Krt.Gray2,
+                maxLines = labelMaxLines,
+            )
         }
     }
 }

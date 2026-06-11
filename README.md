@@ -101,6 +101,16 @@ Zeitpunkt hochgeladen — die Auswertung läuft komplett lokal über
   Zeilen automatisch zusammen. Auflösung 1080p bis 8K (auch Ultrawide) wird
   unterstützt; alternativ kann ein bereits **manuell zugeschnittenes**
   Panel-Bild verwendet werden (wird als „vorgecroppt" erkannt).
+- **Bilder einfügen ohne Ordner:** Im Schritt *Bilder laden* lassen sich
+  Screenshots auch direkt per **Strg+V** aus der Zwischenablage einfügen
+  (z. B. aus dem Windows Snipping Tool) oder per **Drag & Drop** in das
+  Fenster ziehen. Ist ein Screenshot-Ordner gewählt, werden sie dort
+  gespeichert; ohne gewählten Ordner landen sie in einem temporären Ordner,
+  der beim Beenden der App automatisch gelöscht wird.
+- **Bilder gezielt abwählen:** Jede Kachel hat eine Checkbox (auch ein Klick
+  auf das Vorschaubild schaltet um) — nur angehakte Bilder gehen in die
+  Extraktion. Abgewählte Bilder bleiben im Raster sichtbar, werden aber
+  ausgegraut dargestellt und übersprungen.
 - Stehen mehrere Auftrags-Panels nebeneinander, wird das **linkeste** (= der
   neueste Auftrag) ausgelesen.
 

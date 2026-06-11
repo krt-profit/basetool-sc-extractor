@@ -54,7 +54,8 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
         }
     }
 
-    val total = state.images.size
+    // The run works on the §5.2 selection snapshot, not the full grid list.
+    val total = state.runImages.size
     val done = state.outcomes.size
     val remaining = ((total - done).coerceAtLeast(0)) * state.etaSecondsPerImage
 
@@ -107,7 +108,7 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
                     .verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                state.images.forEachIndexed { index, image ->
+                state.runImages.forEachIndexed { index, image ->
                     ImageStageRow(state, index, image)
                 }
             }

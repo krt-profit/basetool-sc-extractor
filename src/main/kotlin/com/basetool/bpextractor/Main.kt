@@ -34,6 +34,11 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.painter.BitmapPainter
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.res.loadImageBitmap
 import androidx.compose.ui.res.useResource
 import androidx.compose.ui.unit.dp
@@ -744,6 +749,11 @@ private fun guiMain() = application {
     val windowState = rememberWindowState(width = 1180.dp, height = 820.dp)
     val appIcon = remember { useResource("icons/krt-icon.png") { BitmapPainter(loadImageBitmap(it)) } }
     val communityLogo = remember { useResource("MadeByTheCommunity_Black.png") { BitmapPainter(loadImageBitmap(it)) } }
+    // Application-root scope for long-running work (extraction, model pull, export): it must
+    // survive step/tab switches, which destroy the per-screen composables and would cancel any
+    // scope remembered inside them. Hoisted above the Window so the window-level paste handler
+    // below can launch on it too.
+    val appScope = rememberCoroutineScope()
     Window(
         onCloseRequest = ::exitApplication,
         title = "Basetool SC Extractor",
@@ -751,13 +761,21 @@ private fun guiMain() = application {
         undecorated = true,
         resizable = true,
         state = windowState,
+        // Window-level Strg+V on the refinery "Bilder" step: paste a clipboard image (design
+        // §5.2 intake). Preview phase so it also fires while the folder text field is focused;
+        // pasteFromClipboard only consumes when the clipboard actually carries an image or
+        // image files, so plain-text pastes still reach the field.
+        onPreviewKeyEvent = { event ->
+            val isPaste = event.type == KeyEventType.KeyDown && event.isCtrlPressed && event.key == Key.V
+            if (isPaste && tab == MainTab.REFINERY && refinery.step == 1 && state.picker == null) {
+                refinery.pasteFromClipboard(appScope)
+            } else {
+                false
+            }
+        },
     ) {
         val frame = this
         val strings = remember(lang) { stringsFor(lang) }
-        // Window-root scope for long-running work (extraction, model pull, export): it must
-        // survive step/tab switches, which destroy the per-screen composables and would cancel
-        // any scope remembered inside them.
-        val appScope = rememberCoroutineScope()
         KrtTheme {
             CompositionLocalProvider(LocalStrings provides strings) {
                 Box(Modifier.fillMaxSize()) {

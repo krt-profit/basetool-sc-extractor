@@ -30,6 +30,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.awt.Toolkit
+import java.awt.datatransfer.Transferable
 import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
@@ -66,6 +68,8 @@ data class RefineryImage(
     /** True → tagged `vorgecroppt` and Locate is skipped (design §5.2 crop tags). */
     val precropped: Boolean,
     val thumbnail: ImageBitmap?,
+    /** False → kept in the grid but excluded from the extraction run (§5.2 tile checkbox). */
+    val selected: Boolean = true,
 )
 
 /**
@@ -100,6 +104,8 @@ class RefineryUiState(
     var loadingImages by mutableStateOf(false)
 
     // --- §5.3 extraction ---
+    /** The selection snapshot the active/last run works on (drives the §5.3 stage rows). */
+    val runImages = mutableStateListOf<RefineryImage>()
     var running by mutableStateOf(false)
     var currentIndex by mutableStateOf(-1)
     val stageReached = mutableStateMapOf<Int, PipelineStage>()
@@ -231,9 +237,97 @@ class RefineryUiState(
         images.remove(image)
     }
 
-    /** Start the §5.3 extraction run over the loaded images, one at a time. */
+    /** The images the next extraction run will use (the §5.2 tile checkboxes). */
+    val selectedImages: List<RefineryImage>
+        get() = images.filter { it.selected }
+
+    /** Toggle whether [image] is part of the extraction run (the §5.2 tile checkbox). */
+    fun toggleImageSelected(image: RefineryImage) {
+        val index = images.indexOf(image)
+        if (index >= 0) images[index] = images[index].copy(selected = !images[index].selected)
+    }
+
+    /**
+     * §5.2 CTA — (re)enter the extraction step. Any previous run's result is discarded so the
+     * step's auto-start fires again with the CURRENT selection, and the stepper ceiling drops
+     * back to this step: a changed input invalidates the old review/export.
+     */
+    fun startExtraction() {
+        if (running) return
+        result = null
+        extractError = null
+        cancelRequested = false
+        currentIndex = -1
+        stageReached.clear()
+        outcomes.clear()
+        console.clear()
+        step = 2
+        maxReached = 2
+    }
+
+    /** True when any loaded image sits in the session temp folder (shows the §5.2 temp note). */
+    val hasTempImages: Boolean
+        get() = images.any { ImageIntake.isTempFile(it.file) }
+
+    /**
+     * §5.2 intake — add the images carried by [t] (Strg+V clipboard paste or external drag &
+     * drop). Files are persisted via [ImageIntake]: into the picked folder when one is set,
+     * otherwise into the session temp folder that is deleted on exit. Returns false when [t]
+     * carries nothing usable, so key-event callers can leave the event to e.g. a text field.
+     */
+    fun importTransferable(scope: CoroutineScope, t: Transferable): Boolean {
+        if (!ImageIntake.accepts(t)) return false
+        if (loadingImages) return true // swallow re-entrant pastes while a load is in flight
+        loadingImages = true
+        scope.launch(Dispatchers.IO) {
+            try {
+                val dir = intakeDir()
+                val saved = mutableListOf<File>()
+                ImageIntake.imageFilesFrom(t).forEach { file ->
+                    runCatching { saved += ImageIntake.copyInto(file, dir) }
+                }
+                if (saved.isEmpty()) {
+                    ImageIntake.rawImageFrom(t)?.let { saved += ImageIntake.saveClipboardImage(it, dir) }
+                }
+                val known = images.mapTo(HashSet()) { it.file.absolutePath }
+                val loaded = saved.filter { it.absolutePath !in known }.distinct().mapNotNull { file ->
+                    runCatching {
+                        val img = ImageIO.read(file) ?: return@runCatching null
+                        RefineryImage(
+                            file = file,
+                            width = img.width,
+                            height = img.height,
+                            precropped = Locate.isPrecropped(img.width, img.height),
+                            thumbnail = thumbnail(img),
+                        )
+                    }.getOrNull()
+                }
+                withContext(Dispatchers.Default) { images.addAll(loaded) }
+            } finally {
+                loadingImages = false
+            }
+        }
+        return true
+    }
+
+    /** Strg+V handler: import the system clipboard. False when it holds no image content. */
+    fun pasteFromClipboard(scope: CoroutineScope): Boolean {
+        val t = runCatching { Toolkit.getDefaultToolkit().systemClipboard.getContents(null) }
+            .getOrNull() ?: return false
+        return importTransferable(scope, t)
+    }
+
+    /** Where pastes/drops are persisted: the picked folder if valid, else the temp folder. */
+    private fun intakeDir(): File {
+        val picked = File(folder.trim())
+        if (folder.isNotBlank() && picked.isDirectory) return picked
+        return ImageIntake.tempFolder()
+    }
+
+    /** Start the §5.3 extraction run over the SELECTED images, one at a time. */
     fun runExtraction(scope: CoroutineScope, toolVersion: String) {
-        if (running || images.isEmpty()) return
+        val snapshot = selectedImages
+        if (running || snapshot.isEmpty()) return
         running = true
         cancelRequested = false
         extractError = null
@@ -242,7 +336,8 @@ class RefineryUiState(
         stageReached.clear()
         outcomes.clear()
         console.clear()
-        val snapshot = images.toList()
+        runImages.clear()
+        runImages.addAll(snapshot)
         val pipeline = RefineryPipeline(
             ollama = clientFor(endpoint),
             model = selectedModel,
@@ -305,6 +400,7 @@ class RefineryUiState(
         loadedFolder = null
         images.clear()
         imagesNote = null
+        runImages.clear()
         running = false
         cancelRequested = false
         extractError = null
@@ -339,7 +435,7 @@ class RefineryUiState(
 
     companion object {
         /** Sentinel in [extractError] marking a user cancel (rendered as a neutral note). */
-        const val CANCELLED_MARKER = " cancelled"
+        const val CANCELLED_MARKER = "cancelled"
 
         private const val THUMB_LONG_EDGE = 240
     }
