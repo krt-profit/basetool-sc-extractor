@@ -62,7 +62,9 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
    verified feature and works *because* the program is stateless on disk (no config,
    no logs next to the exe). Exported JSON goes to the user-chosen path only. If you
    ever add state, put it under the user's data dir — never the install dir — or
-   residue-free uninstall breaks.
+   residue-free uninstall breaks. Pasted/dropped refinery images without a picked
+   folder follow this rule via a session temp dir (`ImageIntake.tempFolder()`) that a
+   shutdown hook removes — reuse that pattern for anything similar.
 3. **JDK 25 must drive both compile and the bundled runtime.** `kotlin.jvmToolchain(25)`
    handles compile/bytecode; `compose.desktop.application.javaHome` is *separately*
    pinned to the JDK 25 toolchain. If you drop the `javaHome` pin, jpackage builds the
@@ -100,9 +102,13 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   `StepScaffold.kt` (compact `SectionHead` · growing scrollable body · pinned footer —
   every workflow screen sits on it; the primary CTA always lives in the footer),
   `StartScreen.kt` (launcher — the only screen with the big `GreetingHeader`),
-  `RefineryScreen.kt` (refinery workflow surface), `FilePicker.kt` (the KRT in-app
-  file/folder picker — never native dialogs), `i18n/Strings.kt` (the DE/EN string
-  catalogues + `LocalStrings`).
+  `RefineryScreen.kt` (refinery workflow surface), `refinery/` (the five step screens +
+  `RefineryUiState` — per-image checkboxes decide which images get extracted;
+  `ImageIntake.kt` is the pure intake logic for clipboard pastes — the window-level
+  Strg+V handler lives in `Main.kt` — and external drag & drop: images persist into
+  the picked folder or, without one, into the session temp dir from guardrail 2),
+  `FilePicker.kt` (the KRT in-app file/folder picker — never native dialogs),
+  `i18n/Strings.kt` (the DE/EN string catalogues + `LocalStrings`).
 
 ## Conventions
 
