@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import com.basetool.bpextractor.refinery.CaptureTime
 import com.basetool.bpextractor.refinery.GpuInfo
 import com.basetool.bpextractor.refinery.HardwareSnapshot
 import com.basetool.bpextractor.refinery.HardwareTier
@@ -361,7 +362,9 @@ class RefineryUiState(
         }
         scope.launch(Dispatchers.IO) {
             try {
-                val inputs = snapshot.map { PipelineInput(it.file.name, readFull(it.file)) }
+                val inputs = snapshot.map {
+                    PipelineInput(it.file.name, readFull(it.file), CaptureTime.of(it.file))
+                }
                 result = pipeline.extract(inputs, listener)
             } catch (c: PipelineCancelledException) {
                 extractError = CANCELLED_MARKER

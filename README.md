@@ -66,7 +66,11 @@ Der Refinery-Workflow liest die **SETUP-Ansicht** eines Raffinerie-Auftrags
 (REFINEMENT CENTER) aus Screenshots aus — Materialien, Qualität, Menge, Ausbeute,
 Refine-Schalter, Standort, Methode, Kosten und Dauer — und exportiert eine
 `RefineryExtract.json`, die im Basetool unter *Refinery → Aufträge → Auftrag
-importieren* das Anlege-Formular vorausfüllt.
+importieren* das Anlege-Formular vorausfüllt. Zusätzlich wird pro Screenshot die
+**Aufnahmezeit** mit exportiert (aus dem Zeitstempel im Dateinamen, z. B.
+`Screenshot 2026-06-01 213823.png` oder `ScreenShot-2026-06-06_15-50-53-C28.jpg`,
+sonst aus dem Datei-Änderungsdatum) — das Basetool übernimmt die Aufnahmezeit des
+letzten Screenshots als **Startzeit** des Auftrags.
 
 **Voraussetzung: Ollama (lokales KI-Modell).** Die Bilder werden zu **keinem**
 Zeitpunkt hochgeladen — die Auswertung läuft komplett lokal über

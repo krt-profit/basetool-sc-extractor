@@ -68,6 +68,13 @@ data class RefineryExtractImage(
     val height: Int,
     /** How the panel was obtained: `vlm` (auto-located), `manual`, or `precropped`. */
     val cropMode: String,
+    /**
+     * UTC ISO-8601 capture instant of this screenshot ([CaptureTime][com.basetool.bpextractor.refinery.CaptureTime]:
+     * file-name timestamp, else file modified time); null when neither is available. Optional
+     * additive v1 field (ADR-0008) — the basetool derives the order's start time from the LATEST
+     * capture across `sourceImages`.
+     */
+    val capturedAt: String? = null,
 )
 
 /** One stitched goods row (master plan §5). */

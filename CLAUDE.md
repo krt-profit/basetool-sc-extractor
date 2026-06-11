@@ -203,7 +203,10 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
 - **the parser/regex or model** → update `sample.log` + the tests; re-confirm the
   179/`greluc` characterization against the local `game-log/`.
 - **bundled modules or the runtime** → `suggestRuntimeModules`, rebuild, GUI-launch test.
-- **the export shape** → bump `schemaVersion`.
+- **the export shape** → bump `schemaVersion` for any breaking change. Additive optional
+  (nullable) fields may stay within the current version (basetool ADR-0008 evolution
+  rule — precedent: `capturedAt` on `sourceImages`, 2026-06-11); mirror them in the
+  basetool's DTOs/spec and BOTH repos' contract tests in the same change.
 - **the released version** → don't edit it anywhere by hand; it comes from the git tag
   (see *Releases*). CI sets `project.version`, the `generateBuildInfo` task writes it into
   the generated `BuildInfo.VERSION`, and `BlueprintExtractor.TOOL_VERSION` (CLI banner +
