@@ -188,4 +188,68 @@ class FilePickerTest {
             dir.deleteRecursively()
         }
     }
+
+    @Test
+    fun `resolveTypedPath normalizes pasted-path variants`() {
+        // canonicalFile so expected values can't differ from resolved ones via 8dot3 short names
+        val dir = tempDir().canonicalFile
+        try {
+            val sub = File(dir, "sub").apply { mkdirs() }
+            val expected = sub.absolutePath
+
+            // forward slashes (paths copied from configs / the web)
+            assertEquals(expected, resolveTypedPath(expected.replace('\\', '/'), PickerMode.FOLDER)?.dir?.absolutePath)
+            // trailing separator
+            assertEquals(expected, resolveTypedPath(expected + File.separator, PickerMode.FOLDER)?.dir?.absolutePath)
+            // single quotes (PowerShell-style copy)
+            assertEquals(expected, resolveTypedPath("'$expected'", PickerMode.FOLDER)?.dir?.absolutePath)
+            // file:// URI (browser / Explorer address bar)
+            assertEquals(expected, resolveTypedPath(sub.toURI().toString(), PickerMode.FOLDER)?.dir?.absolutePath)
+            // multi-line paste -> the first non-blank line wins
+            assertEquals(expected, resolveTypedPath("\n$expected\nC:\\somewhere\\else", PickerMode.FOLDER)?.dir?.absolutePath)
+            // a bare drive letter means the drive root, not the process CWD on that drive
+            val root = File.listRoots().first()
+            assertEquals(root.absolutePath, resolveTypedPath(root.path.removeSuffix(File.separator), PickerMode.FOLDER)?.dir?.absolutePath)
+            // ~ -> user home
+            assertEquals(
+                File(System.getProperty("user.home")).absolutePath,
+                resolveTypedPath("~", PickerMode.FOLDER)?.dir?.absolutePath,
+            )
+            // pasting a directory in SAVE mode navigates without touching the filename
+            val savedDir = resolveTypedPath(expected, PickerMode.SAVE_FILE)
+            assertEquals(expected, savedDir?.dir?.absolutePath)
+            assertNull(savedDir?.fileName)
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `resolveTypedPath resolves relative input against a base directory`() {
+        val dir = tempDir().canonicalFile
+        try {
+            val sub = File(dir, "sub").apply { mkdirs() }
+            // a bare folder name typed into the path bar
+            assertEquals(sub.absolutePath, resolveTypedPath("sub", PickerMode.FOLDER, base = dir)?.dir?.absolutePath)
+            // dot segments canonicalize away (clean breadcrumb)
+            assertEquals(dir.absolutePath, resolveTypedPath("..", PickerMode.FOLDER, base = sub)?.dir?.absolutePath)
+            assertEquals(sub.absolutePath, resolveTypedPath("sub\\..\\sub", PickerMode.FOLDER, base = dir)?.dir?.absolutePath)
+            // without a base, a bare name is not resolvable
+            assertNull(resolveTypedPath("no-such-dir-xyz", PickerMode.FOLDER))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `normalizePathInput expands env vars and home, keeps unknown vars literal`() {
+        val fakeEnv: (String) -> String? = { name -> if (name == "BASE") "C:\\base" else null }
+        assertEquals("C:\\base\\docs", normalizePathInput("%BASE%\\docs", fakeEnv))
+        assertEquals("%NOPE%\\docs", normalizePathInput("%NOPE%\\docs", fakeEnv))
+        assertEquals("C:\\base", normalizePathInput("  \"%BASE%\"  ", fakeEnv))
+        assertEquals("C:\\", normalizePathInput("C:", fakeEnv))
+        assertEquals(System.getProperty("user.home"), normalizePathInput("~", fakeEnv))
+        assertEquals(System.getProperty("user.home") + "\\sub", normalizePathInput("~\\sub", fakeEnv))
+        assertEquals("", normalizePathInput("   ", fakeEnv))
+    }
 }
