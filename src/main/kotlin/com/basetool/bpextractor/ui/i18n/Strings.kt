@@ -250,6 +250,8 @@ class Strings(
     val pickerOverwrite: String,
     val pickerInvalidName: String,
     val pickerCreateFailed: String,
+    val pickerPathPlaceholder: String,
+    val pickerPathNotFound: String,
 )
 
 /** German catalogue — the default language. */
@@ -513,6 +515,8 @@ val StringsDe = Strings(
     pickerOverwrite = "Datei existiert bereits — wird überschrieben.",
     pickerInvalidName = "Ungültiger Dateiname.",
     pickerCreateFailed = "Ordner konnte nicht angelegt werden.",
+    pickerPathPlaceholder = "Pfad eingeben oder einfügen…",
+    pickerPathNotFound = "Pfad existiert nicht oder ist nicht erreichbar.",
 )
 
 /** English catalogue — full parity with [StringsDe]. */
@@ -776,6 +780,8 @@ val StringsEn = Strings(
     pickerOverwrite = "File already exists — will be overwritten.",
     pickerInvalidName = "Invalid file name.",
     pickerCreateFailed = "Could not create the folder.",
+    pickerPathPlaceholder = "Type or paste a path…",
+    pickerPathNotFound = "Path does not exist or is not reachable.",
 )
 
 /** Resolve the catalogue for a language. */

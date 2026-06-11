@@ -34,6 +34,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -41,6 +42,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -49,18 +51,24 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import com.basetool.bpextractor.ui.i18n.Strings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.net.URI
+import java.net.URLDecoder
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -190,21 +198,76 @@ data class TypedPath(val dir: File?, val fileName: String?)
 
 /**
  * Resolve a typed/pasted [text] into a target directory (and, in SAVE_FILE mode, a filename).
- * Strips surrounding quotes — Windows Explorer's "Copy as path" wraps the path in `"`. Returns a
- * [TypedPath] with `dir == null` for empty input (drive roots), or null if it can't resolve to an
- * existing directory. Read-only — never creates or writes anything. The picker's filter field
- * doubles as the path entry point: pressing Enter on a pasted path navigates there.
+ * Input is normalized first (see [normalizePathInput]); relative input resolves against [base]
+ * when one is given (the path bar passes the current directory, the filter field doesn't).
+ * Returns a [TypedPath] with `dir == null` for empty input (drive roots), or null if it can't
+ * resolve to an existing directory — the caller surfaces that as an input error. A path that
+ * names a *file* resolves to its parent directory. Read-only — never creates or writes anything.
  */
-fun resolveTypedPath(text: String, mode: PickerMode): TypedPath? {
-    val raw = text.trim().removeSurrounding("\"").trim()
+fun resolveTypedPath(text: String, mode: PickerMode, base: File? = null): TypedPath? {
+    val raw = normalizePathInput(text)
     if (raw.isEmpty()) return TypedPath(null, null)
-    val f = File(raw)
+    val typed = File(raw)
+    val f = when {
+        typed.isAbsolute -> typed
+        base != null && isPlainRelative(raw) -> File(base, raw)
+        else -> typed
+    }
     return when {
-        f.isDirectory -> TypedPath(f, null)
+        f.isDirectory -> TypedPath(tidyDir(f), null)
         f.parentFile?.isDirectory == true ->
-            TypedPath(f.parentFile, if (mode == PickerMode.SAVE_FILE && f.name.isNotBlank()) f.name else null)
+            TypedPath(tidyDir(f.parentFile), if (mode == PickerMode.SAVE_FILE && f.name.isNotBlank()) f.name else null)
         else -> null
     }
+}
+
+/**
+ * Normalize raw path-bar input into something [File] understands. Handles, in order: the first
+ * non-blank line of a multi-line paste; surrounding double quotes (Explorer's "Copy as path") or
+ * single quotes (PowerShell); `file:` URIs (browser / Explorer address bar); the `~` home
+ * shorthand; `%VAR%` environment variables (unknown ones stay literal); and a bare drive letter
+ * (`C:` -> `C:\`, which [File] would otherwise treat as "the process working directory on C:").
+ * [env] is injectable for tests.
+ */
+internal fun normalizePathInput(text: String, env: (String) -> String? = System::getenv): String {
+    var s = text.lineSequence().firstOrNull { it.isNotBlank() }?.trim() ?: return ""
+    s = s.removeSurrounding("\"").removeSurrounding("'").trim()
+    if (s.startsWith("file:", ignoreCase = true)) s = fileUriToPath(s)
+    if (s == "~") {
+        s = System.getProperty("user.home")
+    } else if (s.startsWith("~\\") || s.startsWith("~/")) {
+        s = System.getProperty("user.home") + s.substring(1)
+    }
+    s = ENV_VAR.replace(s) { m -> env(m.groupValues[1]) ?: m.value }
+    if (DRIVE_ONLY.matches(s)) s += "\\"
+    return s.trim()
+}
+
+private val ENV_VAR = Regex("%([^%]+)%")
+private val DRIVE_ONLY = Regex("[A-Za-z]:")
+
+/** `file:` URI -> filesystem path; tolerates UNC authorities and unencoded characters. */
+private fun fileUriToPath(uri: String): String {
+    runCatching { return File(URI(uri)).path }
+    val body = uri.substring("file:".length)
+    // URLDecoder would turn a literal '+' into a space — shield it before decoding.
+    val decoded = runCatching { URLDecoder.decode(body.replace("+", "%2B"), Charsets.UTF_8) }.getOrDefault(body)
+    return when {
+        // file://server/share -> UNC \\server\share (File(URI) rejects authorities)
+        decoded.startsWith("//") && !decoded.startsWith("///") -> "\\\\" + decoded.removePrefix("//")
+        else -> decoded.trimStart('/')
+    }
+}
+
+/** True when [path] has no drive prefix and no leading separator — i.e. relative to the current dir. */
+private fun isPlainRelative(path: String): Boolean =
+    !path.startsWith("\\") && !path.startsWith("/") && !(path.length >= 2 && path[1] == ':')
+
+/** Absolute form of [f] for clean breadcrumbs; canonicalized only when `.`/`..` segments remain. */
+private fun tidyDir(f: File?): File? {
+    val abs = f?.absoluteFile ?: return null
+    val hasDots = abs.path.split('\\', '/').any { it == "." || it == ".." }
+    return if (hasDots) runCatching { abs.canonicalFile }.getOrDefault(abs) else abs
 }
 
 /** Roots report an empty name (`File("C:\\").name == ""`) — fall back to the path so they show. */
@@ -242,12 +305,14 @@ private fun quickAccess(strings: Strings): List<Pair<String, File>> {
 /**
  * KRT-styled, in-app file/folder browser shown as a modal overlay (`REDESIGN_IMPLEMENTATION.md`
  * §10) — never a native OS dialog. Layout: header · toolbar (parent-folder button, clickable
- * breadcrumb, filter field that also accepts a pasted path, new-folder in SAVE mode) ·
- * quick-access/drives sidebar + sortable folders-first list (type icons, size, date) · footer
- * with the filename field (SAVE: overwrite warning + name validation) or the selected path
- * (FOLDER), and the one orange CTA. Keyboard: Esc closes, Enter confirms, Backspace goes up.
- * FOLDER mode shows files dimmed and unselectable. Browsing is read-only; the only write is the
- * explicit new-folder action.
+ * breadcrumb that doubles as an editable path bar — click its free area or Ctrl+L, then type or
+ * paste a path and press Enter; an unresolvable path shows an inline error — filter field that
+ * also accepts a pasted path, new-folder in SAVE mode) · quick-access/drives sidebar + sortable
+ * folders-first list (type icons, size, date) · footer with the filename field (SAVE: overwrite
+ * warning + name validation) or the selected path (FOLDER), and the one orange CTA. Keyboard:
+ * Esc closes, Enter confirms, Backspace goes up, Ctrl+L edits the path. FOLDER mode shows files
+ * dimmed and unselectable. Browsing is read-only; the only write is the explicit new-folder
+ * action.
  */
 @Composable
 fun FilePickerDialog(
@@ -272,6 +337,10 @@ fun FilePickerDialog(
     var newFolderOpen by remember { mutableStateOf(false) }
     var createError by remember { mutableStateOf(false) }
     var reloadTick by remember { mutableStateOf(0) }
+    var pathEditing by remember { mutableStateOf(false) }
+    var pathError by remember { mutableStateOf(false) }
+    var pathResolving by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
 
     // List off the UI thread so a slow/network directory never janks composition.
     LaunchedEffect(currentDir, reloadTick) {
@@ -285,6 +354,24 @@ fun FilePickerDialog(
         query = ""
         createError = false
         newFolderOpen = false
+        pathError = false
+    }
+
+    // Resolve off the UI thread: File.isDirectory on an unreachable UNC path can block for seconds.
+    fun commitTypedPath(text: String) {
+        if (pathResolving) return
+        pathResolving = true
+        scope.launch {
+            val resolved = withContext(Dispatchers.IO) { resolveTypedPath(text, mode, currentDir) }
+            pathResolving = false
+            if (resolved == null) {
+                pathError = true
+            } else {
+                navigateTo(resolved.dir)
+                resolved.fileName?.let { fileName = it }
+                pathEditing = false
+            }
+        }
     }
 
     val entries = (listing as? Listing.Ok)?.entries.orEmpty()
@@ -317,7 +404,8 @@ fun FilePickerDialog(
     }
 
     val rootFocus = remember { FocusRequester() }
-    LaunchedEffect(Unit) { rootFocus.requestFocus() }
+    // Also refocuses the dialog after the path-edit field closes, so Esc/Backspace work again.
+    LaunchedEffect(pathEditing) { if (!pathEditing) rootFocus.requestFocus() }
     val swallow = remember { MutableInteractionSource() }
 
     Box(
@@ -345,6 +433,15 @@ fun FilePickerDialog(
                     Key.Backspace -> {
                         goUp()
                         true
+                    }
+                    Key.L -> {
+                        // Ctrl+L (Explorer/browser convention): edit the path bar.
+                        if (e.isCtrlPressed) {
+                            pathEditing = true
+                            true
+                        } else {
+                            false
+                        }
                     }
                     else -> false
                 }
@@ -419,7 +516,26 @@ fun FilePickerDialog(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 PickerSquareButton("↑", strings.pickerParentFolder, enabled = currentDir != null, onClick = ::goUp)
-                Breadcrumb(currentDir, onNavigate = ::navigateTo, modifier = Modifier.weight(1f))
+                if (pathEditing) {
+                    PathEditField(
+                        initialPath = currentDir?.absolutePath ?: "",
+                        error = pathError,
+                        onEdited = { pathError = false },
+                        onCommit = ::commitTypedPath,
+                        onCancel = {
+                            pathEditing = false
+                            pathError = false
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    Breadcrumb(
+                        currentDir,
+                        onNavigate = ::navigateTo,
+                        onEdit = { pathEditing = true },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
                 FilterField(
                     value = query,
                     onValueChange = { query = it },
@@ -437,6 +553,19 @@ fun FilePickerDialog(
                         newFolderOpen = true
                         createError = false
                     }
+                }
+            }
+
+            // Input error from the path bar: the typed/pasted path didn't resolve.
+            if (pathError) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Krt.Danger.copy(alpha = 0.08f))
+                        .drawBehind { drawLine(Krt.Gray3, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
+                        .padding(horizontal = 12.dp, vertical = 4.dp),
+                ) {
+                    Text(strings.pickerPathNotFound, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
                 }
             }
 
@@ -689,16 +818,29 @@ private fun PickerSquareButton(
     }
 }
 
-/** The clickable breadcrumb: Computer › C:\ › Users › … (horizontally scrollable). */
+/**
+ * The clickable breadcrumb: Computer › C:\ › Users › … (horizontally scrollable). Clicking its
+ * free area (the crumbs consume their own clicks) switches to the editable path bar, Explorer-
+ * style — Ctrl+L does the same; the hover border signals the affordance.
+ */
 @Composable
-private fun Breadcrumb(currentDir: File?, onNavigate: (File?) -> Unit, modifier: Modifier = Modifier) {
+private fun Breadcrumb(
+    currentDir: File?,
+    onNavigate: (File?) -> Unit,
+    onEdit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val strings = LocalStrings.current
     val chain = remember(currentDir) { parentChain(currentDir) }
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
     Row(
         modifier = modifier
             .height(32.dp)
             .background(Krt.SurfaceInput)
-            .border(1.dp, Krt.Gray3)
+            .border(1.dp, if (hovered) Krt.Orange else Krt.Gray3)
+            .hoverable(interaction)
+            .clickable(interactionSource = interaction, indication = null, onClick = onEdit)
             .horizontalScroll(rememberScrollState())
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -707,6 +849,73 @@ private fun Breadcrumb(currentDir: File?, onNavigate: (File?) -> Unit, modifier:
         chain.forEachIndexed { index, segment ->
             Text("›", style = MaterialTheme.typography.bodySmall, color = Krt.Gray3, modifier = Modifier.padding(horizontal = 2.dp))
             CrumbButton(displayName(segment), active = index == chain.lastIndex) { onNavigate(segment) }
+        }
+    }
+}
+
+/**
+ * The breadcrumb's edit mode: a path field pre-filled with the current directory, fully selected
+ * so a paste replaces it in one go. Enter resolves and navigates (async — see commitTypedPath),
+ * Esc or losing focus reverts to the breadcrumb. While [error] is set the border turns red and
+ * the input stays for correction; any edit clears the error via [onEdited].
+ */
+@Composable
+private fun PathEditField(
+    initialPath: String,
+    error: Boolean,
+    onEdited: () -> Unit,
+    onCommit: (String) -> Unit,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val strings = LocalStrings.current
+    var value by remember { mutableStateOf(TextFieldValue(initialPath, selection = TextRange(0, initialPath.length))) }
+    val focus = remember { FocusRequester() }
+    // Only cancel on focus LOSS, not on the initial unfocused state before requestFocus lands.
+    var hadFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    Row(
+        modifier = modifier
+            .height(32.dp)
+            .background(Krt.SurfaceInput)
+            .border(1.dp, if (error) Krt.Danger else Krt.Orange)
+            .padding(horizontal = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.weight(1f)) {
+            if (value.text.isEmpty()) {
+                Text(strings.pickerPathPlaceholder, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+            }
+            BasicTextField(
+                value = value,
+                onValueChange = {
+                    value = it
+                    if (error) onEdited()
+                },
+                singleLine = true,
+                textStyle = KrtDataStyle.copy(color = Krt.White),
+                cursorBrush = SolidColor(Krt.Orange),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focus)
+                    .onFocusChanged { state ->
+                        if (state.isFocused) hadFocus = true else if (hadFocus) onCancel()
+                    }
+                    .onPreviewKeyEvent { e ->
+                        if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (e.key) {
+                            Key.Enter, Key.NumPadEnter -> {
+                                onCommit(value.text)
+                                true
+                            }
+                            Key.Escape -> {
+                                onCancel()
+                                true
+                            }
+                            else -> false
+                        }
+                    },
+            )
         }
     }
 }
