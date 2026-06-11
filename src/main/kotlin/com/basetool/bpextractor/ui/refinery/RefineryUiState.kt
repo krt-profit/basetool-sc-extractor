@@ -92,6 +92,9 @@ class RefineryUiState(
 
     // --- §5.2 images ---
     var folder by mutableStateOf("")
+
+    /** The path the loaded [images] reflect — guards the auto-load from rescanning the same dir. */
+    var loadedFolder by mutableStateOf<String?>(null)
     val images = mutableStateListOf<RefineryImage>()
     var imagesNote by mutableStateOf<String?>(null)
     var loadingImages by mutableStateOf(false)
@@ -192,6 +195,7 @@ class RefineryUiState(
     /** Load every PNG/JPG of [path] (1 folder = 1 order): native size + crop tag + thumbnail. */
     fun loadFolder(scope: CoroutineScope, path: String) {
         folder = path
+        loadedFolder = path
         loadingImages = true
         imagesNote = null
         images.clear()
@@ -298,6 +302,7 @@ class RefineryUiState(
     /** Reset images/extraction/export for a fresh run, keeping the preflight results (§5.5). */
     fun newExtraction() {
         folder = ""
+        loadedFolder = null
         images.clear()
         imagesNote = null
         running = false

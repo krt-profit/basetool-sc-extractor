@@ -20,6 +20,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -35,6 +36,8 @@ import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import java.io.File
 
 /**
  * §5.2 Bilder laden on the [StepScaffold]: the "1 folder = 1 order" framing, a folder bar, the
@@ -45,6 +48,17 @@ import kotlinx.coroutines.CoroutineScope
 @Composable
 fun ImagesStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (PickerRequest) -> Unit) {
     val strings = LocalStrings.current
+
+    // Mirror the file-picker for typed/pasted paths: once the path settles on an existing
+    // directory it loads automatically (debounced so we don't rescan on every keystroke).
+    // loadedFolder guards against re-scanning a path the picker just loaded.
+    LaunchedEffect(state.folder) {
+        val path = state.folder
+        if (path.isNotBlank() && path != state.loadedFolder && File(path).isDirectory) {
+            delay(400)
+            if (path == state.folder) state.loadFolder(appScope, path)
+        }
+    }
 
     StepScaffold(
         overline = strings.rfStepOverline(2),
