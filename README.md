@@ -311,6 +311,7 @@ basetool-bp-extractor/
 │   ├── Main.kt                       # Compose-GUI (Tabs/Shell) + CLI-Einstieg
 │   ├── BlueprintParser.kt            # Blueprint-Zeilen-Parsing (Kern)
 │   ├── BlueprintExtractor.kt         # Ordner-Scan, Aggregation, JSON
+│   ├── Legal.kt                      # Fankit-Pflichttexte (Markenhinweis, verbatim)
 │   ├── refinery/                     # Refinery-Pipeline (pur, ohne UI)
 │   │   ├── Locate.kt                 #   Panel-Detektion + Normalisierung (CV)
 │   │   ├── PanelReader.kt / PanelRead.kt  # VLM-Read + Markdown-Reformat
@@ -325,15 +326,18 @@ basetool-bp-extractor/
 │   ├── ui/StepScaffold.kt            # Schritt-Gerüst: Kopf · Scroll-Body · Footer-CTA
 │   ├── ui/StartScreen.kt             # Launcher (Workflow-Karten)
 │   ├── ui/RefineryScreen.kt          # Refinery-Workflow-Host (5 Schritte)
-│   ├── ui/refinery/                  # die fünf Refinery-Screens + UI-State
+│   ├── ui/refinery/                  # die fünf Refinery-Screens, UI-State (Bild-Auswahl),
+│   │                                 #   ImageIntake (Strg+V-/Drag&Drop-Aufnahme)
+│   ├── ui/FilePicker.kt              # KRT-Datei-/Ordner-Picker (keine nativen Dialoge)
 │   ├── ui/i18n/Strings.kt            # DE/EN-Stringkatalog
 │   ├── ui/WindowChrome.kt            # undekorierte Titelleiste + Fenster-Buttons
 │   └── model/Models.kt               # Blueprint-JSON-Datenmodelle
-├── src/main/resources/               # Fonts (Lato), app.ico, Prompt v1,
-│                                     #   honeycomb-bg.svg, icons/krt-icon.png
+├── src/main/resources/               # Fonts (Lato), app.ico, Prompt v1, honeycomb-bg.svg,
+│                                     #   icons/krt-icon.png, MadeByTheCommunity-Logo
 ├── src/test/kotlin/…                 # Unit-Tests
 ├── src/test/resources/sample.log     # Test-Fixture (Edge-Cases)
 ├── docs/refinery-extractor/          # Phase-0-Findings (Modell-Bake-off etc.)
+├── docs/img/                         # README-Bilder (Made-by-the-Community-Logo)
 └── game-log/                         # private Beispiel-Logs (nicht im Repo)
 ```
 
