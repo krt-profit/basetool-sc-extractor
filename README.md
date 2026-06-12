@@ -45,6 +45,25 @@ Startmenü, Desktop-Verknüpfung).
 > Ein separates Java/JRE muss **nicht** installiert werden — die Laufzeit ist im
 > Installer enthalten.
 
+### Updates
+
+Beim Start prüft die App (nur die GUI, nicht der Skript-Modus) still auf
+[GitHub-Releases](https://github.com/krt-iri/basetool-bp-extractor/releases). Gibt
+es eine neuere Version, erscheint auf der Start-Seite ein Banner mit
+**Herunterladen & installieren**:
+
+1. Der MSI-Installer wird in einen temporären Ordner heruntergeladen (nie in den
+   Installationsordner) und per Größe + SHA-256-Checksumme verifiziert.
+2. Der Installer startet, die App beendet sich, damit das Update den
+   Programmordner ersetzen kann.
+3. **Nach der Installation wird die Update-Datei automatisch wieder gelöscht** —
+   auch bei einem abgebrochenen Setup bleibt nichts zurück.
+
+**Später** blendet das Angebot für die laufende Sitzung aus. Abgerufen werden
+ausschließlich die Release-Metadaten von GitHub; es werden keine Nutzungsdaten
+gesendet. Ohne Internetverbindung passiert nichts — die Prüfung schlägt still
+fehl und die App startet normal.
+
 ### Benutzen — Blueprints
 
 1. App starten und auf der Start-Seite **Blueprints** öffnen.

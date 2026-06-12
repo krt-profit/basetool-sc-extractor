@@ -101,15 +101,30 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   `writeJson`. No line-level parsing here.
 - **`model/Models.kt`** — `@Serializable` data classes (`BlueprintEvent`,
   `PlayerSummary`, `BlueprintExport`). The exported JSON *is* this shape.
+- **`update/UpdateChecker.kt`** — the GUI's startup update check against this repo's
+  GitHub releases (`releases/latest`; the CLI never checks). Pure/testable parts:
+  version compare, release-JSON parsing, MSI-asset selection, installer-command
+  construction. Thin I/O: silent fetch (any failure ⇒ no offer), download into a fixed
+  folder under `%TEMP%` — never the install dir (guardrail 2) and deliberately NOT the
+  `ImageIntake` session temp dir, whose shutdown hook would delete the MSI out from
+  under the installer — with size + SHA-256 verification, then a detached hidden
+  PowerShell helper (`INSTALLER_SCRIPT`) runs `msiexec /i` after the app exits and
+  deletes the MSI, itself and the folder again; `cleanupLeftovers()` sweeps that folder
+  on every GUI start as the crash fallback. Only release metadata is fetched; nothing
+  is uploaded.
 - **`Main.kt`** — entry point. No args ⇒ Compose GUI (`guiMain`); args ⇒ `runCli`. Keep
   the GUI a thin shell over `BlueprintExtractor`; business logic stays in the parser/
-  extractor so tests cover it without a UI.
+  extractor so tests cover it without a UI. `guiMain` also owns the update flow state
+  (check on start, download with progress, launch installer, exit).
 - **`ui/`** — `Theme.kt` (KRT brand tokens), `KrtComponents.kt` (HUD components),
   `WindowChrome.kt` (custom undecorated title bar), `Navigation.kt` (`CommandStrip`:
   Top-Tabs + the active workflow's inline stepper in ONE band, plus the DE/EN toggle),
   `StepScaffold.kt` (compact `SectionHead` · growing scrollable body · pinned footer —
   every workflow screen sits on it; the primary CTA always lives in the footer),
   `StartScreen.kt` (launcher — the only screen with the big `GreetingHeader`),
+  `UpdateBanner.kt` (the start screen's update offer: `UpdateUiState`
+  Hidden/Available/Downloading/Installing/Failed; install is that screen's one filled
+  CTA, "Später" hides it for the session — no persisted skip, the app stays stateless),
   `RefineryScreen.kt` (refinery workflow surface), `refinery/` (the five step screens +
   `RefineryUiState` — per-image checkboxes decide which images get extracted; while the
   images step is on screen the picked folder is polled once per second
