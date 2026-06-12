@@ -38,6 +38,17 @@ class Strings(
     val rfCardBullets: List<String>,
     val unofficialChip: String,
 
+    // --- update check (start-screen banner) ---
+    val updTitle: String,
+    val updBody: (String, String) -> String,
+    val updSize: (String) -> String,
+    val updInstall: String,
+    val updLater: String,
+    val updDownloading: String,
+    val updInstalling: String,
+    val updFailed: (String) -> String,
+    val updRetry: String,
+
     // --- blueprint workflow ---
     val bpSteps: List<String>,
     val bpAgain: String,
@@ -301,6 +312,16 @@ val StringsDe = Strings(
         "Läuft lokal über Ollama · nichts wird hochgeladen",
     ),
     unofficialChip = "Inoffizielles Fan-Tool",
+
+    updTitle = "Update verfügbar",
+    updBody = { new, current -> "Version $new ist auf GitHub veröffentlicht — installiert ist v$current." },
+    updSize = { mb -> "≈ $mb MB" },
+    updInstall = "Herunterladen & installieren",
+    updLater = "Später",
+    updDownloading = "Update wird heruntergeladen…",
+    updInstalling = "Installer gestartet — die App wird jetzt beendet. Die Update-Datei wird nach der Installation automatisch gelöscht.",
+    updFailed = { msg -> "Update fehlgeschlagen: $msg" },
+    updRetry = "Erneut versuchen",
 
     bpSteps = listOf("Konfiguration", "Extraktion", "Zusammenf."),
     bpAgain = "Erneut",
@@ -585,6 +606,16 @@ val StringsEn = Strings(
         "Runs locally via Ollama · nothing is uploaded",
     ),
     unofficialChip = "Unofficial fan tool",
+
+    updTitle = "Update available",
+    updBody = { new, current -> "Version $new has been released on GitHub — installed is v$current." },
+    updSize = { mb -> "≈ $mb MB" },
+    updInstall = "Download & install",
+    updLater = "Later",
+    updDownloading = "Downloading update…",
+    updInstalling = "Installer launched — the app will close now. The update file is deleted automatically after the installation.",
+    updFailed = { msg -> "Update failed: $msg" },
+    updRetry = "Try again",
 
     bpSteps = listOf("Setup", "Extract", "Summary"),
     bpAgain = "Again",

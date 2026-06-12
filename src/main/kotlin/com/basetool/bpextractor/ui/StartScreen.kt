@@ -38,13 +38,23 @@ import com.basetool.bpextractor.ui.refinery.KrtChip
  * open action, so there is no padded void. The fan-kit footer is global and lives outside.
  */
 @Composable
-fun StartScreen(onOpen: (MainTab) -> Unit) {
+fun StartScreen(
+    update: UpdateUiState,
+    onUpdateInstall: () -> Unit,
+    onUpdateDismiss: () -> Unit,
+    onOpen: (MainTab) -> Unit,
+) {
     val strings = LocalStrings.current
     val honeycomb = rememberHoneycombPainter()
     Box(modifier = Modifier.fillMaxSize().background(Krt.Black).tiled(honeycomb)) {
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 16.dp)) {
             GreetingHeader(title = strings.startTitle, subtitle = strings.startSubtitle)
             Spacer(Modifier.height(14.dp))
+            // The update offer (hidden unless a newer GitHub release was found at startup).
+            if (update !is UpdateUiState.Hidden) {
+                UpdateBanner(state = update, onInstall = onUpdateInstall, onDismiss = onUpdateDismiss)
+                Spacer(Modifier.height(14.dp))
+            }
             Text(
                 strings.startChooseWorkflow.uppercase(),
                 style = MaterialTheme.typography.labelMedium,

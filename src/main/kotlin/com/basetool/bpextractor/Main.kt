@@ -68,6 +68,7 @@ import com.basetool.bpextractor.ui.ResizeCorner
 import com.basetool.bpextractor.ui.StartScreen
 import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.StepScaffold
+import com.basetool.bpextractor.ui.UpdateUiState
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.refinery.AlertBox
 import com.basetool.bpextractor.ui.refinery.KrtChip
@@ -78,6 +79,8 @@ import com.basetool.bpextractor.ui.i18n.stringsFor
 import com.basetool.bpextractor.ui.refinery.RefineryUiState
 import com.basetool.bpextractor.ui.rememberHoneycombPainter
 import com.basetool.bpextractor.ui.tiled
+import com.basetool.bpextractor.update.UpdateChecker
+import com.basetool.bpextractor.update.UpdateInfo
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -833,6 +836,42 @@ private fun guiMain() = application {
     // scope remembered inside them. Hoisted above the Window so the window-level paste handler
     // below can launch on it too.
     val appScope = rememberCoroutineScope()
+
+    // One silent update check per GUI start (the CLI never checks): sweep leftovers of a previous
+    // update helper, then ask GitHub for the latest release. Any failure — offline, rate-limited,
+    // no releases — just keeps the banner hidden; the check must never block or break the app.
+    var update by remember { mutableStateOf<UpdateUiState>(UpdateUiState.Hidden) }
+    LaunchedEffect(Unit) {
+        val found = withContext(Dispatchers.IO) {
+            UpdateChecker.cleanupLeftovers()
+            UpdateChecker.checkForUpdate(BlueprintExtractor.TOOL_VERSION)
+        }
+        if (found != null) {
+            update = UpdateUiState.Available(found)
+        }
+    }
+
+    // Download the MSI to the temp update dir, hand it to the detached installer helper and quit —
+    // msiexec can only replace the install dir once the app has exited. The helper deletes the
+    // update file (and itself) again after the installation; see UpdateChecker.INSTALLER_SCRIPT.
+    fun installUpdate(info: UpdateInfo) {
+        update = UpdateUiState.Downloading(info, 0L, info.msiSizeBytes)
+        appScope.launch {
+            try {
+                val msi = withContext(Dispatchers.IO) {
+                    UpdateChecker.downloadMsi(info) { done, total ->
+                        appScope.launch { update = UpdateUiState.Downloading(info, done, total) }
+                    }
+                }
+                update = UpdateUiState.Installing(info)
+                withContext(Dispatchers.IO) { UpdateChecker.launchInstaller(msi) }
+                exitApplication()
+            } catch (t: Throwable) {
+                update = UpdateUiState.Failed(info, t.message ?: t::class.simpleName ?: "I/O")
+            }
+        }
+    }
+
     Window(
         onCloseRequest = ::exitApplication,
         title = "Basetool SC Extractor",
@@ -904,7 +943,18 @@ private fun guiMain() = application {
                         )
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             when (tab) {
-                                MainTab.START -> StartScreen(onOpen = { tab = it })
+                                MainTab.START -> StartScreen(
+                                    update = update,
+                                    onUpdateInstall = {
+                                        when (val u = update) {
+                                            is UpdateUiState.Available -> installUpdate(u.info)
+                                            is UpdateUiState.Failed -> installUpdate(u.info)
+                                            else -> {}
+                                        }
+                                    },
+                                    onUpdateDismiss = { update = UpdateUiState.Hidden },
+                                    onOpen = { tab = it },
+                                )
                                 MainTab.BLUEPRINTS -> ExtractorScreen(state, appScope)
                                 MainTab.REFINERY -> RefineryScreen(refinery, appScope, onPicker = { state.picker = it })
                             }
