@@ -31,7 +31,8 @@ class PanelReader(
     /**
      * Read the refinery location from the terminal-header strip (the second read region — the
      * location sits OUTSIDE the work-order panel and is lost on pre-cropped input). 9/9 exact on
-     * the Phase 0 golden set at ~3 output tokens.
+     * the Phase 0 golden set at ~3 output tokens; the location expectations live in the
+     * golden-expected file of the [PromptSmokeTest] sweep.
      */
     fun readLocation(imageB64: String): String? {
         val result = ollama.chat(model, LOCATION_PROMPT, imageB64, NUM_PREDICT_LOCATION, KEEP_ALIVE_BATCH, numGpu)
@@ -49,11 +50,14 @@ class PanelReader(
             .bufferedReader()
             .readText()
 
+        // No example location in the prompt: with an empty/dark strip the model parrots the
+        // example instead of NONE (hallucinated LEVSKI on the Auftrag 8/9 ultrawide captures).
         private val LOCATION_PROMPT = """
-            This is the header bar of a Star Citizen refinement terminal.
-            It shows the station/outpost name on the left (e.g. LEVSKI).
-            Reply with ONLY that name, verbatim and uppercase. Ignore everything else.
-            If no name is visible, reply NONE.
+            This is the header area of a Star Citizen refinement terminal.
+            It shows the station/outpost name as the most prominent text on the left.
+            Reply with ONLY that name, verbatim and uppercase.
+            Do not reply with UI labels such as REFINEMENT, REFINERY SYSTEM, WORK ORDER or PROFILE.
+            If no station/outpost name is readable, reply NONE — never guess.
         """.trimIndent()
 
 

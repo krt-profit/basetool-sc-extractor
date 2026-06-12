@@ -32,6 +32,11 @@ data class PreparedImage(
  * - **Owner-confirmed domain rule (2026-06-10):** with several panels side by side, the NEWEST
  *   order is always the LEFTMOST — candidates are returned left to right and callers take the
  *   first; the VLM read's panel type is a validation, never a selection mechanism.
+ * - **Three capture classes** (decided by shape, see [isPrecropped]): landscape full frames
+ *   (locate + the verified full-frame header-strip geometry for the location read), portrait
+ *   terminal-area crops — header + sidebar + panel, the Auftrag 10/12 class — (locate with a
+ *   relaxed strip-width ceiling + location from the crop's top-left strip), and narrow portrait
+ *   panel-only crops (skip Locate, no location anywhere — `cropMode = precropped`).
  * - **Normalize** always runs client-side (Ollama silently downscales > ~3.2 MP): crop from the
  *   native frame, resize to a long edge of [TARGET_LONG_EDGE] px (pre-cropped input capped at
  *   [PRECROP_MAX_DIM] — upscaling a ~500 px panel beyond ~2.4× only blurs), dimensions snapped
@@ -54,8 +59,15 @@ object Locate {
 
     private const val SCALE = 4
 
-    /** A pre-cropped panel image is small and portrait; a full frame is large landscape. */
-    fun isPrecropped(width: Int, height: Int): Boolean = width < 1000 && height > width
+    /**
+     * A pre-cropped panel image is small and NARROW portrait (golden-set panel-only crops are
+     * ~480–520×915–940, w/h ≈ 0.52–0.55). Squarer portrait captures of the whole terminal area
+     * — header bar + sidebar + panel, the Auftrag 10/12 class at ~910–970×1050–1090
+     * (w/h ≈ 0.84–0.89) — are NOT pre-cropped: they carry a locatable panel AND the location
+     * header, so they must go through Locate like a full frame.
+     */
+    fun isPrecropped(width: Int, height: Int): Boolean =
+        width < 1000 && height > width && width * 10 < height * 7
 
     /** The SETUP tab strip chrome: dark desaturated red, ~RGB(72,49,45) at 4K. */
     internal fun isMaroon(r: Int, g: Int, b: Int): Boolean =
@@ -74,6 +86,10 @@ object Locate {
         val w = small.width
         val h = small.height
         val maxGap = max(6, w / 80)
+        // Strip-width ceiling, frame-relative: on a (landscape) full frame the tab strip never
+        // nears half the screen, but on a portrait terminal-area crop (Auftrag 10/12 class) the
+        // panel — and its strip — legitimately spans well past 45% of the image width.
+        val maxRunW = (if (h > w) 0.75 else 0.45) * w
 
         // 1. Per row: gap-tolerant maroon runs of plausible strip width.
         data class RowRun(val y: Int, val x0: Int, val x1: Int)
@@ -88,7 +104,7 @@ object Locate {
                 val width = x1 - x0
                 var density = 0
                 for (x in x0..x1) if (matches[x]) density++
-                if (width >= 0.08 * w && width <= 0.45 * w && density.toDouble() / (width + 1) >= 0.35) {
+                if (width >= 0.08 * w && width <= maxRunW && density.toDouble() / (width + 1) >= 0.35) {
                     rowRuns += RowRun(y, x0, x1)
                 }
             }
@@ -156,6 +172,14 @@ object Locate {
             )
         }
 
+        // Drop sidebar look-alikes: the MATERIAL SELECTION box mimics BOTH anchors (dark-red
+        // USER DETAILS strip above an orange SETUP WORK ORDER button — the Auftrag 10 false
+        // positive that, as the leftmost candidate, would win the newest-order rule) but is
+        // far SHORTER than any work-order panel. Relative to the tallest candidate so the
+        // rule holds at any capture distance; a lone candidate is never dropped.
+        val tallest = boxes.maxOfOrNull { it.height } ?: 0
+        boxes.removeAll { it.height < 0.6 * tallest }
+
         // Merge near-duplicate candidates (overlapping clusters from split strips), keep
         // left-to-right order — the leftmost candidate is the extraction target.
         boxes.sortBy { it.x }
@@ -207,11 +231,22 @@ object Locate {
     /** Snap a dimension to the nearest multiple of 32 (≥ 32). */
     fun snap32(v: Int): Int = max(32, (v / 32.0).roundToInt() * 32)
 
-    /** Resize so the long edge hits the model sweet spot, dimensions snapped to /32. */
+    /**
+     * Resize so the long edge hits the model sweet spot, dimensions snapped to /32. The
+     * [PRECROP_MAX_DIM] cap applies only to small images of unknown provenance (= user
+     * pre-cropped panels); panels WE crop out of a larger frame go to the full
+     * [TARGET_LONG_EDGE] via the explicit-target overload — capping those starves them of
+     * resolution the source frame actually has (the Auftrag 10 digit regression).
+     */
     fun normalize(img: BufferedImage): BufferedImage {
         val longEdge = max(img.width, img.height)
         val target = if (longEdge < 1000) min(TARGET_LONG_EDGE, PRECROP_MAX_DIM) else TARGET_LONG_EDGE
-        val factor = target.toDouble() / longEdge
+        return normalize(img, target)
+    }
+
+    /** [normalize] to an explicit long-edge [target]. */
+    fun normalize(img: BufferedImage, target: Int): BufferedImage {
+        val factor = target.toDouble() / max(img.width, img.height)
         val nw = snap32(kotlin.math.ceil(img.width * factor).toInt())
         val nh = snap32(kotlin.math.ceil(img.height * factor).toInt())
         return resize(img, nw, nh)
@@ -237,17 +272,30 @@ object Locate {
             box.width.coerceAtMost(img.width - box.x),
             box.height.coerceAtMost(img.height - box.y),
         )
-        val fx = img.width / 3840.0
-        val fy = img.height / 2160.0
-        val loc = img.getSubimage(
-            (LOCATION_4K.x * fx).toInt(),
-            (LOCATION_4K.y * fy).toInt(),
-            (LOCATION_4K.width * fx).toInt().coerceAtMost(img.width - (LOCATION_4K.x * fx).toInt()),
-            (LOCATION_4K.height * fy).toInt().coerceAtMost(img.height - (LOCATION_4K.y * fy).toInt()),
-        )
+        val loc = if (img.height > img.width) {
+            // Portrait = a terminal-area crop (the game only renders landscape frames): the
+            // fixed full-frame header geometry does not apply — the header bar with the
+            // location name sits at the very top of the crop, the name on its left. The strip
+            // stops at 2/3 width to exclude the big REFINEMENT title on the right.
+            img.getSubimage(0, 0, img.width * 2 / 3, max(40, img.height / 10).coerceAtMost(img.height))
+        } else {
+            val fx = img.width / 3840.0
+            val fy = img.height / 2160.0
+            img.getSubimage(
+                (LOCATION_4K.x * fx).toInt(),
+                (LOCATION_4K.y * fy).toInt(),
+                (LOCATION_4K.width * fx).toInt().coerceAtMost(img.width - (LOCATION_4K.x * fx).toInt()),
+                (LOCATION_4K.height * fy).toInt().coerceAtMost(img.height - (LOCATION_4K.y * fy).toInt()),
+            )
+        }
         // The location strip is small text — a 2× upscale puts it in the model's sweet spot.
         val locNorm = resize(loc, snap32(loc.width * 2), snap32(loc.height * 2))
-        return PreparedImage(normalize(panel), locNorm, box, "vlm")
+        // Our own crop from a known frame: aim at the sweet spot but never upscale beyond
+        // ~1.4× — blowing a small panel up further degrades the digit reads (measured on the
+        // Auftrag 12 terminal-area crop: 1.65× turned a clean 510 into 518), while capping at
+        // PRECROP_MAX_DIM starves it below what the source frame carries (Auftrag 10, 105→185).
+        val readTarget = min(TARGET_LONG_EDGE, (max(panel.width, panel.height) * 1.4).toInt())
+        return PreparedImage(normalize(panel, readTarget), locNorm, box, "vlm")
     }
 
     /** Gap-tolerant contiguous runs over a boolean row (gaps = strip text holes). */

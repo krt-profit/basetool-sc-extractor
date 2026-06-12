@@ -112,8 +112,67 @@ class LocateTest {
     @Test
     fun `precropped detection matches the golden-set shapes`() {
         assertTrue(Locate.isPrecropped(500, 1500), "a ~500px portrait panel crop")
+        assertTrue(Locate.isPrecropped(518, 934), "Auftrag 3: narrow portrait panel-only crop")
         assertFalse(Locate.isPrecropped(3840, 2160), "a full 4K frame")
         assertFalse(Locate.isPrecropped(990, 700), "small but landscape is not a panel crop")
+        // Squarer portrait crops of the whole terminal area carry the header + a locatable
+        // panel — they must go through Locate, not the precropped shortcut.
+        assertFalse(Locate.isPrecropped(914, 1053), "Auftrag 12: terminal-area crop")
+        assertFalse(Locate.isPrecropped(969, 1090), "Auftrag 10: terminal-area crop")
+    }
+
+    @Test
+    fun `terminal-area crop - panel located despite a strip wider than the full-frame ceiling`() {
+        // The Auftrag 10/12 class: a ~914×1053 portrait crop of the terminal area. The panel's
+        // tab strip spans nearly the full panel width — more than 45% of the IMAGE width (the
+        // full-frame ceiling), so this only locates with the portrait ceiling (75%).
+        val img = frame(914, 1053)
+        val g = img.createGraphics()
+        try {
+            g.color = maroon
+            g.fillRect(430, 100, 470, 36) // tab strip across the whole panel width
+            g.color = cta
+            g.fillRect(640, 870, 240, 40) // CONFIRM, right-aligned near the panel bottom
+        } finally {
+            g.dispose()
+        }
+
+        val box = Locate.locatePanelOrNull(img)
+
+        assertNotNull(box)
+        assertTrue(box.x in 380..440, "x=${box.x}")
+        assertTrue(box.y in 0..105, "y=${box.y}")
+        assertTrue(box.x + box.width >= 870, "right=${box.x + box.width}")
+        assertTrue(box.y + box.height >= 900, "bottom=${box.y + box.height}")
+    }
+
+    @Test
+    fun `a short sidebar look-alike left of the panel is not the extraction target`() {
+        // Auftrag 10 layout: the MATERIAL SELECTION box (dark-red strip + orange SETUP WORK
+        // ORDER button, well under half the panel height) sits LEFT of the work-order panel —
+        // it must not win the leftmost-is-newest rule.
+        val img = frame(969, 1090)
+        paintPanel(img, x = 16, y = 620, panelWidth = 360, panelHeight = 400) // sidebar box
+        paintPanel(img, x = 400, y = 90, panelWidth = 460, panelHeight = 900) // the panel
+
+        val target = Locate.locatePanel(img)
+
+        assertTrue(target.x in 350..410, "x=${target.x} must be the panel, not the sidebar box")
+    }
+
+    @Test
+    fun `terminal-area crop - location comes from the top-left strip of the image`() {
+        val img = frame(914, 1053)
+        paintPanel(img, x = 430, y = 100, panelWidth = 470, panelHeight = 830)
+
+        val prepared = Locate.prepare(img, PanelBox(430, 80, 470, 860))
+
+        assertEquals("vlm", prepared.cropMode)
+        val loc = assertNotNull(prepared.locationImage, "a terminal-area crop carries the header")
+        // Top-left strip (2/3 width × ~h/10), 2× upscaled and snapped to /32.
+        assertTrue(loc.width % 32 == 0 && loc.height % 32 == 0)
+        assertTrue(loc.width in (914 * 2 * 2 / 3 - 64)..(914 * 2 * 2 / 3 + 64), "width=${loc.width}")
+        assertTrue(loc.height in (1053 / 10 * 2 - 64)..(1053 / 10 * 2 + 64), "height=${loc.height}")
     }
 
     @Test
