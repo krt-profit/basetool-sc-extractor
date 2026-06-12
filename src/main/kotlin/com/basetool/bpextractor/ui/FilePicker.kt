@@ -306,8 +306,9 @@ private fun quickAccess(strings: Strings): List<Pair<String, File>> {
  * KRT-styled, in-app file/folder browser shown as a modal overlay (`REDESIGN_IMPLEMENTATION.md`
  * §10) — never a native OS dialog. Layout: header · toolbar (parent-folder button, clickable
  * breadcrumb that doubles as an editable path bar — click its free area or Ctrl+L, then type or
- * paste a path and press Enter; an unresolvable path shows an inline error — filter field that
- * also accepts a pasted path, new-folder in SAVE mode) · quick-access/drives sidebar + sortable
+ * paste a path and press Enter; an unresolvable path shows an inline error — a ✕ button that
+ * empties the path bar for a one-click paste, filter field that also accepts a pasted path,
+ * new-folder in SAVE mode) · quick-access/drives sidebar + sortable
  * folders-first list (type icons, size, date) · footer with the filename field (SAVE: overwrite
  * warning + name validation) or the selected path (FOLDER), and the one orange CTA. Keyboard:
  * Esc closes, Enter confirms, Backspace goes up, Ctrl+L edits the path. FOLDER mode shows files
@@ -338,6 +339,8 @@ fun FilePickerDialog(
     var createError by remember { mutableStateOf(false) }
     var reloadTick by remember { mutableStateOf(0) }
     var pathEditing by remember { mutableStateOf(false) }
+    // Hoisted so the clear button next to the field can empty it (paste-a-path flow).
+    var pathFieldValue by remember { mutableStateOf(TextFieldValue("")) }
     var pathError by remember { mutableStateOf(false) }
     var pathResolving by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -355,6 +358,13 @@ fun FilePickerDialog(
         createError = false
         newFolderOpen = false
         pathError = false
+    }
+
+    // Open the path bar pre-filled with the current directory, fully selected so a paste replaces it.
+    fun startPathEdit(initial: String = currentDir?.absolutePath ?: "") {
+        pathFieldValue = TextFieldValue(initial, selection = TextRange(0, initial.length))
+        pathError = false
+        pathEditing = true
     }
 
     // Resolve off the UI thread: File.isDirectory on an unreachable UNC path can block for seconds.
@@ -437,7 +447,7 @@ fun FilePickerDialog(
                     Key.L -> {
                         // Ctrl+L (Explorer/browser convention): edit the path bar.
                         if (e.isCtrlPressed) {
-                            pathEditing = true
+                            startPathEdit()
                             true
                         } else {
                             false
@@ -518,9 +528,12 @@ fun FilePickerDialog(
                 PickerSquareButton("↑", strings.pickerParentFolder, enabled = currentDir != null, onClick = ::goUp)
                 if (pathEditing) {
                     PathEditField(
-                        initialPath = currentDir?.absolutePath ?: "",
+                        value = pathFieldValue,
+                        onValueChange = {
+                            pathFieldValue = it
+                            pathError = false
+                        },
                         error = pathError,
-                        onEdited = { pathError = false },
                         onCommit = ::commitTypedPath,
                         onCancel = {
                             pathEditing = false
@@ -532,10 +545,12 @@ fun FilePickerDialog(
                     Breadcrumb(
                         currentDir,
                         onNavigate = ::navigateTo,
-                        onEdit = { pathEditing = true },
+                        onEdit = { startPathEdit() },
                         modifier = Modifier.weight(1f),
                     )
                 }
+                // Clears the path bar (opening it first if needed) so a copied path can be pasted straight in.
+                PickerSquareButton("✕", strings.pickerClearPath) { startPathEdit(initial = "") }
                 FilterField(
                     value = query,
                     onValueChange = { query = it },
@@ -854,22 +869,21 @@ private fun Breadcrumb(
 }
 
 /**
- * The breadcrumb's edit mode: a path field pre-filled with the current directory, fully selected
- * so a paste replaces it in one go. Enter resolves and navigates (async — see commitTypedPath),
- * Esc or losing focus reverts to the breadcrumb. While [error] is set the border turns red and
- * the input stays for correction; any edit clears the error via [onEdited].
+ * The breadcrumb's edit mode: a controlled path field ([value] is hoisted so the toolbar's clear
+ * button can empty it). Enter resolves and navigates (async — see commitTypedPath), Esc or losing
+ * focus reverts to the breadcrumb. While [error] is set the border turns red and the input stays
+ * for correction; any edit clears the error at the call site.
  */
 @Composable
 private fun PathEditField(
-    initialPath: String,
+    value: TextFieldValue,
+    onValueChange: (TextFieldValue) -> Unit,
     error: Boolean,
-    onEdited: () -> Unit,
     onCommit: (String) -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val strings = LocalStrings.current
-    var value by remember { mutableStateOf(TextFieldValue(initialPath, selection = TextRange(0, initialPath.length))) }
     val focus = remember { FocusRequester() }
     // Only cancel on focus LOSS, not on the initial unfocused state before requestFocus lands.
     var hadFocus by remember { mutableStateOf(false) }
@@ -888,10 +902,7 @@ private fun PathEditField(
             }
             BasicTextField(
                 value = value,
-                onValueChange = {
-                    value = it
-                    if (error) onEdited()
-                },
+                onValueChange = onValueChange,
                 singleLine = true,
                 textStyle = KrtDataStyle.copy(color = Krt.White),
                 cursorBrush = SolidColor(Krt.Orange),

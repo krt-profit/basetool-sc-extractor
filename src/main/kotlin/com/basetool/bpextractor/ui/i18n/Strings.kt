@@ -252,6 +252,7 @@ class Strings(
     val pickerCreateFailed: String,
     val pickerPathPlaceholder: String,
     val pickerPathNotFound: String,
+    val pickerClearPath: String,
 )
 
 /** German catalogue — the default language. */
@@ -517,6 +518,7 @@ val StringsDe = Strings(
     pickerCreateFailed = "Ordner konnte nicht angelegt werden.",
     pickerPathPlaceholder = "Pfad eingeben oder einfügen…",
     pickerPathNotFound = "Pfad existiert nicht oder ist nicht erreichbar.",
+    pickerClearPath = "Pfad leeren",
 )
 
 /** English catalogue — full parity with [StringsDe]. */
@@ -782,6 +784,7 @@ val StringsEn = Strings(
     pickerCreateFailed = "Could not create the folder.",
     pickerPathPlaceholder = "Type or paste a path…",
     pickerPathNotFound = "Path does not exist or is not reachable.",
+    pickerClearPath = "Clear path",
 )
 
 /** Resolve the catalogue for a language. */
