@@ -48,6 +48,13 @@ interface OllamaApi {
      * totalBytes, status) per progress line. Returns when the pull completes; throws on failure.
      */
     fun pull(model: String, onProgress: (Long?, Long?, String) -> Unit)
+
+    /**
+     * Release [model] from (V)RAM now (`POST /api/chat` with an empty message list and
+     * `keep_alive 0` — Ollama's documented unload). Unloading a model that is not loaded is a
+     * harmless no-op.
+     */
+    fun unload(model: String)
 }
 
 /**
@@ -118,19 +125,19 @@ class HttpOllamaClient(private val endpoint: String = DEFAULT_ENDPOINT) : Ollama
                 buildJsonObject {
                     put("temperature", 0)
                     put("num_predict", numPredict)
+                    put("num_ctx", NUM_CTX)
                     if (numGpu != null) {
                         put("num_gpu", numGpu)
                     }
                 },
             )
         }
-        val response = http.send(
+        val response = sendWithOneRetry(
             HttpRequest.newBuilder(URI.create("$endpoint/api/chat"))
                 .timeout(Duration.ofMinutes(CHAT_TIMEOUT_MINUTES))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
                 .build(),
-            HttpResponse.BodyHandlers.ofString(),
         )
         check(response.statusCode() == 200) { "POST /api/chat failed: HTTP ${response.statusCode()} ${response.body()}" }
         val root = json.parseToJsonElement(response.body()).jsonObject
@@ -139,6 +146,36 @@ class HttpOllamaClient(private val endpoint: String = DEFAULT_ENDPOINT) : Ollama
             doneReason = root["done_reason"]?.jsonPrimitive?.content,
         )
     }
+
+    override fun unload(model: String) {
+        val body = buildJsonObject {
+            put("model", model)
+            put("messages", buildJsonArray {})
+            put("keep_alive", 0)
+            put("stream", false)
+        }
+        val response = http.send(
+            HttpRequest.newBuilder(URI.create("$endpoint/api/chat"))
+                .timeout(Duration.ofSeconds(15))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+        check(response.statusCode() == 200) { "POST /api/chat (unload) failed: HTTP ${response.statusCode()}" }
+    }
+
+    /**
+     * One retry on a TRANSIENT transport failure (connection reset/refused mid-batch — e.g. an
+     * Ollama restart between reads). HTTP error answers are never retried: the server spoke, the
+     * caller's status check is the right reaction. The request body publisher is reusable.
+     */
+    private fun sendWithOneRetry(request: HttpRequest): HttpResponse<String> =
+        try {
+            http.send(request, HttpResponse.BodyHandlers.ofString())
+        } catch (_: java.io.IOException) {
+            http.send(request, HttpResponse.BodyHandlers.ofString())
+        }
 
     override fun pull(model: String, onProgress: (Long?, Long?, String) -> Unit) {
         val body = buildJsonObject {
@@ -169,6 +206,16 @@ class HttpOllamaClient(private val endpoint: String = DEFAULT_ENDPOINT) : Ollama
     companion object {
         /** Ollama's default local endpoint. */
         const val DEFAULT_ENDPOINT = "http://localhost:11434"
+
+        /**
+         * Pinned context window (PHASE0_FINDINGS §10 item 2 / 2026-06-12 addendum). Measured on
+         * the golden set: a worst-case read (1536 px panel crop) is ~2018 prompt tokens (text +
+         * vision) + ~250 output tokens, so 12288 holds prompt + the full retry output budget
+         * (`PanelReader.NUM_PREDICT_RETRY` = 8192) with margin, while Ollama's 32k default
+         * wastes VRAM on KV-cache: 8b 9.5 → 6.7 GB, 4b 7.4 → 4.5 GB loaded. That is the real
+         * headroom for the 12 GB (recommended) and 8 GB (minimum) tiers.
+         */
+        const val NUM_CTX = 12288
 
         /** Generous read budget: a CPU-mode panel read takes ~a minute (PHASE0_FINDINGS §5). */
         private const val CHAT_TIMEOUT_MINUTES = 10L

@@ -1,27 +1,44 @@
 package com.basetool.bpextractor.ui.refinery
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import com.basetool.bpextractor.refinery.PanelValues
 import com.basetool.bpextractor.refinery.model.RefineryExtractGood
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.FootNote
@@ -43,14 +60,19 @@ import kotlin.math.roundToInt
  * happens later in the basetool frontend): head badges (`SETUP` + layout %), the warning banner,
  * the four order header cards, and the goods table filling the rest height with derived
  * confidence (percent + dot at the 0.90/0.75 thresholds, accessible tints, flagged rows with a
- * coloured 3dp edge). The "stays manual" note and the export CTA sit in the pinned footer.
+ * coloured 3dp edge). Header values and goods rows are user-correctable in place (✎): a
+ * corrected row exports at confidence 1.0 with an ↺ to restore the machine read — the export
+ * writes [RefineryUiState.reviewedOrder]. The "stays manual" note and the export CTA sit in the
+ * pinned footer.
  */
 @Composable
 fun ReviewStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (PickerRequest) -> Unit) {
     val strings = LocalStrings.current
     val result = state.result ?: return
-    val order = result.extract.orders.first()
+    val order = state.reviewedOrder ?: return
+    val machineGoods = result.extract.orders.first().goods
     val validated = result.validated
+    var editingRow by remember { mutableStateOf<Int?>(null) }
 
     StepScaffold(
         overline = strings.rfStepOverline(4),
@@ -88,43 +110,94 @@ fun ReviewStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
             )
         },
     ) {
-        // Warning banner: count + list of validation findings.
+        // Warning banner: count + list of validation findings. Findings the user's corrections
+        // resolved (re-checked deterministically) show as settled instead of still-open.
+        val resolved = state.resolvedWarnings
+        val open = validated.warnings.size - resolved.size
         if (validated.warnings.isEmpty()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusDot(Krt.Success)
                 Text(strings.rfNoFlags, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
             }
         } else {
-            AlertBox(Krt.Warning) {
+            AlertBox(if (open == 0) Krt.Success else Krt.Warning) {
                 Text(
-                    strings.rfFlaggedWarnings(validated.warnings.size),
+                    if (open == 0) strings.rfAllWarningsResolved else strings.rfFlaggedWarnings(open),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Krt.Gray1,
                 )
                 validated.warnings.forEach { warning ->
+                    val isResolved = warning in resolved
                     Text(
-                        "• " + strings.rfWarningLabel(warning.name),
+                        "• " + strings.rfWarningLabel(warning.name) +
+                            if (isResolved) " — ${strings.rfWarningResolved}" else "",
                         style = MaterialTheme.typography.bodySmall,
-                        color = Krt.Gray2,
+                        color = if (isResolved) Krt.Success else Krt.Gray2,
                     )
                 }
             }
         }
         Spacer(Modifier.height(12.dp))
 
-        // Four order-header cards.
+        // Four order-header cards, each value correctable in place.
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            HeaderCard(strings.rfHdrLocation, order.rawLocationName, Modifier.weight(1f))
-            HeaderCard(strings.rfHdrMethod, order.rawMethodName, Modifier.weight(1f))
             HeaderCard(
-                strings.rfHdrCost,
-                order.expenses?.let { "%,.0f aUEC".format(it) },
-                Modifier.weight(1f),
+                title = strings.rfHdrLocation,
+                value = order.rawLocationName,
+                editPrefill = order.rawLocationName ?: "",
+                onCommit = { text ->
+                    state.editHeader { it.copy(rawLocationName = text.trim().ifBlank { null }) }
+                    true
+                },
+                modifier = Modifier.weight(1f),
             )
             HeaderCard(
-                strings.rfHdrDuration,
-                order.durationMinutes?.let { "${it / 60}h ${it % 60}m" },
-                Modifier.weight(1f),
+                title = strings.rfHdrMethod,
+                value = order.rawMethodName,
+                editPrefill = order.rawMethodName ?: "",
+                onCommit = { text ->
+                    state.editHeader { it.copy(rawMethodName = text.trim().ifBlank { null }) }
+                    true
+                },
+                modifier = Modifier.weight(1f),
+            )
+            HeaderCard(
+                title = strings.rfHdrCost,
+                value = order.expenses?.let { "%,.0f aUEC".format(it) },
+                editPrefill = order.expenses?.let { plainNumber(it) } ?: "",
+                onCommit = { text ->
+                    val trimmed = text.trim()
+                    when {
+                        trimmed.isBlank() -> {
+                            state.editHeader { it.copy(expenses = null) }
+                            true
+                        }
+                        else -> PanelValues.toCost(trimmed.replace(",", ""))?.let { cost ->
+                            state.editHeader { it.copy(expenses = cost) }
+                            true
+                        } ?: false
+                    }
+                },
+                modifier = Modifier.weight(1f),
+            )
+            HeaderCard(
+                title = strings.rfHdrDuration,
+                value = order.durationMinutes?.let { "${it / 60}h ${it % 60}m" },
+                editPrefill = order.durationMinutes?.let { "${it / 60}h ${it % 60}m" } ?: "",
+                onCommit = { text ->
+                    val trimmed = text.trim()
+                    when {
+                        trimmed.isBlank() -> {
+                            state.editHeader { it.copy(durationMinutes = null) }
+                            true
+                        }
+                        else -> PanelValues.toDurationMinutes(trimmed)?.let { minutes ->
+                            state.editHeader { it.copy(durationMinutes = minutes) }
+                            true
+                        } ?: false
+                    }
+                },
+                modifier = Modifier.weight(1f),
             )
         }
         Spacer(Modifier.height(12.dp))
@@ -133,7 +206,26 @@ fun ReviewStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
         Column(modifier = Modifier.weight(1f).fillMaxWidth().hudBox()) {
             GoodsHeaderRow()
             Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                order.goods.forEach { good -> GoodsRow(good) }
+                order.goods.forEach { good ->
+                    if (editingRow == good.rowIndex) {
+                        GoodsEditRow(
+                            displayed = good,
+                            onCommit = { edited ->
+                                val machine = machineGoods.first { it.rowIndex == good.rowIndex }
+                                state.editGood(machine, edited)
+                                editingRow = null
+                            },
+                            onCancel = { editingRow = null },
+                        )
+                    } else {
+                        GoodsRow(
+                            good = good,
+                            edited = state.editedGoods.containsKey(good.rowIndex),
+                            onEdit = { editingRow = good.rowIndex },
+                            onRevert = { state.revertGood(good.rowIndex) },
+                        )
+                    }
+                }
             }
         }
     }
@@ -146,25 +238,78 @@ private fun defaultExportPath(state: RefineryUiState): String {
     return File(base, "RefineryExtract.json").absolutePath
 }
 
-/** One order-header card: green ✔ when read, amber ⚠ + "fehlt" when the read came up empty. */
+/** A double rendered the way a user would type it back ("48928", not "48928.0"). */
+private fun plainNumber(value: Double): String =
+    if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
+
+/** Width of the trailing per-row actions area (✎ / ↺ resp. ✓ / ✕). */
+private val ActionsWidth = 52.dp
+
+/**
+ * One order-header card: green ✔ when read, amber ⚠ + "fehlt" when the read came up empty.
+ * The ✎ switches the value into an inline edit field; [onCommit] returns false when the typed
+ * text does not parse (the field then shows the error state and stays open).
+ */
 @Composable
-private fun HeaderCard(title: String, value: String?, modifier: Modifier) {
+private fun HeaderCard(
+    title: String,
+    value: String?,
+    editPrefill: String,
+    onCommit: (String) -> Boolean,
+    modifier: Modifier,
+) {
     val strings = LocalStrings.current
+    var editing by remember { mutableStateOf(false) }
+    var text by remember { mutableStateOf("") }
+    var invalid by remember { mutableStateOf(false) }
     val ok = value != null
     val accent = if (ok) Krt.Success else Krt.Warning
     Row(modifier = modifier.hudBox().height(IntrinsicSize.Min)) {
         Box(Modifier.width(3.dp).fillMaxHeight().background(accent))
-        Column(Modifier.padding(10.dp)) {
-            Text(title.uppercase(), style = MaterialTheme.typography.labelMedium, color = Krt.Gray2)
-            Spacer(Modifier.padding(top = 4.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(if (ok) "✓" else "⚠", style = MaterialTheme.typography.bodyMedium, color = accent)
+        Column(Modifier.padding(10.dp).fillMaxWidth()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    value ?: strings.rfMissingValue,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = if (ok) Krt.Gray1 else Krt.Gray2,
-                    maxLines = 1,
+                    title.uppercase(),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Krt.Gray2,
+                    modifier = Modifier.weight(1f),
                 )
+                if (!editing) {
+                    GlyphButton("✎", Krt.Gray2, description = strings.rfEditRow) {
+                        text = editPrefill
+                        invalid = false
+                        editing = true
+                    }
+                }
+            }
+            Spacer(Modifier.padding(top = 4.dp))
+            if (editing) {
+                val submit = { if (onCommit(text)) editing = false else invalid = true }
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    InlineEditField(
+                        value = text,
+                        onChange = {
+                            text = it
+                            invalid = false
+                        },
+                        isError = invalid,
+                        modifier = Modifier.weight(1f),
+                        onSubmit = submit,
+                        onCancel = { editing = false },
+                    )
+                    GlyphButton("✓", Krt.Success, description = strings.rfEditApply) { submit() }
+                    GlyphButton("✕", Krt.Gray2, description = strings.rfEditCancel) { editing = false }
+                }
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(if (ok) "✓" else "⚠", style = MaterialTheme.typography.bodyMedium, color = accent)
+                    Text(
+                        value ?: strings.rfMissingValue,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = if (ok) Krt.Gray1 else Krt.Gray2,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }
@@ -183,11 +328,12 @@ private fun GoodsHeaderRow() {
         HeaderCell(strings.rfColYield, 1f)
         HeaderCell(strings.rfColRefine, 0.8f)
         HeaderCell(strings.rfColConfidence, 1.2f)
+        Spacer(Modifier.width(ActionsWidth))
     }
 }
 
 @Composable
-private fun androidx.compose.foundation.layout.RowScope.HeaderCell(text: String, weight: Float) {
+private fun RowScope.HeaderCell(text: String, weight: Float) {
     Text(
         text.uppercase(),
         style = MaterialTheme.typography.labelMedium,
@@ -198,7 +344,13 @@ private fun androidx.compose.foundation.layout.RowScope.HeaderCell(text: String,
 
 /** One goods row; rows below the 0.90 threshold get the coloured 3px left border (§5.4). */
 @Composable
-private fun GoodsRow(good: RefineryExtractGood) {
+private fun GoodsRow(
+    good: RefineryExtractGood,
+    edited: Boolean,
+    onEdit: () -> Unit,
+    onRevert: () -> Unit,
+) {
+    val strings = LocalStrings.current
     val colors = confidenceColors(good.confidence)
     val flagged = good.confidence < 0.90
     Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
@@ -223,12 +375,194 @@ private fun GoodsRow(good: RefineryExtractGood) {
                     style = KrtDataStyle,
                     color = colors.text,
                 )
+                if (edited) {
+                    Text(
+                        "✎ " + strings.rfEditedTag.uppercase(),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Krt.Gray2,
+                        maxLines = 1,
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.width(ActionsWidth),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End,
+            ) {
+                if (edited) {
+                    GlyphButton("↺", Krt.Gray2, description = strings.rfEditRevert, onClick = onRevert)
+                }
+                GlyphButton("✎", Krt.Gray2, description = strings.rfEditRow, onClick = onEdit)
             }
         }
     }
 }
 
+/**
+ * The in-place editor of one goods row: orange left edge, free text for the material, numeric
+ * fields for quality/input/yield (blank = unreadable/absent → null), a clickable ON/OFF toggle,
+ * ✓ commits (Enter) and ✕ discards (Escape). ✓ stays disabled while a number does not parse —
+ * the offending field shows the danger border.
+ */
 @Composable
-private fun androidx.compose.foundation.layout.RowScope.DataCell(text: String, weight: Float, color: Color) {
+private fun GoodsEditRow(
+    displayed: RefineryExtractGood,
+    onCommit: (RefineryExtractGood) -> Unit,
+    onCancel: () -> Unit,
+) {
+    val strings = LocalStrings.current
+    var name by remember { mutableStateOf(displayed.rawMaterialName) }
+    var quality by remember { mutableStateOf(displayed.quality?.toString() ?: "") }
+    var input by remember { mutableStateOf(displayed.inputQuantity?.toString() ?: "") }
+    var output by remember { mutableStateOf(displayed.outputQuantity?.toString() ?: "") }
+    var refine by remember { mutableStateOf(displayed.refine) }
+
+    val nameOk = name.isNotBlank()
+    val qualityOk = quality.isBlank() || quality.trim().toIntOrNull()?.takeIf { it >= 0 } != null
+    val inputOk = input.isBlank() || input.trim().toLongOrNull()?.takeIf { it >= 0 } != null
+    val outputOk = output.isBlank() || output.trim().toLongOrNull()?.takeIf { it >= 0 } != null
+    val valid = nameOk && qualityOk && inputOk && outputOk
+    val submit = {
+        if (valid) {
+            onCommit(
+                displayed.copy(
+                    rawMaterialName = name.trim(),
+                    quality = quality.trim().toIntOrNull(),
+                    inputQuantity = input.trim().toLongOrNull(),
+                    outputQuantity = output.trim().toLongOrNull(),
+                    refine = refine,
+                ),
+            )
+        }
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min).background(Krt.SurfaceInput.copy(alpha = 0.35f)),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.width(3.dp).fillMaxHeight().background(Krt.Orange))
+        Row(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 9.dp, end = 12.dp, top = 5.dp, bottom = 5.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            EditCell(name, { name = it }, 2.4f, !nameOk, submit, onCancel)
+            EditCell(quality, { quality = it }, 1f, !qualityOk, submit, onCancel)
+            EditCell(input, { input = it }, 1f, !inputOk, submit, onCancel)
+            EditCell(output, { output = it }, 1f, !outputOk, submit, onCancel)
+            Box(Modifier.weight(0.8f)) {
+                Text(
+                    if (refine) "ON" else "OFF",
+                    style = KrtDataStyle,
+                    color = if (refine) Krt.Orange else Krt.Gray2,
+                    modifier = Modifier
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { refine = !refine }
+                        .background(Krt.SurfaceInput)
+                        .border(1.dp, if (refine) Krt.Orange else Krt.Gray3)
+                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                )
+            }
+            Spacer(Modifier.weight(1.2f))
+            Row(
+                modifier = Modifier.width(ActionsWidth),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End,
+            ) {
+                GlyphButton("✓", Krt.Success, enabled = valid, description = strings.rfEditApply) { submit() }
+                GlyphButton("✕", Krt.Gray2, description = strings.rfEditCancel) { onCancel() }
+            }
+        }
+    }
+}
+
+/** A compact inline table edit field in the data style; Enter commits, Escape cancels. */
+@Composable
+private fun RowScope.EditCell(
+    value: String,
+    onChange: (String) -> Unit,
+    weight: Float,
+    isError: Boolean,
+    onSubmit: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    Box(Modifier.weight(weight).padding(end = 8.dp)) {
+        InlineEditField(
+            value = value,
+            onChange = onChange,
+            isError = isError,
+            modifier = Modifier.fillMaxWidth(),
+            onSubmit = onSubmit,
+            onCancel = onCancel,
+        )
+    }
+}
+
+/** The shared single-line edit primitive: dark fill, hairline/danger border, orange caret. */
+@Composable
+private fun InlineEditField(
+    value: String,
+    onChange: (String) -> Unit,
+    isError: Boolean,
+    modifier: Modifier,
+    onSubmit: () -> Unit,
+    onCancel: () -> Unit,
+) {
+    BasicTextField(
+        value = value,
+        onValueChange = onChange,
+        singleLine = true,
+        textStyle = KrtDataStyle.copy(color = if (isError) Krt.Danger else Krt.Gray1),
+        cursorBrush = SolidColor(Krt.Orange),
+        modifier = modifier
+            .background(Krt.SurfaceInput)
+            .border(1.dp, if (isError) Krt.Danger else Krt.Gray3)
+            .padding(horizontal = 6.dp, vertical = 4.dp)
+            .onPreviewKeyEvent { event ->
+                when {
+                    event.type == KeyEventType.KeyDown && event.key == Key.Enter -> {
+                        onSubmit()
+                        true
+                    }
+                    event.type == KeyEventType.KeyDown && event.key == Key.Escape -> {
+                        onCancel()
+                        true
+                    }
+                    else -> false
+                }
+            },
+    )
+}
+
+/** A bare glyph action (✎ ✓ ✕ ↺) — quiet by default, the glyph colour carries the meaning. */
+@Composable
+private fun GlyphButton(
+    glyph: String,
+    color: Color,
+    enabled: Boolean = true,
+    description: String? = null,
+    onClick: () -> Unit,
+) {
+    Text(
+        glyph,
+        style = MaterialTheme.typography.bodyMedium,
+        color = if (enabled) color else Krt.Gray3,
+        modifier = Modifier
+            .semantics { description?.let { contentDescription = it } }
+            .clickable(
+                enabled = enabled,
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick,
+            )
+            .padding(horizontal = 4.dp, vertical = 2.dp),
+    )
+}
+
+@Composable
+private fun RowScope.DataCell(text: String, weight: Float, color: Color) {
     Text(text, style = KrtDataStyle, color = color, modifier = Modifier.weight(weight), maxLines = 1)
 }

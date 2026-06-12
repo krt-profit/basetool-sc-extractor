@@ -8,6 +8,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.basetool.bpextractor.refinery.CaptureTime
+import com.basetool.bpextractor.refinery.ExtractWarning
 import com.basetool.bpextractor.refinery.GpuInfo
 import com.basetool.bpextractor.refinery.HardwareSnapshot
 import com.basetool.bpextractor.refinery.HardwareTier
@@ -25,7 +26,10 @@ import com.basetool.bpextractor.refinery.PipelineStage
 import com.basetool.bpextractor.refinery.Preflight
 import com.basetool.bpextractor.refinery.RefineryPipeline
 import com.basetool.bpextractor.refinery.TierDecision
+import com.basetool.bpextractor.refinery.Validation
 import com.basetool.bpextractor.refinery.WindowsGpuProbe
+import com.basetool.bpextractor.refinery.model.RefineryExtractGood
+import com.basetool.bpextractor.refinery.model.RefineryExtractOrder
 import com.basetool.bpextractor.ui.i18n.Strings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -115,6 +119,10 @@ class RefineryUiState(
     /** The selection snapshot the active/last run works on (drives the §5.3 stage rows). */
     val runImages = mutableStateListOf<RefineryImage>()
     var running by mutableStateOf(false)
+
+    /** Whether the active/last run includes the cross-model verify pass (the VERIFY stage). */
+    var runVerify by mutableStateOf(false)
+        private set
     var currentIndex by mutableStateOf(-1)
     val stageReached = mutableStateMapOf<Int, PipelineStage>()
     val outcomes = mutableStateMapOf<Int, ImageOutcome>()
@@ -122,6 +130,90 @@ class RefineryUiState(
     var extractError by mutableStateOf<String?>(null)
     var cancelRequested by mutableStateOf(false)
     var result by mutableStateOf<PipelineResult?>(null)
+
+    // --- §5.4 manual review corrections ---
+    /** The order header with the user's corrections applied; null until the first header edit. */
+    var editedOrder by mutableStateOf<RefineryExtractOrder?>(null)
+        private set
+
+    /** Row index → manually corrected goods row (exported at [CONFIDENCE_MANUAL]). */
+    val editedGoods = mutableStateMapOf<Int, RefineryExtractGood>()
+
+    /**
+     * The order as the review shows and the export writes it: the machine read overlaid with the
+     * user's corrections. `layoutConfidence` and the order warnings stay machine-derived — they
+     * document the READ quality; only corrected rows carry the manual confidence.
+     */
+    val reviewedOrder: RefineryExtractOrder?
+        get() {
+            val machine = result?.extract?.orders?.firstOrNull() ?: return null
+            val base = editedOrder ?: machine
+            return base.copy(goods = machine.goods.map { editedGoods[it.rowIndex] ?: it })
+        }
+
+    /** Apply a header correction (location/method/cost/duration) on top of earlier ones. */
+    fun editHeader(transform: (RefineryExtractOrder) -> RefineryExtractOrder) {
+        val base = editedOrder ?: result?.extract?.orders?.firstOrNull() ?: return
+        editedOrder = transform(base)
+    }
+
+    /**
+     * Commit a corrected goods row. A row whose values equal the machine read again drops back
+     * to un-edited (keeps the derived confidence); otherwise the row exports at
+     * [CONFIDENCE_MANUAL] — the user has looked at the screenshot, which beats any heuristic.
+     */
+    fun editGood(original: RefineryExtractGood, edited: RefineryExtractGood) {
+        if (edited.copy(confidence = original.confidence) == original) {
+            editedGoods.remove(original.rowIndex)
+        } else {
+            editedGoods[original.rowIndex] = edited.copy(confidence = CONFIDENCE_MANUAL)
+        }
+    }
+
+    /** Restore the machine read of one goods row (the ↺ action). */
+    fun revertGood(rowIndex: Int) {
+        editedGoods.remove(rowIndex)
+    }
+
+    /**
+     * Machine warnings the user's corrections have RESOLVED — recomputed deterministically
+     * against [reviewedOrder] so the §5.4 banner can show them as settled instead of pretending
+     * the finding still stands. Only the value-dependent warnings are re-checkable
+     * (SUM_MISMATCH via [Validation.sumMismatch]; IMPLAUSIBLE_CELL when every flagged row was
+     * corrected to plausible numbers) — the read-provenance warnings (REFINE/VERIFY/UNQUOTED)
+     * describe how the values came to be and stay as they are.
+     */
+    val resolvedWarnings: Set<ExtractWarning>
+        get() {
+            val validated = result?.validated ?: return emptySet()
+            if (editedGoods.isEmpty()) return emptySet()
+            val goods = reviewedOrder?.goods ?: return emptySet()
+            val resolved = mutableSetOf<ExtractWarning>()
+            if (ExtractWarning.SUM_MISMATCH in validated.warnings &&
+                !Validation.sumMismatch(goods, validated.toRefineTotal)
+            ) {
+                resolved += ExtractWarning.SUM_MISMATCH
+            }
+            if (ExtractWarning.IMPLAUSIBLE_CELL in validated.warnings && goods.none(::implausibleReviewed)) {
+                resolved += ExtractWarning.IMPLAUSIBLE_CELL
+            }
+            return resolved
+        }
+
+    /** Reviewed-state implausibility: an edited row is judged by its values, an unedited one by its machine confidence. */
+    private fun implausibleReviewed(good: RefineryExtractGood): Boolean {
+        val output = good.outputQuantity
+        val input = good.inputQuantity
+        val yieldExceedsQty = output != null && input != null && output > input
+        val machineImplausible = good.rowIndex !in editedGoods &&
+            good.confidence == Validation.CONFIDENCE_IMPLAUSIBLE
+        return yieldExceedsQty || machineImplausible
+    }
+
+    private fun clearReviewEdits() {
+        editedOrder = null
+        editedGoods.clear()
+    }
 
     // --- §5.5 export ---
     var exportedFile by mutableStateOf<File?>(null)
@@ -146,9 +238,25 @@ class RefineryUiState(
             }
         }
 
+    /** True when the cross-model verify partner is installed (probed alongside the model check). */
+    var verifyAvailable by mutableStateOf(false)
+        private set
+
+    /**
+     * The cross-model verify partner for this run, or null. Policy (PHASE0 addendum 2026-06-12):
+     * recommended tier on the GPU only — the verify pass is an accuracy bonus and must never
+     * cost a below-tier machine double CPU time — and only when the partner is already installed
+     * (no extra download flow; the pass simply lights up once the model is present).
+     */
+    val verifyModel: String?
+        get() = Preflight.MODEL_VERIFY.takeIf {
+            it != selectedModel && gpuMode && selectedModel == Preflight.MODEL_RECOMMENDED && verifyAvailable
+        }
+
     /** Measured per-image ETA for the effective (model, mode) pair (`PHASE0_FINDINGS.md` §5). */
     val etaSecondsPerImage: Int
-        get() = Preflight.etaSecondsPerImage(selectedModel, gpuMode)
+        get() = Preflight.etaSecondsPerImage(selectedModel, gpuMode) +
+            (if (verifyModel != null) Preflight.ETA_GPU_MINIMUM_S else 0)
 
     /** True when the §5.1 CTA may enable: Ollama ready AND the SC warning is acknowledged. */
     val preflightReady: Boolean
@@ -180,6 +288,9 @@ class RefineryUiState(
         val model = selectedModel
         ollamaStatus = try {
             val installed = clientFor(endpoint).installedModels()
+            verifyAvailable = installed.any {
+                it.name == Preflight.MODEL_VERIFY || it.name.startsWith("${Preflight.MODEL_VERIFY}:")
+            }
             if (installed.any { it.name == model || it.name.startsWith("$model:") }) {
                 OllamaStatus.Ready
             } else {
@@ -293,6 +404,7 @@ class RefineryUiState(
         stageReached.clear()
         outcomes.clear()
         console.clear()
+        clearReviewEdits()
         step = 2
         maxReached = 2
     }
@@ -361,14 +473,17 @@ class RefineryUiState(
         stageReached.clear()
         outcomes.clear()
         console.clear()
+        clearReviewEdits()
         runImages.clear()
         runImages.addAll(snapshot)
+        runVerify = verifyModel != null
         val pipeline = RefineryPipeline(
             ollama = clientFor(endpoint),
             model = selectedModel,
             toolVersion = toolVersion,
             isActive = { !cancelRequested },
             numGpu = if (gpuMode) null else 0,
+            verifyModel = verifyModel,
         )
         val listener = object : PipelineListener {
             override fun onStage(index: Int, name: String, stage: PipelineStage) {
@@ -400,9 +515,11 @@ class RefineryUiState(
         }
     }
 
-    /** Write the contract JSON to [target] and advance to the §5.5 export screen. */
+    /** Write the contract JSON (with the user's review corrections) to [target], then §5.5. */
     fun export(scope: CoroutineScope, target: File, strings: Strings) {
-        val extract = result?.extract ?: return
+        val machine = result?.extract ?: return
+        val order = reviewedOrder ?: return
+        val extract = machine.copy(orders = listOf(order))
         exportError = null
         scope.launch(Dispatchers.IO) {
             try {
@@ -437,6 +554,7 @@ class RefineryUiState(
         stageReached.clear()
         outcomes.clear()
         console.clear()
+        clearReviewEdits()
         exportedFile = null
         exportError = null
         maxReached = 1
@@ -481,6 +599,9 @@ class RefineryUiState(
     companion object {
         /** Sentinel in [extractError] marking a user cancel (rendered as a neutral note). */
         const val CANCELLED_MARKER = "cancelled"
+
+        /** Exported confidence of a row the user corrected by hand in the review (§5.4). */
+        const val CONFIDENCE_MANUAL = 1.0
 
         private const val THUMB_LONG_EDGE = 240
     }

@@ -34,7 +34,11 @@ data class PanelRow(
     val quality: String?,
     /** QTY cell. */
     val qty: String?,
-    /** YIELD cell; null when the panel renders `--` (un-quoted). */
+    /**
+     * YIELD cell; the literal `--` when the panel renders the absent-marker (un-quoted order or
+     * refine-OFF row — the distinction matters for the refine correction in [Validation]); null
+     * only when the cell was absent/unreadable.
+     */
     val yield_: String?,
     /** REFINE toggle as read: `ON`/`OFF` (uppercased). */
     val refine: String,
@@ -81,6 +85,9 @@ object MarkdownPanelParser {
             if (trimmed.replace("|", "").trim().trimStart('-', ':', ' ').isEmpty()) continue
             val cells = trimmed.trim('|').split("|").map { it.trim() }
             if (cells.size != 5 || cells[0].uppercase() == "MATERIAL") continue
+            // Some models emit the edge-cut marker as a row OF ITS OWN ("| PARTIAL | ? | … |")
+            // instead of a name suffix; no material is named PARTIAL, so drop the ghost row.
+            if (cells[0].uppercase() == "PARTIAL") continue
             var name = cells[0]
             val partial = name.endsWith(" PARTIAL")
             if (partial) {
@@ -90,7 +97,7 @@ object MarkdownPanelParser {
                 name = name,
                 quality = cleanNum(cells[1])?.takeUnless { it == "--" },
                 qty = cleanNum(cells[2])?.takeUnless { it == "--" },
-                yield_ = cleanNum(cells[3])?.takeUnless { it == "--" },
+                yield_ = cleanNum(cells[3]),
                 refine = cells[4].uppercase(),
                 partial = partial,
             )

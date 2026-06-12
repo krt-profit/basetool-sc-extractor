@@ -171,6 +171,8 @@ class Strings(
     val rfCropTagAuto: String,
     val rfCropTagPre: String,
     val rfPasteDropHint: String,
+    val rfCaptureAberrationTitle: String,
+    val rfCaptureAberrationHint: String,
     val rfTempNote: String,
     val rfCtaStartExtraction: String,
 
@@ -205,6 +207,13 @@ class Strings(
     val rfColConfidence: String,
     val rfWarningLabel: (String) -> String,
     val rfManualNote: String,
+    val rfEditRow: String,
+    val rfEditApply: String,
+    val rfEditCancel: String,
+    val rfEditRevert: String,
+    val rfEditedTag: String,
+    val rfWarningResolved: String,
+    val rfAllWarningsResolved: String,
     val rfCtaExport: String,
     val rfPickerExportTitle: String,
     val rfPickerExportConfirm: String,
@@ -428,6 +437,8 @@ val StringsDe = Strings(
     rfCropTagAuto = "vlm",
     rfCropTagPre = "vorgecroppt",
     rfPasteDropHint = "Strg+V fügt ein Bild aus der Zwischenablage ein (z. B. Snipping Tool) — Bilder lassen sich auch per Drag & Drop hierher ziehen.",
+    rfCaptureAberrationTitle = "Chromatische Aberration vor der Aufnahme ausschalten",
+    rfCaptureAberrationHint = "Den Regler in den Star-Citizen-Grafikeinstellungen auf 0 stellen, bevor die Screenshots entstehen — die Farbsäume machen Ziffern für das Modell mehrdeutig und sind nachträglich nicht entfernbar.",
     rfTempNote = "Eingefügte Bilder ohne gewählten Ordner liegen in einem temporären Ordner und werden beim Beenden gelöscht.",
     rfCtaStartExtraction = "Extraktion starten",
 
@@ -443,7 +454,7 @@ val StringsDe = Strings(
     rfCtaToReview = "Weiter: Review",
 
     rfReviewTitle = "Review & Bestätigung",
-    rfReviewSubtitle = "Extrahierte Werte prüfen — gespeichert wird erst beim Import im Basetool.",
+    rfReviewSubtitle = "Extrahierte Werte prüfen und bei Bedarf korrigieren (✎) — gespeichert wird erst beim Import im Basetool.",
     rfBadgeLayout = { pct -> "Layout $pct %" },
     rfFlaggedWarnings = { n -> "$n Auffälligkeit(en) — bitte prüfen." },
     rfNoFlags = "Keine Auffälligkeiten.",
@@ -463,10 +474,21 @@ val StringsDe = Strings(
             "UNQUOTED_ORDER" -> "Auftrag ohne Quote (vor GET QUOTE aufgenommen)"
             "SUM_MISMATCH" -> "Sichtbare Mengen übersteigen den TO-REFINE-Gesamtwert"
             "IMPLAUSIBLE_CELL" -> "Mindestens eine Zelle ist unplausibel (nicht numerisch)"
+            "REFINE_CORRECTED" -> "Refine-Schalter anhand der YIELD-Spalte korrigiert"
+            "VERIFY_CORRECTED" -> "Zweitmodell-Abgleich: Menge per TO-REFINE-Checksumme korrigiert"
+            "VERIFY_MISMATCH" -> "Zweitmodell-Abgleich: Modelle widersprechen sich — markierte Zeilen prüfen"
+            "CTA_MISMATCH" -> "Button-Beschriftung widerspricht dem Quote-Status — Kopfzeile prüfen"
             else -> warning
         }
     },
     rfManualNote = "Bleibt manuell — bitte im Basetool ergänzen: Besitzer · Mission · Sonstige Kosten · Erzverkäufe · Start.",
+    rfEditRow = "Zeile korrigieren",
+    rfEditApply = "Übernehmen",
+    rfEditCancel = "Verwerfen",
+    rfEditRevert = "Gelesenen Wert wiederherstellen",
+    rfEditedTag = "manuell",
+    rfWarningResolved = "durch Korrektur behoben",
+    rfAllWarningsResolved = "Alle Auffälligkeiten durch Korrekturen behoben.",
     rfCtaExport = "Als JSON exportieren",
     rfPickerExportTitle = "RefineryExtract-JSON speichern",
     rfPickerExportConfirm = "Speichern",
@@ -693,6 +715,8 @@ val StringsEn = Strings(
     rfCropTagAuto = "vlm",
     rfCropTagPre = "pre-cropped",
     rfPasteDropHint = "Ctrl+V pastes an image from the clipboard (e.g. the snipping tool) — images can also be dragged & dropped here.",
+    rfCaptureAberrationTitle = "Turn off chromatic aberration before capturing",
+    rfCaptureAberrationHint = "Set the slider to 0 in Star Citizen's graphics settings before taking the screenshots — the colour fringing makes digits ambiguous for the model and cannot be removed afterwards.",
     rfTempNote = "Images pasted without a selected folder go to a temporary folder that is deleted on exit.",
     rfCtaStartExtraction = "Start extraction",
 
@@ -708,7 +732,7 @@ val StringsEn = Strings(
     rfCtaToReview = "Next: review",
 
     rfReviewTitle = "Review & confirmation",
-    rfReviewSubtitle = "Review the extracted values — nothing is saved until the basetool import.",
+    rfReviewSubtitle = "Review the extracted values and correct them where needed (✎) — nothing is saved until the basetool import.",
     rfBadgeLayout = { pct -> "Layout $pct %" },
     rfFlaggedWarnings = { n -> "$n finding(s) — please review." },
     rfNoFlags = "No findings.",
@@ -728,10 +752,21 @@ val StringsEn = Strings(
             "UNQUOTED_ORDER" -> "Un-quoted order (captured before GET QUOTE)"
             "SUM_MISMATCH" -> "Visible quantities exceed the TO REFINE total"
             "IMPLAUSIBLE_CELL" -> "At least one cell is implausible (non-numeric)"
+            "REFINE_CORRECTED" -> "Refine toggle corrected from the YIELD column"
+            "VERIFY_CORRECTED" -> "Cross-check: quantity corrected via the TO REFINE checksum"
+            "VERIFY_MISMATCH" -> "Cross-check: models disagree — review the flagged rows"
+            "CTA_MISMATCH" -> "Button label contradicts the quote state — check the header"
             else -> warning
         }
     },
     rfManualNote = "Stays manual — complete in the basetool: owner · mission · other costs · ore sales · start.",
+    rfEditRow = "Edit row",
+    rfEditApply = "Apply",
+    rfEditCancel = "Discard",
+    rfEditRevert = "Restore the read value",
+    rfEditedTag = "manual",
+    rfWarningResolved = "resolved by correction",
+    rfAllWarningsResolved = "All findings resolved by corrections.",
     rfCtaExport = "Export as JSON",
     rfPickerExportTitle = "Save RefineryExtract JSON",
     rfPickerExportConfirm = "Save",

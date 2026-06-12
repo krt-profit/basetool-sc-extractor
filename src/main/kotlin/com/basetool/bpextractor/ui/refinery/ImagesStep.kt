@@ -180,6 +180,25 @@ private fun ImagesStepContent(
         }
         Spacer(Modifier.height(12.dp))
 
+        // Capture-quality warning, deliberately prominent (full-width alert block): the
+        // terminal's chromatic aberration is the proven root cause of digit misreads and is NOT
+        // removable after capture (PHASE0_FINDINGS 2026-06-12 addendum) — the user must turn it
+        // off in the game before taking the screenshots.
+        AlertBox(Krt.Warning) {
+            Text(
+                strings.rfCaptureAberrationTitle.uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                color = Krt.Warning,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                strings.rfCaptureAberrationHint,
+                style = MaterialTheme.typography.bodySmall,
+                color = Krt.Gray1,
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+
         // Mini-stats row (Bilder · Ausgewählt · Auftrag · Auflösung · Modell).
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             KrtChip("${strings.rfStatImages}: ${state.images.size}")

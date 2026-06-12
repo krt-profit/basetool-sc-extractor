@@ -81,8 +81,9 @@ class MarkdownPanelParserTest {
         // "--" cost/time mean "not quoted yet" — normalized to absent.
         assertNull(read.totalCost)
         assertNull(read.processingTime)
-        // A "--" yield cell is normalized to null on the row too.
-        assertNull(read.rows[0].yield_)
+        // A "--" yield cell stays verbatim: validation distinguishes the marker (un-quoted or
+        // refine-OFF) from an unreadable cell (null).
+        assertEquals("--", read.rows[0].yield_)
     }
 
     @Test
@@ -112,6 +113,18 @@ class MarkdownPanelParserTest {
     @Test
     fun `an off-script answer without any anchor yields null`() {
         assertNull(MarkdownPanelParser.parse("I cannot read this image, sorry."))
+    }
+
+    @Test
+    fun `a literal PARTIAL ghost row is dropped`() {
+        // The 4b's real failure shape on Auftrag 7/8: the edge-cut marker emitted as a row of
+        // its own instead of a name suffix — no material is named PARTIAL, drop it.
+        val answer = quotedAnswer + "\n| PARTIAL | ? | ? | ? | ? |"
+
+        val read = MarkdownPanelParser.parse(answer)!!
+
+        assertEquals(4, read.rows.size)
+        assertTrue(read.rows.none { it.name.uppercase() == "PARTIAL" })
     }
 
     @Test

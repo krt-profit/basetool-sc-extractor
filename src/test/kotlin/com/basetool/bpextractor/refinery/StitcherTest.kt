@@ -63,6 +63,73 @@ class StitcherTest {
     }
 
     @Test
+    fun `a quoted read of an OFF row beats the un-quoted read even though its yield is the marker`() {
+        // The yield-based refine correction may only fire on rows whose surviving read saw the
+        // quoted state — for an OFF row the quoted capture also shows "--", so preferring by
+        // "has a numeric yield" alone would keep the un-quoted variant (and its provenance).
+        val early = ImageRead(
+            "early.png",
+            panel(listOf(row("BEXALITE (RAW)", "597", "127", "--", refine = "ON")), quoted = false),
+        )
+        val quoted = ImageRead(
+            "quoted.png",
+            panel(listOf(row("BEXALITE (RAW)", "597", "127", "--", refine = "ON"))),
+        )
+
+        val result = Stitcher.stitch(listOf(early, quoted))
+
+        assertEquals(1, result.rows.size)
+        assertTrue(result.rows[0].quotedRead, "the quoted capture's read must survive")
+        assertEquals("quoted.png", result.rows[0].sourceImage)
+    }
+
+    @Test
+    fun `a one-character name garble with matching numbers does not break the overlap`() {
+        // Auftrag 1 run-to-run reality: one read transcribes LINDINIUM as LINDINIMUM. The
+        // numeric cells (quality+qty) disambiguate, so the overlap must still chain — otherwise
+        // the shared rows duplicate (observed: 23 instead of 18 stitched rows).
+        val top = ImageRead(
+            "a.png",
+            panel(
+                listOf(
+                    row("LINDINIUM (ORE)", "618", "957", "448"),
+                    row("LINDINIUM (ORE)", "729", "391", "183"),
+                    row("TUNGSTEN (ORE)", "530", "1431", "695"),
+                ),
+            ),
+        )
+        val bottom = ImageRead(
+            "b.png",
+            panel(
+                listOf(
+                    row("LINDINIMUM (ORE)", "729", "391", "183"),
+                    row("TUNGSTEN (ORE)", "530", "1431", "695"),
+                    row("UCTION SALVAGE", "0", "400", "64"),
+                ),
+            ),
+        )
+
+        val result = Stitcher.stitch(listOf(top, bottom))
+
+        assertEquals(4, result.rows.size)
+        assertEquals(
+            listOf("LINDINIUM (ORE)", "LINDINIUM (ORE)", "TUNGSTEN (ORE)", "UCTION SALVAGE"),
+            result.rows.map { it.name },
+        )
+    }
+
+    @Test
+    fun `the garble tolerance needs both numeric cells - unreadable numbers stay strict`() {
+        // Without quality+qty as disambiguators a one-edit name match is NOT enough to merge.
+        val a = ImageRead("a.png", panel(listOf(row("TORITE (ORE)", null, null, "30"))))
+        val b = ImageRead("b.png", panel(listOf(row("TORIDE (ORE)", null, null, "30"))))
+
+        val result = Stitcher.stitch(listOf(a, b))
+
+        assertEquals(2, result.rows.size)
+    }
+
+    @Test
     fun `duplicate materials at different qualities never collapse`() {
         // Auftrag 1 reality: LINDINIUM at four different qualities is one order's normal state.
         val capture = ImageRead(
@@ -127,8 +194,37 @@ class StitcherTest {
         assertEquals(2, result.rows.size)
         assertEquals("1300", result.rows[0].yield_)
         assertEquals("after_quote.png", result.rows[0].sourceImage)
+        assertTrue(result.rows[0].quotedRead, "the surviving read saw the quoted state")
         assertTrue(result.quoted, "any quoted read makes the stitched order quoted")
         assertEquals("48928", result.totalCost, "cost comes from the quoted read")
+    }
+
+    @Test
+    fun `bracket-style transcription variants of the same row align across captures`() {
+        // The VLM sometimes transcribes the suffix as "[ORE]" instead of "(ORE)" — same panel,
+        // same row. The identity key folds the bracket style so the overlap still matches.
+        val first = ImageRead(
+            "one.png",
+            panel(
+                listOf(
+                    row("GOLD (ORE)", "553", "46", "21"),
+                    row("BORASE (ORE)", "359", "483", "195"),
+                ),
+            ),
+        )
+        val second = ImageRead(
+            "two.png",
+            panel(
+                listOf(
+                    row("BORASE [ORE]", "359", "483", "195"),
+                    row("TUNGSTEN [ORE]", "858", "276", "134"),
+                ),
+            ),
+        )
+
+        val result = Stitcher.stitch(listOf(first, second))
+
+        assertEquals(3, result.rows.size)
     }
 
     @Test
@@ -213,5 +309,6 @@ class StitcherTest {
         assertEquals("FERRON EXCHANGE", result.method)
         assertEquals("32295", result.inManifest)
         assertEquals(false, result.quoted)
+        assertEquals(false, result.rows[0].quotedRead, "row provenance: the read was un-quoted")
     }
 }

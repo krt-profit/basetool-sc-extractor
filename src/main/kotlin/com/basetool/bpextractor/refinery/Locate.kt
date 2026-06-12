@@ -180,19 +180,29 @@ object Locate {
 
     /**
      * The extraction target: the LEFTMOST candidate (= newest order, owner rule 2026-06-10), or
-     * the verified 4K geometry scaled to the frame when the colour anchors found nothing.
+     * null when the colour anchors matched nothing — the caller decides whether to surface the
+     * miss before falling back to [fallbackPanel] (the fixed geometry is a guess, not a find).
      */
-    fun locatePanel(img: BufferedImage): PanelBox {
-        locatePanels(img).firstOrNull()?.let { return it }
+    fun locatePanelOrNull(img: BufferedImage): PanelBox? = locatePanels(img).firstOrNull()
+
+    /**
+     * The verified 4K geometry scaled to the frame. Position scales with each axis; the panel
+     * SIZE scales with the height only — on an ultrawide (e.g. 5120×1440) the game renders the
+     * panel at the 16:9 size, so width-proportional scaling would distort the crop.
+     */
+    fun fallbackPanel(img: BufferedImage): PanelBox {
         val fx = img.width / 3840.0
         val fy = img.height / 2160.0
         return PanelBox(
             (PANEL_4K.x * fx).toInt(),
             (PANEL_4K.y * fy).toInt(),
-            (PANEL_4K.width * fx).toInt(),
+            (PANEL_4K.width * fy).toInt().coerceAtMost(img.width - (PANEL_4K.x * fx).toInt()),
             (PANEL_4K.height * fy).toInt(),
         )
     }
+
+    /** [locatePanelOrNull] with the silent [fallbackPanel] — kept for callers without a UI. */
+    fun locatePanel(img: BufferedImage): PanelBox = locatePanelOrNull(img) ?: fallbackPanel(img)
 
     /** Snap a dimension to the nearest multiple of 32 (≥ 32). */
     fun snap32(v: Int): Int = max(32, (v / 32.0).roundToInt() * 32)
