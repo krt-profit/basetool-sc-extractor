@@ -406,7 +406,8 @@ fun FilePickerDialog(
     val canConfirm = currentDir != null && targetPath != null && (mode == PickerMode.FOLDER || nameValid)
 
     fun confirm() {
-        if (canConfirm && targetPath != null) onConfirm(targetPath)
+        val target = targetPath ?: return
+        if (canConfirm) onConfirm(target)
     }
 
     fun goUp() {
