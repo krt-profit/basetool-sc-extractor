@@ -242,6 +242,21 @@ private fun ImagesStepContent(
         }
         Spacer(Modifier.height(10.dp))
 
+        // Bulk selection: every tile is ticked by default, so running only a few images of a big
+        // folder would mean unticking each one — one click empties the selection instead. With
+        // nothing ticked the button flips to re-fill, so the bulk action is never a dead end.
+        if (state.images.isNotEmpty()) {
+            val anySelected = state.selectedImages.isNotEmpty()
+            Row(modifier = Modifier.fillMaxWidth()) {
+                Spacer(Modifier.weight(1f))
+                GhostButton(
+                    if (anySelected) strings.rfDeselectAll else strings.rfSelectAll,
+                    onClick = { state.setAllImagesSelected(!anySelected) },
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+        }
+
         // Thumbnail grid — fills the remaining height (the grid itself scrolls on overflow).
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 200.dp),

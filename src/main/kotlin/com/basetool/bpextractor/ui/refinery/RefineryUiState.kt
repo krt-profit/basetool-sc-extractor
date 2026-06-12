@@ -390,6 +390,14 @@ class RefineryUiState(
         if (index >= 0) images[index] = images[index].copy(selected = !images[index].selected)
     }
 
+    /** §5.2 bulk action: tick or untick every loaded image in one click. */
+    fun setAllImagesSelected(selected: Boolean) {
+        for (i in images.indices) {
+            val img = images[i]
+            if (img.selected != selected) images[i] = img.copy(selected = selected)
+        }
+    }
+
     /**
      * §5.2 CTA — (re)enter the extraction step. Any previous run's result is discarded so the
      * step's auto-start fires again with the CURRENT selection, and the stepper ceiling drops
