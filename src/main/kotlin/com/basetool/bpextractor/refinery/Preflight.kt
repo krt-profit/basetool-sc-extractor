@@ -172,6 +172,15 @@ object Preflight {
     /** Low-VRAM/CPU fallback — same validated accuracy, only the REFINE-toggle class regressed. */
     const val MODEL_MINIMUM = "qwen3-vl:4b-instruct"
 
+    /**
+     * Cross-model verify partner ([CrossModelVerify]): a differently-sized vision encoder whose
+     * misreads are decorrelated from the primary's (golden set 2026-06-12: no cell where both
+     * read the same wrong value). Used on the recommended tier only, and only when already
+     * installed — the verify pass is an accuracy bonus, never a reason for an extra multi-GB
+     * download or a below-tier slowdown.
+     */
+    const val MODEL_VERIFY = "qwen3-vl:4b-instruct"
+
     /** Fully-GPU-resident footprint of the 8b model at default context (~10 GB) + headroom. */
     const val VRAM_RECOMMENDED_BYTES: Long = 12L * GIB
 

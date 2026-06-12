@@ -26,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.BlueprintExtractor
 import com.basetool.bpextractor.refinery.PipelineStage
+import com.basetool.bpextractor.refinery.Preflight
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.GhostButton
 import com.basetool.bpextractor.ui.Krt
@@ -57,7 +58,15 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
     // The run works on the §5.2 selection snapshot, not the full grid list.
     val total = state.runImages.size
     val done = state.outcomes.size
-    val remaining = ((total - done).coerceAtLeast(0)) * state.etaSecondsPerImage
+    // During the verify pass (all reads done, run still active) the remaining estimate comes
+    // from the not-yet-verified images instead of the long-finished read counter.
+    val verifyStarted = state.stageReached.values.count { it == PipelineStage.VERIFY }
+    val remaining =
+        if (state.runVerify && done == total && state.running) {
+            (total - verifyStarted + 1).coerceAtLeast(0) * Preflight.ETA_GPU_MINIMUM_S
+        } else {
+            ((total - done).coerceAtLeast(0)) * state.etaSecondsPerImage
+        }
 
     StepScaffold(
         overline = strings.rfStepOverline(3),
@@ -162,19 +171,24 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
     }
 }
 
-/** One per-image row: status dot, name, the three-stage track, the un-quoted ⚠ tag. */
+/** One per-image row: status dot, name, the stage track, the un-quoted ⚠ tag. */
 @Composable
 private fun ImageStageRow(state: RefineryUiState, index: Int, image: RefineryImage) {
-    val strings = LocalStrings.current
     val outcome = state.outcomes[index]
     val reached = state.stageReached[index]
-    val active = state.running && state.currentIndex == index && outcome == null
+    val active = state.running && state.currentIndex == index
     val dot = when {
         outcome?.quoted == false -> Krt.Warning
         outcome != null && outcome.quoted == null -> Krt.Danger
         outcome != null -> Krt.Success
         active -> Krt.Orange
         else -> Krt.Gray2
+    }
+    // The VERIFY stage only exists for runs with a cross-model verify pass.
+    val stages = if (state.runVerify) {
+        PipelineStage.entries
+    } else {
+        PipelineStage.entries.filter { it != PipelineStage.VERIFY }
     }
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -189,9 +203,16 @@ private fun ImageStageRow(state: RefineryUiState, index: Int, image: RefineryIma
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(start = 16.dp),
         ) {
-            PipelineStage.entries.forEach { stage ->
-                val passed = outcome != null || (reached != null && reached.ordinal > stage.ordinal)
-                val current = active && reached == stage
+            stages.forEach { stage ->
+                val passed = when {
+                    // VERIFY runs after every image's read: done once a later image started
+                    // verifying or the run finished — the read outcome alone says nothing.
+                    stage == PipelineStage.VERIFY ->
+                        reached == PipelineStage.VERIFY && (state.currentIndex > index || !state.running)
+                    reached != null && reached.ordinal > stage.ordinal -> true
+                    else -> outcome != null
+                }
+                val current = active && reached == stage && !passed
                 val color = when {
                     current -> Krt.Orange
                     passed -> Krt.Success
@@ -205,7 +226,7 @@ private fun ImageStageRow(state: RefineryUiState, index: Int, image: RefineryIma
                         color = color,
                     )
                 }
-                if (stage != PipelineStage.entries.last()) {
+                if (stage != stages.last()) {
                     Box(Modifier.width(14.dp).height(1.dp).background(Krt.Gray3))
                 }
             }

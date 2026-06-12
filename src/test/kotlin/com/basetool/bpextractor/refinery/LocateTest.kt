@@ -98,6 +98,18 @@ class LocateTest {
     }
 
     @Test
+    fun `the fallback geometry keeps the 16-9 panel size on ultrawide frames`() {
+        val fallback = Locate.fallbackPanel(frame(5120, 1440))
+
+        // Position scales per axis; the SIZE scales with the height only (fy = 2/3) — the game
+        // renders the panel at its 16:9 size, width-proportional scaling would distort the crop.
+        assertEquals((950 * 5120 / 3840.0).toInt(), fallback.x)
+        assertEquals((350 * 2 / 3.0).toInt(), fallback.y)
+        assertEquals((920 * 2 / 3.0).toInt(), fallback.width)
+        assertEquals(1000, fallback.height)
+    }
+
+    @Test
     fun `precropped detection matches the golden-set shapes`() {
         assertTrue(Locate.isPrecropped(500, 1500), "a ~500px portrait panel crop")
         assertFalse(Locate.isPrecropped(3840, 2160), "a full 4K frame")

@@ -12,7 +12,7 @@ Transcribe EXACTLY what is rendered. Rules:
 - All numbers as strings, digit for digit, no thousands separators. Do not "correct" implausible values.
 - A YIELD cell showing "--" means the order is not yet quoted: write "--" for that yield.
 - quoted is TRUE when the YIELD column shows numbers and the bottom button reads CONFIRM; quoted is FALSE only when YIELD shows "--" (button GET QUOTE, cost/time empty).
-- The REFINE column is a toggle: filled/orange = "ON", empty/gray = "OFF".
+- The REFINE column is a toggle switch with a small orange knob in BOTH states — the color/fill does NOT indicate the state. Read the knob POSITION inside the switch frame: knob on the right half = "ON", knob on the left half = "OFF". A quoted order shows a YIELD number for exactly the ON rows and "--" for OFF rows; transcribe the toggle by position regardless.
 - Ignore any in-world AR markers overlapping the panel (white distance labels like "XPBX 2.3km") — they are not panel content.
 - Include every visible table row, strictly top to bottom, including rows partially cut off at the edge (mark those with partial = true / PARTIAL).
 - If a value is absent or unreadable, use null (JSON) / "?" (markdown) — do not guess.
@@ -30,4 +30,4 @@ CTA: <button label or ?>
 | MATERIAL | QUALITY | QTY | YIELD | REFINE |
 |---|---|---|---|---|
 | <name> | <number> | <number> | <number or --> | <ON|OFF> |
-(one line per visible row, top to bottom; append " PARTIAL" to the name of edge-cut rows)
+(one line per visible row, top to bottom; if a row is cut off at the panel edge, append " PARTIAL" after that row's material name, e.g. | GOLD (ORE) PARTIAL | ... — PARTIAL is a name suffix, NEVER a row of its own)

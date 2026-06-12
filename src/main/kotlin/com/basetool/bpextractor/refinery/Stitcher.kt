@@ -12,6 +12,12 @@ data class StitchedRow(
     val refine: String,
     /** The image whose (preferred) read supplied the surviving cells. */
     val sourceImage: String,
+    /**
+     * Whether the surviving read saw the QUOTED panel state. Rows from an un-quoted capture show
+     * `--` yields by definition, so the yield-based refine correction in [Validation] must not
+     * fire for them — in a mixed capture set the order-level `quoted` is too coarse.
+     */
+    val quotedRead: Boolean,
 )
 
 /** The stitched order: merged header fields + rows in reconstructed on-screen order. */
@@ -23,6 +29,8 @@ data class StitchResult(
     val totalCost: String?,
     val processingTime: String?,
     val rows: List<StitchedRow>,
+    /** The bottom CTA label (`CONFIRM` / `GET QUOTE`), quoted reads preferred — validation input. */
+    val cta: String? = null,
 )
 
 /**
@@ -49,17 +57,58 @@ data class StitchResult(
  */
 object Stitcher {
 
-    /** Identity triple for cross-image row alignment; name folds case/whitespace only. */
-    private data class RowKey(val name: String, val quality: String?, val qty: String?)
+    /**
+     * Row identity for cross-image alignment. Quality and qty must match exactly; the name folds
+     * case/whitespace and bracket style — the VLM transcribes the suffix inconsistently as
+     * `(ORE)`/`[ORE]` across reads of the same panel, which must not break the overlap detection
+     * (the exported name stays verbatim; only the comparison folds). On top, a SINGLE-character
+     * name garble (`LINDINIMUM` vs `LINDINIUM`, a real run-to-run artefact) is tolerated when
+     * BOTH numeric cells are present and equal — duplicate materials always differ in
+     * quality/qty, so the numbers disambiguate; basetool fuzzy-matches names downstream anyway.
+     */
+    private fun sameRow(a: PanelRow, b: PanelRow): Boolean {
+        if (a.quality != b.quality || a.qty != b.qty) return false
+        val an = foldName(a.name)
+        val bn = foldName(b.name)
+        if (an == bn) return true
+        return a.quality != null && a.qty != null && withinOneEdit(an, bn)
+    }
 
-    private fun key(row: PanelRow): RowKey = RowKey(
-        name = row.name.trim().uppercase().replace(Regex("\\s+"), " "),
-        quality = row.quality,
-        qty = row.qty,
-    )
+    private fun foldName(name: String): String = name.trim().uppercase()
+        .replace(Regex("\\s+"), " ").replace('[', '(').replace(']', ')')
+
+    /** Levenshtein distance ≤ 1 (one substitution, insertion or deletion). */
+    internal fun withinOneEdit(a: String, b: String): Boolean {
+        if (a == b) return true
+        val (short, long) = if (a.length <= b.length) a to b else b to a
+        return when (long.length - short.length) {
+            0 -> short.indices.count { short[it] != long[it] } == 1
+            1 -> {
+                var i = 0
+                var j = 0
+                var skipped = false
+                while (i < short.length) {
+                    when {
+                        short[i] == long[j] -> { i++; j++ }
+                        !skipped -> { skipped = true; j++ }
+                        else -> return false
+                    }
+                }
+                true
+            }
+            else -> false
+        }
+    }
+
+    /** True when the row carries a quoted yield value (not the `--` marker, not unreadable). */
+    private fun hasQuotedYield(row: PanelRow): Boolean = row.yield_ != null && row.yield_ != "--"
 
     /** One assembled fragment: rows + (parallel) source-image names + quoted-state per row. */
-    private data class Fragment(val rows: MutableList<PanelRow>, val sources: MutableList<String>)
+    private data class Fragment(
+        val rows: MutableList<PanelRow>,
+        val sources: MutableList<String>,
+        val quoted: MutableList<Boolean>,
+    )
 
     fun stitch(reads: List<ImageRead>): StitchResult {
         require(reads.isNotEmpty()) { "stitch() needs at least one read" }
@@ -73,11 +122,16 @@ object Stitcher {
         val toRefine = headerOrder.firstNotNullOfOrNull { it.panel.toRefine }
         val totalCost = headerOrder.firstNotNullOfOrNull { it.panel.totalCost }
         val processingTime = headerOrder.firstNotNullOfOrNull { it.panel.processingTime }
+        val cta = headerOrder.firstNotNullOfOrNull { it.panel.cta }
 
         // Fragments = per-image row sequences, partial rows dropped.
         var fragments = reads.map { read ->
             val rows = read.panel.rows.filterNot { it.partial }
-            Fragment(rows.toMutableList(), MutableList(rows.size) { read.imageName })
+            Fragment(
+                rows.toMutableList(),
+                MutableList(rows.size) { read.imageName },
+                MutableList(rows.size) { read.panel.quoted },
+            )
         }.filter { it.rows.isNotEmpty() }
 
         // Greedy assembly. Two merge moves, tried in this order each round:
@@ -124,42 +178,61 @@ object Stitcher {
                     yield_ = row.yield_,
                     refine = row.refine,
                     sourceImage = fragment.sources[i],
+                    quotedRead = fragment.quoted[i],
                 )
             }
         }
-        return StitchResult(method, anyQuoted, inManifest, toRefine, totalCost, processingTime, rows)
+        return StitchResult(method, anyQuoted, inManifest, toRefine, totalCost, processingTime, rows, cta)
     }
 
-    /** Index in [a] at which [b]'s whole key sequence appears, or null when not contained. */
+    /**
+     * Whether the [incoming] duplicate of an overlap row should replace the [existing] one:
+     * a quoted READ beats an un-quoted READ even when its yield cell is the `--` marker — for a
+     * refine-OFF row `--` IS the quoted information ([Validation.yieldRefineSignal] may only fire
+     * on rows whose surviving read saw the quoted state). Among reads of the same quoted-ness the
+     * numeric yield wins (a quoted capture can still show `--` rows pre-GET-QUOTE leftovers).
+     */
+    private fun prefersIncoming(
+        existing: PanelRow,
+        existingQuoted: Boolean,
+        incoming: PanelRow,
+        incomingQuoted: Boolean,
+    ): Boolean = when {
+        incomingQuoted != existingQuoted -> incomingQuoted
+        else -> !hasQuotedYield(existing) && hasQuotedYield(incoming)
+    }
+
+    /** Index in [a] at which [b]'s whole row sequence appears, or null when not contained. */
     private fun containsAt(a: Fragment, b: Fragment): Int? {
         if (b.rows.size > a.rows.size) return null
         outer@ for (start in 0..(a.rows.size - b.rows.size)) {
             for (i in b.rows.indices) {
-                if (key(a.rows[start + i]) != key(b.rows[i])) continue@outer
+                if (!sameRow(a.rows[start + i], b.rows[i])) continue@outer
             }
             return start
         }
         return null
     }
 
-    /** Fold the contained fragment [b] into [a] at [start], preferring quoted cells in place. */
+    /** Fold the contained fragment [b] into [a] at [start], preferring quoted reads in place. */
     private fun fold(a: Fragment, b: Fragment, start: Int) {
         for (i in b.rows.indices) {
             val ai = start + i
-            if (a.rows[ai].yield_ == null && b.rows[i].yield_ != null) {
+            if (prefersIncoming(a.rows[ai], a.quoted[ai], b.rows[i], b.quoted[i])) {
                 a.rows[ai] = b.rows[i]
                 a.sources[ai] = b.sources[i]
+                a.quoted[ai] = b.quoted[i]
             }
         }
     }
 
-    /** Longest k such that the last k row keys of [a] equal the first k of [b]. */
+    /** Longest k such that the last k rows of [a] match the first k of [b]. */
     private fun overlap(a: Fragment, b: Fragment): Int {
         val max = minOf(a.rows.size, b.rows.size)
         for (k in max downTo 1) {
             var match = true
             for (i in 0 until k) {
-                if (key(a.rows[a.rows.size - k + i]) != key(b.rows[i])) {
+                if (!sameRow(a.rows[a.rows.size - k + i], b.rows[i])) {
                     match = false
                     break
                 }
@@ -169,24 +242,24 @@ object Stitcher {
         return 0
     }
 
-    /** Concatenate [a] + [b] minus the overlap of size [k]; overlapping rows prefer quoted cells. */
+    /** Concatenate [a] + [b] minus the overlap of size [k]; overlapping rows prefer quoted reads. */
     private fun merge(a: Fragment, b: Fragment, k: Int): Fragment {
         val rows = a.rows.toMutableList()
         val sources = a.sources.toMutableList()
+        val quoted = a.quoted.toMutableList()
         for (i in 0 until k) {
             val ai = a.rows.size - k + i
-            val existing = rows[ai]
-            val incoming = b.rows[i]
-            // The quoted variant (yield present) wins; otherwise the existing read stays.
-            if (existing.yield_ == null && incoming.yield_ != null) {
-                rows[ai] = incoming
+            if (prefersIncoming(rows[ai], quoted[ai], b.rows[i], b.quoted[i])) {
+                rows[ai] = b.rows[i]
                 sources[ai] = b.sources[i]
+                quoted[ai] = b.quoted[i]
             }
         }
         for (i in k until b.rows.size) {
             rows += b.rows[i]
             sources += b.sources[i]
+            quoted += b.quoted[i]
         }
-        return Fragment(rows, sources)
+        return Fragment(rows, sources, quoted)
     }
 }

@@ -16,14 +16,14 @@ class PanelReader(
 
     /**
      * Read one SETUP panel image (base64 PNG) into a [PanelRead]; null when the answer carried no
-     * recognizable layout (off-script response — the caller surfaces it as a failed image).
-     * [keepAlive] pins the model across a batch (`"10m"`); pass `"0"` on the final read of a run
-     * to release the VRAM (master plan Phase 3, Ollama integration).
+     * recognizable layout (off-script response — the caller surfaces it as a failed image). Every
+     * read pins the model for [KEEP_ALIVE_BATCH]; the pipeline releases via [OllamaApi.unload]
+     * when it is done with a model (master plan Phase 3, Ollama integration).
      */
-    fun readPanel(imageB64: String, keepAlive: String = KEEP_ALIVE_BATCH): PanelRead? {
-        var result = ollama.chat(model, PROMPT, imageB64, NUM_PREDICT, keepAlive, numGpu)
+    fun readPanel(imageB64: String): PanelRead? {
+        var result = ollama.chat(model, PROMPT, imageB64, NUM_PREDICT, KEEP_ALIVE_BATCH, numGpu)
         if (result.doneReason == "length") {
-            result = ollama.chat(model, PROMPT, imageB64, NUM_PREDICT_RETRY, keepAlive, numGpu)
+            result = ollama.chat(model, PROMPT, imageB64, NUM_PREDICT_RETRY, KEEP_ALIVE_BATCH, numGpu)
         }
         return MarkdownPanelParser.parse(result.text)
     }
@@ -33,14 +33,14 @@ class PanelReader(
      * location sits OUTSIDE the work-order panel and is lost on pre-cropped input). 9/9 exact on
      * the Phase 0 golden set at ~3 output tokens.
      */
-    fun readLocation(imageB64: String, keepAlive: String = KEEP_ALIVE_BATCH): String? {
-        val result = ollama.chat(model, LOCATION_PROMPT, imageB64, NUM_PREDICT_LOCATION, keepAlive, numGpu)
+    fun readLocation(imageB64: String): String? {
+        val result = ollama.chat(model, LOCATION_PROMPT, imageB64, NUM_PREDICT_LOCATION, KEEP_ALIVE_BATCH, numGpu)
         val name = result.text.trim().uppercase().trim('.')
         return name.takeUnless { it.isEmpty() || it == "NONE" }
     }
 
     companion object {
-        /** Keep the model pinned between batch reads; the final call passes `"0"` to release. */
+        /** Keep the model pinned between batch reads; [OllamaApi.unload] releases it explicitly. */
         const val KEEP_ALIVE_BATCH = "10m"
 
         /** Frozen prompt v1 (panel layout + transcription rules + markdown answer format). */
@@ -55,6 +55,7 @@ class PanelReader(
             Reply with ONLY that name, verbatim and uppercase. Ignore everything else.
             If no name is visible, reply NONE.
         """.trimIndent()
+
 
         /** Generous output budget for the table (Phase 0 spike value). */
         private const val NUM_PREDICT = 4096

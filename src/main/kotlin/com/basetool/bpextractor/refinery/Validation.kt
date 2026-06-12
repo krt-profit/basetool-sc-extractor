@@ -13,6 +13,32 @@ enum class ExtractWarning {
 
     /** At least one cell that must be numeric did not parse (e.g. HUD-marker bleed-through). */
     IMPLAUSIBLE_CELL,
+
+    /**
+     * A REFINE toggle read contradicted the YIELD column of a quoted order and was corrected
+     * (the toggle shows an orange knob in BOTH states — left = OFF, right = ON — which VLMs
+     * misread as "filled = ON"; the yield cell is the reliable signal: `--` = OFF, > 0 = ON).
+     */
+    REFINE_CORRECTED,
+
+    /**
+     * Cross-model verify: a disagreeing QTY cell was resolved via the TO REFINE checksum — the
+     * verify model's value made Σ QTY(ON) land on the header total where the primary's did not.
+     */
+    VERIFY_CORRECTED,
+
+    /**
+     * Cross-model verify: the two models disagree on at least one cell (or their row sets did
+     * not align) and no deterministic signal decides it — at least one read is wrong, review
+     * must look at the contested rows.
+     */
+    VERIFY_MISMATCH,
+
+    /**
+     * The transcribed bottom button contradicts the quoted state (`CONFIRM` belongs to a quoted
+     * panel, `GET QUOTE` to an un-quoted one) — one of the two header reads is wrong.
+     */
+    CTA_MISMATCH,
 }
 
 /** The validated order: contract-ready goods + order fields + warnings + layout confidence. */
@@ -38,11 +64,18 @@ data class ValidatedOrder(
  *    `--`); a non-numeric read (e.g. `2.1KM` HUD bleed-through) drops the row to
  *    [CONFIDENCE_IMPLAUSIBLE];
  * 2. the REFINE toggle must read `ON` or `OFF`; anything else defaults to ON at low confidence
- *    so the backend drafts the row and the review forces a look;
+ *    so the backend drafts the row and the review forces a look. In a QUOTED order the YIELD
+ *    column overrides the toggle read entirely (`--` ⇒ OFF, > 0 ⇒ ON): the terminal quotes a
+ *    yield for exactly the refine-ON rows, while the toggle glyph carries an orange knob in
+ *    both states (only its position differs) and is the documented VLM misread class. A
+ *    contradicting toggle read is corrected at [CONFIDENCE_REFINE_CORRECTED] + warning;
  * 3. the one-sided header checksum (verified semantics: TO REFINE = Σ QTY of refine-ON rows,
  *    ±1 display rounding per row; the list is a ~6-row scrolling viewport, so only
  *    "visible Σ EXCEEDS the header" is flaggable);
- * 4. the model's verbalized self-confidence is never used.
+ * 4. the optional cross-model verify ([CrossModelVerify]): rows whose QTY the checksum
+ *    arbitration replaced cap at [CONFIDENCE_VERIFY_CORRECTED]; rows the two models read
+ *    differently without a deterministic arbiter cap at [CONFIDENCE_VERIFY_CONTESTED];
+ * 5. the model's verbalized self-confidence is never used.
  *
  * The order's `layoutConfidence` is the mean row confidence, dampened when the checksum flags.
  */
@@ -57,10 +90,46 @@ object Validation {
     /** A row whose REFINE toggle did not read as ON/OFF. */
     const val CONFIDENCE_REFINE_UNREADABLE = 0.5
 
+    /** A row whose REFINE toggle read contradicted the quoted YIELD column and was corrected. */
+    const val CONFIDENCE_REFINE_CORRECTED = 0.85
+
+    /** A row whose QTY the cross-model checksum arbitration replaced (deterministic, reviewed). */
+    const val CONFIDENCE_VERIFY_CORRECTED = 0.85
+
+    /** A row the two models read differently with no deterministic arbiter — one of them errs. */
+    const val CONFIDENCE_VERIFY_CONTESTED = 0.75
+
     /** Dampening factor on layout confidence when the header checksum flags. */
     private const val SUM_MISMATCH_DAMPENING = 0.9
 
-    fun validate(stitch: StitchResult): ValidatedOrder {
+    /**
+     * The YIELD column's deterministic refine signal: in a QUOTED read the terminal quotes a
+     * yield for exactly the refine-ON rows and renders `--` for OFF rows, while the toggle glyph
+     * shows an orange knob in BOTH states (left = OFF, right = ON) and is the known VLM misread
+     * class. Gated on the ROW's surviving read having seen the quoted state — in a mixed capture
+     * set a row visible only in a pre-GET-QUOTE capture shows `--` legitimately. A yield of
+     * exactly 0 stays ambiguous (INERT MATERIALS shows 0 while OFF) ⇒ null = no signal.
+     */
+    fun yieldRefineSignal(row: StitchedRow): Boolean? = when {
+        !row.quotedRead -> null
+        row.yield_ == "--" -> false
+        (PanelValues.toQuantity(row.yield_) ?: 0L) > 0L -> true
+        else -> null
+    }
+
+    /**
+     * The one-sided TO-REFINE checksum over contract-ready [goods] (§7 semantics: Σ QTY of
+     * refine-ON rows ≤ header + ±1 display rounding per row; shortfall is legal — scrolling
+     * viewport). Public so the review screen can re-check it against user-corrected rows.
+     */
+    fun sumMismatch(goods: List<RefineryExtractGood>, toRefineTotal: Long?): Boolean {
+        if (toRefineTotal == null) return false
+        val visibleOn = goods.filter { it.refine }.mapNotNull { it.inputQuantity }
+        val tolerance = goods.size.toLong()
+        return visibleOn.sum() > toRefineTotal + tolerance || visibleOn.any { it > toRefineTotal + 1 }
+    }
+
+    fun validate(stitch: StitchResult, crossCheck: CrossModelVerify.Outcome? = null): ValidatedOrder {
         val warnings = mutableSetOf<ExtractWarning>()
         val goods = mutableListOf<RefineryExtractGood>()
 
@@ -69,22 +138,46 @@ object Validation {
             val quality = PanelValues.toQuality(row.quality)
             val yieldQty = PanelValues.toQuantity(row.yield_)
             val refineKnown = row.refine == "ON" || row.refine == "OFF"
-            val refine = if (refineKnown) row.refine == "ON" else true
+            val refineFromToggle = if (refineKnown) row.refine == "ON" else true
+
+            val refineFromYield = yieldRefineSignal(row)
+            val refine = refineFromYield ?: refineFromToggle
+            val refineCorrected = refineKnown && refineFromYield != null && refineFromYield != refineFromToggle
 
             // Plausibility: QTY and QUALITY must parse whenever the cell carried a value;
-            // YIELD must parse when the order is quoted and the cell wasn't `--`.
+            // YIELD must parse when the cell carried a value other than the `--` marker.
+            // YIELD > QTY is physically impossible (refining removes impurities, the output is
+            // always less than the input) — a guaranteed digit misread in one of the two cells.
             val qtyImplausible = row.qty != null && qty == null
             val qualityImplausible = row.quality != null && quality == null
-            val yieldImplausible = row.yield_ != null && yieldQty == null
-            val implausible = qtyImplausible || qualityImplausible || yieldImplausible
+            val yieldImplausible = row.yield_ != null && row.yield_ != "--" && yieldQty == null
+            val yieldExceedsQty = yieldQty != null && qty != null && yieldQty > qty
+            val implausible = qtyImplausible || qualityImplausible || yieldImplausible || yieldExceedsQty
 
-            val confidence = when {
+            var confidence = when {
                 implausible -> CONFIDENCE_IMPLAUSIBLE
                 !refineKnown -> CONFIDENCE_REFINE_UNREADABLE
+                refineCorrected -> CONFIDENCE_REFINE_CORRECTED
                 else -> CONFIDENCE_OK
+            }
+            // Cross-model verify (PHASE0 addendum 2026-06-12): the merge marks rows whose QTY the
+            // checksum arbitration replaced and rows the two models read differently without a
+            // deterministic arbiter — both cap the confidence (min: an implausible row stays 0.4).
+            if (crossCheck != null) {
+                if (index in crossCheck.corrected) {
+                    confidence = minOf(confidence, CONFIDENCE_VERIFY_CORRECTED)
+                    warnings += ExtractWarning.VERIFY_CORRECTED
+                }
+                if (index in crossCheck.contested) {
+                    confidence = minOf(confidence, CONFIDENCE_VERIFY_CONTESTED)
+                    warnings += ExtractWarning.VERIFY_MISMATCH
+                }
             }
             if (implausible) {
                 warnings += ExtractWarning.IMPLAUSIBLE_CELL
+            }
+            if (refineCorrected) {
+                warnings += ExtractWarning.REFINE_CORRECTED
             }
 
             goods += RefineryExtractGood(
@@ -104,18 +197,31 @@ object Validation {
             warnings += ExtractWarning.UNQUOTED_ORDER
         }
 
+        // Cross-model verify ran but the row sets did not align (e.g. a ghost row in one read):
+        // no cell comparison was possible — that itself is a disagreement worth a look.
+        if (crossCheck != null && !crossCheck.comparable) {
+            warnings += ExtractWarning.VERIFY_MISMATCH
+        }
+
+        // CTA cross-check: the button label is a redundant read of the quoted state — a
+        // contradiction means one of the two header cells was misread.
+        val ctaQuoted = stitch.cta?.uppercase()?.let { cta ->
+            when {
+                "CONFIRM" in cta -> true
+                "QUOTE" in cta -> false
+                else -> null
+            }
+        }
+        if (ctaQuoted != null && ctaQuoted != stitch.quoted) {
+            warnings += ExtractWarning.CTA_MISMATCH
+        }
+
         // One-sided header checksum (PHASE0_FINDINGS §7): the visible refine-ON quantities may
         // legitimately fall SHORT of TO REFINE (scrolled-out rows), but can never exceed it
         // beyond the ±1-per-row display rounding.
         val toRefineTotal = PanelValues.toQuantity(stitch.toRefine)
-        if (toRefineTotal != null) {
-            val visibleOn = goods.filter { it.refine }.mapNotNull { it.inputQuantity }
-            val sum = visibleOn.sum()
-            val tolerance = goods.size.toLong()
-            val anyRowExceeds = visibleOn.any { it > toRefineTotal + 1 }
-            if (sum > toRefineTotal + tolerance || anyRowExceeds) {
-                warnings += ExtractWarning.SUM_MISMATCH
-            }
+        if (sumMismatch(goods, toRefineTotal)) {
+            warnings += ExtractWarning.SUM_MISMATCH
         }
 
         var layout = if (goods.isEmpty()) 0.0 else goods.sumOf { it.confidence } / goods.size
