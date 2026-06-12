@@ -24,9 +24,16 @@ import kotlin.test.Test
  */
 class PromptSmokeTest {
 
-    /** One order's golden-expected shape: header total + rows as `name|quality|in|out|refine`. */
+    /**
+     * One order's golden-expected shape: header total + rows as `name|quality|in|out|refine` +
+     * the location read (null = no readable header in any capture, e.g. pre-cropped input).
+     */
     @Serializable
-    private data class ExpectedOrder(val toRefine: Long?, val rows: List<String>)
+    private data class ExpectedOrder(
+        val toRefine: Long?,
+        val rows: List<String>,
+        val location: String? = null,
+    )
 
     @Test
     fun `read every sample order through the live pipeline stages`() {
@@ -48,6 +55,8 @@ class PromptSmokeTest {
                 .sortedBy { it.name }
             val reads = mutableListOf<ImageRead>()
             val verifyQueue = mutableListOf<Pair<String, String>>()
+            var location: String? = null
+            var locationRead = false
             images.forEach { file ->
                 val img = ImageIO.read(file)
                 val precropped = Locate.isPrecropped(img.width, img.height)
@@ -55,6 +64,13 @@ class PromptSmokeTest {
                 val prepared = Locate.prepare(img, box)
                 val b64 = toBase64Png(prepared.readImage)
                 if (verifier != null) verifyQueue += file.name to b64
+                // Location semantics mirror RefineryPipeline: read ONCE, from the first capture
+                // that has a header strip (a null answer does not retry on later captures).
+                if (!locationRead && prepared.locationImage != null) {
+                    location = reader.readLocation(toBase64Png(prepared.locationImage))
+                    locationRead = true
+                    report.appendLine("  LOCATION ${location ?: "not readable"} (from ${file.name})")
+                }
                 val panel = reader.readPanel(b64)
                 report.appendLine(
                     "--- ${file.name} (${img.width}×${img.height}, ${prepared.cropMode}) " +
@@ -112,6 +128,7 @@ class PromptSmokeTest {
                 rows = validated.goods.map {
                     "${it.rawMaterialName}|${it.quality}|${it.inputQuantity}|${it.outputQuantity}|${it.refine}"
                 },
+                location = location,
             )
         }
 
@@ -155,6 +172,9 @@ class PromptSmokeTest {
                 else -> {
                     diffs++
                     report.appendLine("  ! $order: toRefine ${e.toRefine} -> ${a.toRefine}")
+                    if (e.location != a.location) {
+                        report.appendLine("    location ${e.location} -> ${a.location}")
+                    }
                     (e.rows.filterNot { it in a.rows }).forEach { report.appendLine("    - $it") }
                     (a.rows.filterNot { it in e.rows }).forEach { report.appendLine("    + $it") }
                 }

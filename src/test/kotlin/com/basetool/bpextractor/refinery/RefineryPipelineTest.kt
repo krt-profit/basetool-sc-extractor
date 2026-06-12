@@ -41,7 +41,7 @@ class RefineryPipelineTest {
 
         override fun chat(model: String, prompt: String, imageB64: String, numPredict: Int, keepAlive: String, numGpu: Int?): ChatResult =
             when {
-                prompt.contains("header bar") -> {
+                prompt.contains("station/outpost") -> {
                     calls += "location" to keepAlive
                     ChatResult(locationAnswer, "stop")
                 }

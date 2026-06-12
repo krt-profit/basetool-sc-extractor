@@ -63,6 +63,45 @@ class StitcherTest {
     }
 
     @Test
+    fun `a QTY disagreement in the overlap zone neither duplicates rows nor keeps the edge read`() {
+        // Auftrag 10 reality: the same physical LARANITE row is the EDGE row of capture 1
+        // (mis-read 185) and a mid-table row of capture 2 (clean 105). The exact overlap fails
+        // on the digit, so without the loose pass every overlap row would export twice; the
+        // surviving QTY must come from the capture that saw the row away from its edges.
+        val first = ImageRead(
+            "1_upper.png",
+            panel(
+                listOf(
+                    row("BEXALITE (RAW)", "597", "127", "--"),
+                    row("BORASE (ORE)", "892", "192", "93"),
+                    row("BORASE (ORE)", "903", "727", "353"),
+                    row("LARANITE (RAW)", "510", "185", "--"), // edge row, mis-read
+                ),
+            ),
+        )
+        val second = ImageRead(
+            "2_lower.png",
+            panel(
+                listOf(
+                    row("BORASE (ORE)", "892", "192", "93"),
+                    row("BORASE (ORE)", "903", "727", "353"),
+                    row("LARANITE (RAW)", "510", "105", "--"), // mid-table, clean
+                    row("TUNGSTEN (ORE)", "858", "276", "134"),
+                    row("INERT MATERIALS", "0", "852", "0", refine = "OFF"),
+                ),
+            ),
+        )
+
+        val result = Stitcher.stitch(listOf(first, second))
+
+        assertEquals(
+            listOf("BEXALITE (RAW)", "BORASE (ORE)", "BORASE (ORE)", "LARANITE (RAW)", "TUNGSTEN (ORE)", "INERT MATERIALS"),
+            result.rows.map { it.name },
+        )
+        assertEquals("105", result.rows.single { it.name == "LARANITE (RAW)" }.qty)
+    }
+
+    @Test
     fun `a quoted read of an OFF row beats the un-quoted read even though its yield is the marker`() {
         // The yield-based refine correction may only fire on rows whose surviving read saw the
         // quoted state — for an OFF row the quoted capture also shows "--", so preferring by

@@ -42,6 +42,11 @@ data class StitchResult(
  *   collapse.
  * - **Rows co-visible in the same screenshot never merge**, even when their triple is identical:
  *   the merge step only aligns ACROSS images (suffix/prefix overlap), it never folds within one.
+ * - **A single QTY disagreement does not break the overlap**: when no exact suffix-prefix
+ *   overlap exists, a loose pass re-aligns on (name, quality) alone — the same physical row
+ *   mis-read in ONE capture must not export twice (Auftrag 10: 105 vs 185). The surviving QTY
+ *   comes from the read that saw the row farther from its viewport edges (edge rows render
+ *   half-cut/glowing and are the unreliable ones — same rationale as the partial-row drop).
  * - **The quoted variant wins**: when the same row appears once with a yield (quoted) and once as
  *   `--` (captured before GET QUOTE), the quoted cells survive.
  * - **On-screen order is reconstructed from scroll overlap** (consecutive captures overlap by
@@ -66,10 +71,16 @@ object Stitcher {
      * BOTH numeric cells are present and equal — duplicate materials always differ in
      * quality/qty, so the numbers disambiguate; basetool fuzzy-matches names downstream anyway.
      */
-    private fun sameRow(a: PanelRow, b: PanelRow): Boolean {
-        if (a.quality != b.quality || a.qty != b.qty) return false
+    private fun sameRow(a: PanelRow, b: PanelRow, loose: Boolean = false): Boolean {
+        if (a.quality != b.quality) return false
         val an = foldName(a.name)
         val bn = foldName(b.name)
+        if (a.qty != b.qty) {
+            // Loose mode (second-chance overlap detection): the SAME physical row read with a
+            // digit disagreement across two captures (Auftrag 10: 105 vs 185) — name + quality
+            // must then match exactly, and both cells must be actual values.
+            return loose && a.qty != null && b.qty != null && a.quality != null && an == bn
+        }
         if (an == bn) return true
         return a.quality != null && a.qty != null && withinOneEdit(an, bn)
     }
@@ -153,17 +164,24 @@ object Stitcher {
             var bestA = -1
             var bestB = -1
             var bestK = 0
-            for (a in fragments.indices) {
-                for (b in fragments.indices) {
-                    if (a == b) continue
-                    val k = overlap(fragments[a], fragments[b])
-                    if (k > bestK) {
-                        bestA = a; bestB = b; bestK = k
+            var bestLoose = false
+            // Exact overlap first; only when nothing chains, retry tolerating a single-cell QTY
+            // disagreement (loose) — otherwise one mis-read digit in the overlap zone makes the
+            // whole capture pair "share no overlap" and every overlap row exports TWICE.
+            for (loose in listOf(false, true)) {
+                for (a in fragments.indices) {
+                    for (b in fragments.indices) {
+                        if (a == b) continue
+                        val k = overlap(fragments[a], fragments[b], loose)
+                        if (k > bestK) {
+                            bestA = a; bestB = b; bestK = k; bestLoose = loose
+                        }
                     }
                 }
+                if (bestK > 0) break
             }
             if (bestK == 0) break
-            val merged = merge(fragments[bestA], fragments[bestB], bestK)
+            val merged = merge(fragments[bestA], fragments[bestB], bestK, bestLoose)
             fragments = fragments.filterIndexed { i, _ -> i != bestA && i != bestB } + merged
         }
 
@@ -227,12 +245,12 @@ object Stitcher {
     }
 
     /** Longest k such that the last k rows of [a] match the first k of [b]. */
-    private fun overlap(a: Fragment, b: Fragment): Int {
+    private fun overlap(a: Fragment, b: Fragment, loose: Boolean = false): Int {
         val max = minOf(a.rows.size, b.rows.size)
         for (k in max downTo 1) {
             var match = true
             for (i in 0 until k) {
-                if (!sameRow(a.rows[a.rows.size - k + i], b.rows[i])) {
+                if (!sameRow(a.rows[a.rows.size - k + i], b.rows[i], loose)) {
                     match = false
                     break
                 }
@@ -242,14 +260,25 @@ object Stitcher {
         return 0
     }
 
+    /** Rows from the middle of a capture's table render clean; edge rows sit half-cut/glowing. */
+    private fun edgeDistance(index: Int, size: Int): Int = minOf(index, size - 1 - index)
+
     /** Concatenate [a] + [b] minus the overlap of size [k]; overlapping rows prefer quoted reads. */
-    private fun merge(a: Fragment, b: Fragment, k: Int): Fragment {
+    private fun merge(a: Fragment, b: Fragment, k: Int, loose: Boolean = false): Fragment {
         val rows = a.rows.toMutableList()
         val sources = a.sources.toMutableList()
         val quoted = a.quoted.toMutableList()
         for (i in 0 until k) {
             val ai = a.rows.size - k + i
-            if (prefersIncoming(rows[ai], quoted[ai], b.rows[i], b.quoted[i])) {
+            val replace = if (loose && rows[ai].qty != b.rows[i].qty && quoted[ai] == b.quoted[i]) {
+                // QTY disagreement on the same physical row (loose overlap): trust the read
+                // that saw the row farther from its viewport edges — the edge row of one
+                // capture re-appears mid-table in the next, where the glyphs render clean.
+                edgeDistance(i, b.rows.size) > edgeDistance(ai, a.rows.size)
+            } else {
+                prefersIncoming(rows[ai], quoted[ai], b.rows[i], b.quoted[i])
+            }
+            if (replace) {
                 rows[ai] = b.rows[i]
                 sources[ai] = b.sources[i]
                 quoted[ai] = b.quoted[i]
