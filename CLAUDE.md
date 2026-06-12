@@ -42,7 +42,9 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   `logbackups\` subfolder. When the channel is **LIVE** and a sibling `HOTFIX` folder
   with logs sits next to it, that channel is swept in too (crafting knowledge is
   account-wide but each channel logs separately, so HOTFIX-farmed blueprints would
-  otherwise be missed). No args ⇒ GUI.
+  otherwise be missed). No args ⇒ GUI. The CLI exits non-zero when the channel folder
+  holds no (readable) logs or the output path isn't writable — it never fakes success
+  with an empty export.
 - **Build the MSI only via `package-msi.ps1`**, never `gradlew packageMsi` directly
   (see *Packaging* below).
 
@@ -83,14 +85,20 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
 `com.basetool.bpextractor`:
 
 - **`BlueprintParser.kt`** — *pure, side-effect-free* per-file parsing. Streams the log
-  line by line (`useLines`) so multi-hundred-MB files never load whole. Returns
-  `FileResult(player, blueprints)`. No I/O orchestration, no disk writes — keep it that
-  way (it's the easiest part to unit-test).
+  line by line (`useLines`) so multi-hundred-MB files never load whole. Cheap literal
+  substring guards run before every regex (the hot path on huge logs) — keep them as
+  literal prefixes of their regexes. Returns `FileResult(player, blueprints)`; an
+  optional `onBytesRead` callback feeds within-file progress. No I/O orchestration, no
+  disk writes — keep it that way (it's the easiest part to unit-test).
 - **`BlueprintExtractor.kt`** — orchestration: `findLogFiles(channelFolder)` (when the
   folder is LIVE it also appends a sibling `HOTFIX` channel's logs via
   `siblingHotfixFolder`) → parse each → aggregate per-player counts → sort
-  chronologically → assemble `BlueprintExport`. Also `writeJson`. No line-level parsing
-  here.
+  chronologically → assemble `BlueprintExport`. `extract` returns `ExtractionResult`
+  (export + `skippedFiles`): an unreadable log is skipped and reported, never fatal,
+  and events whose identity (player/name/timestamp/notification id) was already seen
+  in another file are counted once (guards against manually copied logs).
+  `validateOutputPath` is the pre-scan write-target check both GUI and CLI call. Also
+  `writeJson`. No line-level parsing here.
 - **`model/Models.kt`** — `@Serializable` data classes (`BlueprintEvent`,
   `PlayerSummary`, `BlueprintExport`). The exported JSON *is* this shape.
 - **`Main.kt`** — entry point. No args ⇒ Compose GUI (`guiMain`); args ⇒ `runCli`. Keep
@@ -208,8 +216,9 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
 - **bundled modules or the runtime** → `suggestRuntimeModules`, rebuild, GUI-launch test.
 - **the export shape** → bump `schemaVersion` for any breaking change. Additive optional
   (nullable) fields may stay within the current version (basetool ADR-0008 evolution
-  rule — precedent: `capturedAt` on `sourceImages`, 2026-06-11); mirror them in the
-  basetool's DTOs/spec and BOTH repos' contract tests in the same change.
+  rule — precedents: `capturedAt` on `sourceImages`, 2026-06-11; `additionalSourceFolders`
+  on `BlueprintExport`, 2026-06-12); mirror them in the basetool's DTOs/spec and BOTH
+  repos' contract tests in the same change.
 - **the released version** → don't edit it anywhere by hand; it comes from the git tag
   (see *Releases*). CI sets `project.version`, the `generateBuildInfo` task writes it into
   the generated `BuildInfo.VERSION`, and `BlueprintExtractor.TOOL_VERSION` (CLI banner +

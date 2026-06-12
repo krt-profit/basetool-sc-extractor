@@ -12,6 +12,15 @@ class BlueprintExtractorTest {
 
     private fun tempChannel(): File = Files.createTempDirectory("sc-channel").toFile()
 
+    /** A synthetic, realistically shaped blueprint log line (see sample.log for the real shape). */
+    private fun blueprintLine(name: String, id: Int, ts: String) =
+        "<$ts> [Notice] <SHUDEvent_OnNotification> Added notification \"Received Blueprint: $name: \" " +
+            "[$id] to queue. New queue size: 1, MissionId: [00000000-0000-0000-0000-000000000000], " +
+            "ObjectiveId: [] [Team_Feature][Notification]"
+
+    private fun loginLine(handle: String) =
+        "<2026-03-26T16:00:00.000Z> [Notice] <Legacy login response> Legacy login response - User Login Success - Handle[$handle] - x"
+
     @Test
     fun `picks Game_log and every log in logbackups`() {
         val channel = tempChannel()
@@ -130,6 +139,123 @@ class BlueprintExtractorTest {
             assertEquals(1, BlueprintExtractor.findLogFiles(live).size)
         } finally {
             root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `identical events appearing in two files are counted once`() {
+        val channel = tempChannel()
+        try {
+            val lines = loginLine("tester") + "\n" +
+                blueprintLine("Yubarev Pistol", 19, "2026-03-26T16:49:31.050Z")
+            File(channel, "Game.log").writeText(lines)
+            // The same log content scanned again (e.g. a manually copied file).
+            val backups = File(channel, "logbackups").apply { mkdirs() }
+            File(backups, "copy.log").writeText(lines)
+
+            val result = BlueprintExtractor.extract(channel)
+
+            assertEquals(1, result.export.blueprintCount)
+            assertEquals(1, result.export.players.single().blueprintCount)
+        } finally {
+            channel.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `same item received at different times stays two events`() {
+        val channel = tempChannel()
+        try {
+            File(channel, "Game.log").writeText(
+                loginLine("tester") + "\n" +
+                    blueprintLine("Yubarev Pistol", 19, "2026-03-26T16:49:31.050Z") + "\n" +
+                    blueprintLine("Yubarev Pistol", 23, "2026-03-27T10:00:00.000Z"),
+            )
+
+            assertEquals(2, BlueprintExtractor.extract(channel).export.blueprintCount)
+        } finally {
+            channel.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `export records the swept HOTFIX channel as additional source folder`() {
+        val root = Files.createTempDirectory("StarCitizen").toFile()
+        try {
+            val live = File(root, "LIVE").apply { mkdirs() }
+            File(live, "Game.log").writeText("x")
+            val hotfix = File(root, "HOTFIX").apply { mkdirs() }
+            File(hotfix, "Game.log").writeText("x")
+
+            val withHotfix = BlueprintExtractor.extract(live).export
+            assertEquals(listOf(hotfix.absolutePath), withHotfix.additionalSourceFolders)
+
+            // Without a sibling the field stays null (and is still serialized, encodeDefaults).
+            val alone = BlueprintExtractor.extract(hotfix).export
+            assertNull(alone.additionalSourceFolders)
+            assertTrue(BlueprintExtractor.toJson(alone).contains("\"additionalSourceFolders\": null"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `an unreadable file is skipped and reported instead of failing the run`() {
+        val channel = tempChannel()
+        try {
+            File(channel, "Game.log").writeText(
+                loginLine("tester") + "\n" + blueprintLine("Yubarev Pistol", 19, "2026-03-26T16:49:31.050Z"),
+            )
+            val backups = File(channel, "logbackups").apply { mkdirs() }
+            val locked = File(backups, "locked.log")
+            locked.writeText("some content that will be locked")
+
+            java.io.RandomAccessFile(locked, "rw").use { raf ->
+                raf.channel.lock() // mandatory on Windows: other handles can't read
+                // Only meaningful where the OS actually enforces the lock against new readers.
+                val lockEnforced = runCatching { locked.inputStream().use { it.read() } }.isFailure
+                org.junit.jupiter.api.Assumptions.assumeTrue(lockEnforced)
+
+                val result = BlueprintExtractor.extract(channel)
+
+                assertEquals(listOf("locked.log"), result.skippedFiles)
+                assertEquals(1, result.export.blueprintCount)
+                assertEquals(1, result.export.logFilesScanned) // skipped file not counted as scanned
+            }
+        } finally {
+            channel.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `validateOutputPath flags directories and read-only files`() {
+        val dir = Files.createTempDirectory("out-check").toFile()
+        try {
+            assertEquals(
+                BlueprintExtractor.OutputPathProblem.IS_DIRECTORY,
+                BlueprintExtractor.validateOutputPath(dir),
+            )
+
+            val readOnly = File(dir, "ro.json").apply { writeText("{}"); setReadOnly() }
+            assertEquals(
+                BlueprintExtractor.OutputPathProblem.FILE_NOT_WRITABLE,
+                BlueprintExtractor.validateOutputPath(readOnly),
+            )
+            readOnly.setWritable(true)
+
+            // A file sitting where a parent folder would have to be created.
+            val blocker = File(dir, "blocker").apply { writeText("x") }
+            assertEquals(
+                BlueprintExtractor.OutputPathProblem.PARENT_NOT_WRITABLE,
+                BlueprintExtractor.validateOutputPath(File(blocker, "out.json")),
+            )
+
+            // Happy path: missing parent folders are created as the writability probe.
+            val nested = File(dir, "a/b/out.json")
+            assertNull(BlueprintExtractor.validateOutputPath(nested))
+            assertTrue(nested.parentFile.isDirectory)
+        } finally {
+            dir.deleteRecursively()
         }
     }
 }

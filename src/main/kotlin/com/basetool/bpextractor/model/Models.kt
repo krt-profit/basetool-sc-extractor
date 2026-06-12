@@ -47,6 +47,12 @@ data class BlueprintExport(
     val toolVersion: String,
     val generatedAt: String,
     val sourceFolder: String,
+    /**
+     * Extra channel folders swept besides [sourceFolder] (currently the sibling HOTFIX
+     * channel next to LIVE), or null when only [sourceFolder] was scanned. Additive
+     * nullable field within schemaVersion 1 (basetool ADR-0008 evolution rule).
+     */
+    val additionalSourceFolders: List<String>? = null,
     val logFilesScanned: Int,
     val blueprintCount: Int,
     val players: List<PlayerSummary>,

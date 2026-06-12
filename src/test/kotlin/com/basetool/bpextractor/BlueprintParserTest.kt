@@ -71,6 +71,25 @@ class BlueprintParserTest {
     }
 
     @Test
+    fun `categorize matches keywords on word boundaries only`() {
+        // Keywords inside longer words must not hit: "gun" in Gungnir, "core" in Scored.
+        assertEquals("Other", BlueprintParser.categorize("Gungnir"))
+        assertEquals("Other", BlueprintParser.categorize("Scored Plate"))
+        // Hyphen/slash-separated words still count as boundaries.
+        assertEquals("Armor", BlueprintParser.categorize("ADP-mk4 Core Woodland"))
+    }
+
+    @Test
+    fun `reports cumulative byte progress while streaming`() {
+        val file = sampleFile()
+        val reports = mutableListOf<Long>()
+        BlueprintParser.parseFile(file) { reports += it }
+        assertTrue(reports.isNotEmpty())
+        assertEquals(reports.sorted(), reports) // monotonically increasing
+        assertEquals(file.length(), reports.last())
+    }
+
+    @Test
     fun `extracts build number from file name`() {
         // parseFile reads the real file name; build only resolves for SC-named files.
         val tmp = File.createTempFile("Game Build(11518367) 26 Mar 26 (17 24 58)", ".log")
