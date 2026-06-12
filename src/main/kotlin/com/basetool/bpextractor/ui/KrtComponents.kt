@@ -320,7 +320,12 @@ fun KrtCheckbox(
  */
 @Composable
 fun KrtProgressBar(done: Int, total: Int, modifier: Modifier = Modifier) {
-    val fraction = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else 0f
+    KrtProgressBar(if (total > 0) done.toFloat() / total else 0f, modifier)
+}
+
+/** Fraction-driven variant for callers whose progress isn't a simple int ratio (e.g. bytes). */
+@Composable
+fun KrtProgressBar(fraction: Float, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .fillMaxWidth()
@@ -328,7 +333,7 @@ fun KrtProgressBar(done: Int, total: Int, modifier: Modifier = Modifier) {
             .background(Krt.SurfaceInput)
             .border(1.dp, Krt.Gray3),
     ) {
-        Box(Modifier.fillMaxHeight().fillMaxWidth(fraction).background(Krt.Orange))
+        Box(Modifier.fillMaxHeight().fillMaxWidth(fraction.coerceIn(0f, 1f)).background(Krt.Orange))
     }
 }
 

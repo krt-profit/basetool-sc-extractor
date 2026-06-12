@@ -2,6 +2,8 @@ package com.basetool.bpextractor
 
 import com.basetool.bpextractor.model.BlueprintEvent
 import java.io.File
+import java.io.FilterInputStream
+import java.io.InputStream
 
 /**
  * Pure, side-effect-free parsing of Star Citizen Game.log files for received
@@ -39,6 +41,12 @@ object BlueprintParser {
      * Group 2 = notification id.
      */
     private val BLUEPRINT = Regex("""Added notification "Received Blueprint: (.+?): " \[(\d+)]""")
+
+    /**
+     * Cheap literal prefilter for [BLUEPRINT]: a plain substring check skips the regex for
+     * >99.9% of lines (logs run to hundreds of MB). Must stay a literal prefix of the regex.
+     */
+    private const val BLUEPRINT_MARKER = """Added notification "Received Blueprint: """
 
     /** Optional sibling fields on the same blueprint line. */
     private val QUEUE_SIZE = Regex("""New queue size: (\d+)""")
@@ -79,19 +87,28 @@ object BlueprintParser {
     /**
      * Parse a single Game.log file. Streams line by line so multi-hundred-MB
      * logs never get loaded whole. Unreadable bytes are replaced, never fatal.
+     *
+     * [onBytesRead] (optional) is called with the cumulative raw bytes consumed so far —
+     * the within-file progress source for the GUI bar. Granularity follows the reader's
+     * internal buffering (a few KB per step), which is plenty for a progress bar.
      */
-    fun parseFile(file: File): FileResult {
+    fun parseFile(file: File, onBytesRead: ((bytesRead: Long) -> Unit)? = null): FileResult {
         val gameBuild = BUILD_FROM_NAME.find(file.name)?.groupValues?.get(1)
         val blueprints = mutableListOf<BlueprintEvent>()
         var player: PlayerIdentity? = null
 
-        file.bufferedReader(Charsets.UTF_8).useLines { lines ->
+        val input = file.inputStream().let { raw ->
+            if (onBytesRead == null) raw else CountingInputStream(raw, onBytesRead)
+        }
+        input.bufferedReader(Charsets.UTF_8).useLines { lines ->
             for (line in lines) {
                 // Resolve the player once, from whichever identity line shows up first.
                 if (player == null) {
                     player = extractPlayer(line)
                 }
 
+                // Cheap literal prefilter — skips the regex for the vast majority of lines.
+                if (BLUEPRINT_MARKER !in line) continue
                 val bp = BLUEPRINT.find(line) ?: continue
                 val name = bp.groupValues[1].trim()
                 if (name.isEmpty()) continue
@@ -122,34 +139,91 @@ object BlueprintParser {
     }
 
     private fun extractPlayer(line: String): PlayerIdentity? {
-        CHAR_STATUS.find(line)?.let {
-            return PlayerIdentity(handle = it.groupValues[3])
+        // Each regex sits behind a literal substring guard — identity lines are rare,
+        // so the regexes must not run on every line of a multi-hundred-MB log.
+        if ("geid " in line) {
+            CHAR_STATUS.find(line)?.let {
+                return PlayerIdentity(handle = it.groupValues[3])
+            }
         }
-        LOGIN_HANDLE.find(line)?.let {
-            return PlayerIdentity(handle = it.groupValues[1])
+        if ("User Login Success" in line) {
+            LOGIN_HANDLE.find(line)?.let {
+                return PlayerIdentity(handle = it.groupValues[1])
+            }
         }
-        NICKNAME.find(line)?.let {
-            return PlayerIdentity(handle = it.groupValues[1])
+        if ("nickname=\"" in line) {
+            NICKNAME.find(line)?.let {
+                return PlayerIdentity(handle = it.groupValues[1])
+            }
         }
         return null
     }
 
+    // --- Categorisation -----------------------------------------------------
+
+    /** `(30 cap)`-style capacity suffix — the ammo marker that isn't a keyword. */
+    private val CAP_SUFFIX = Regex("""\(\d+\s*cap\)""")
+
+    /**
+     * Word-boundary alternation over [words], so a keyword inside another word never
+     * matches ("gun" must not hit "Gungnir", "core" must not hit "Scored").
+     */
+    private fun wordsRegex(words: List<String>): Regex =
+        Regex("""\b(?:${words.joinToString("|") { Regex.escape(it) }})\b""")
+
+    private val MINING_WORDS = wordsRegex(listOf("mining laser"))
+    private val AMMO_WORDS = wordsRegex(listOf("magazine", "battery"))
+    private val ARMOR_WORDS = wordsRegex(
+        listOf("helmet", "core", "arms", "legs", "armor", "flight suit", "undersuit", "torso", "backpack"),
+    )
+    private val WEAPON_WORDS = wordsRegex(
+        listOf("pistol", "rifle", "shotgun", "smg", "cannon", "sniper", "crossbow", "lmg", "gun", "launcher"),
+    )
+
     /**
      * Best-effort item classification from the localised name. Purely derived
      * (the log doesn't state a category), provided as a convenience for filtering.
-     * Order matters: ammo/tool keywords are checked before the broad weapon
-     * keywords so "S71 Rifle Magazine" lands in Ammo, not Weapon.
+     * Keywords match on word boundaries; order matters: ammo/tool keywords are
+     * checked before the broad weapon keywords so "S71 Rifle Magazine" lands in
+     * Ammo, not Weapon.
      */
     fun categorize(name: String): String {
         val n = name.lowercase()
         return when {
-            "mining laser" in n -> "MiningTool"
-            "magazine" in n || "battery" in n || Regex("""\(\d+\s*cap\)""").containsMatchIn(n) -> "Ammo"
-            listOf("helmet", "core", "arms", "legs", "armor", "flight suit", "undersuit", "torso", "backpack")
-                .any { it in n } -> "Armor"
-            listOf("pistol", "rifle", "shotgun", "smg", "cannon", "sniper", "crossbow", "lmg", "gun", "launcher")
-                .any { it in n } -> "Weapon"
+            MINING_WORDS.containsMatchIn(n) -> "MiningTool"
+            AMMO_WORDS.containsMatchIn(n) || CAP_SUFFIX.containsMatchIn(n) -> "Ammo"
+            ARMOR_WORDS.containsMatchIn(n) -> "Armor"
+            WEAPON_WORDS.containsMatchIn(n) -> "Weapon"
             else -> "Other"
+        }
+    }
+
+    /**
+     * Counts raw bytes as they stream past and reports the running total — feeds
+     * within-file progress without buffering or copying anything.
+     */
+    private class CountingInputStream(
+        delegate: InputStream,
+        private val onCount: (Long) -> Unit,
+    ) : FilterInputStream(delegate) {
+        private var total = 0L
+
+        override fun read(): Int {
+            val b = super.read()
+            if (b >= 0) {
+                total++
+                onCount(total)
+            }
+            return b
+        }
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            val n = super.read(b, off, len)
+            if (n > 0) {
+                total += n
+                onCount(total)
+            }
+            return n
         }
     }
 }

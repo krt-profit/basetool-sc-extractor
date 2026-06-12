@@ -5,10 +5,32 @@ import com.basetool.bpextractor.model.BlueprintExport
 import com.basetool.bpextractor.model.PlayerSummary
 import kotlinx.serialization.json.Json
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
 import java.time.Instant
 
-/** Progress callback: (filesDone, filesTotal, currentFileName). */
-typealias ProgressListener = (done: Int, total: Int, current: String) -> Unit
+/**
+ * Progress callback: the file counter plus a byte counter across ALL files, so a
+ * progress bar can keep moving inside one huge `Game.log` instead of stalling
+ * until the next file starts.
+ */
+typealias ProgressListener = (
+    filesDone: Int,
+    filesTotal: Int,
+    bytesDone: Long,
+    bytesTotal: Long,
+    current: String,
+) -> Unit
+
+/**
+ * Outcome of one extraction run: the export document plus the names of any log
+ * files that could not be read (locked/corrupt) and were skipped. Skips are
+ * reported to the user but deliberately kept out of the export JSON.
+ */
+data class ExtractionResult(
+    val export: BlueprintExport,
+    val skippedFiles: List<String>,
+)
 
 /**
  * Scans a folder of Game.log files, extracts every received blueprint, and
@@ -96,28 +118,64 @@ object BlueprintExtractor {
         return if (hasLogs) sibling else null
     }
 
+    /** Report within-file byte progress at most every this many bytes, to keep UI churn low. */
+    private const val PROGRESS_BYTE_STEP = 4L * 1024 * 1024
+
     /**
-     * Run extraction over [folder]. Returns the assembled [BlueprintExport]
-     * without writing anything to disk (so callers can preview first).
+     * Identity of one blueprint event independent of which file it was read from. Two
+     * events with the same key are the same in-game notification — seen twice only when
+     * the same log content was scanned twice (e.g. a manually copied log file).
+     */
+    private data class EventKey(
+        val player: String?,
+        val productName: String,
+        val receivedAt: String,
+        val notificationId: Int?,
+    )
+
+    /**
+     * Run extraction over [channelFolder]. Returns the assembled [BlueprintExport] plus any
+     * skipped (unreadable) files, without writing anything to disk (so callers can preview
+     * first). A file that fails to read is skipped and reported — one locked or corrupt log
+     * must not lose the whole run. Events whose identity was already seen in another file
+     * (same player/name/timestamp/notification id ⇒ a duplicated log) are counted once.
      */
     fun extract(
         channelFolder: File,
         progress: ProgressListener? = null,
-    ): BlueprintExport {
+    ): ExtractionResult {
         val files = findLogFiles(channelFolder)
+        val bytesTotal = files.sumOf { it.length() }
 
         val allBlueprints = mutableListOf<BlueprintEvent>()
         val countsByPlayer = linkedMapOf<String, Int>()
+        val seenEvents = HashSet<EventKey>()
+        val skipped = mutableListOf<String>()
+        var bytesBefore = 0L
 
         files.forEachIndexed { index, file ->
-            progress?.invoke(index, files.size, file.name)
-            val result = BlueprintParser.parseFile(file)
+            progress?.invoke(index, files.size, bytesBefore, bytesTotal, file.name)
+            var lastReported = 0L
+            val result = try {
+                BlueprintParser.parseFile(file) { bytesRead ->
+                    if (bytesRead - lastReported >= PROGRESS_BYTE_STEP) {
+                        lastReported = bytesRead
+                        progress?.invoke(index, files.size, bytesBefore + bytesRead, bytesTotal, file.name)
+                    }
+                }
+            } catch (_: IOException) {
+                skipped += file.name
+                null
+            }
+            bytesBefore += file.length()
+            result ?: return@forEachIndexed
             for (bp in result.blueprints) {
+                if (!seenEvents.add(EventKey(bp.player, bp.productName, bp.receivedAt, bp.notificationId))) continue
                 allBlueprints += bp
                 bp.player?.let { countsByPlayer.merge(it, 1, Int::plus) }
             }
         }
-        progress?.invoke(files.size, files.size, "")
+        progress?.invoke(files.size, files.size, bytesTotal, bytesTotal, "")
 
         // Chronological order; events with an unparseable timestamp sink to the end.
         val sorted = allBlueprints.sortedBy { it.receivedAt.ifEmpty { "￿" } }
@@ -126,16 +184,40 @@ object BlueprintExtractor {
             .sortedByDescending { it.value }
             .map { (handle, count) -> PlayerSummary(handle = handle, blueprintCount = count) }
 
-        return BlueprintExport(
+        val export = BlueprintExport(
             tool = TOOL_NAME,
             toolVersion = TOOL_VERSION,
             generatedAt = Instant.now().toString(),
             sourceFolder = channelFolder.absolutePath,
-            logFilesScanned = files.size,
+            additionalSourceFolders = siblingHotfixFolder(channelFolder)
+                ?.let { listOf(it.absolutePath) },
+            logFilesScanned = files.size - skipped.size,
             blueprintCount = sorted.size,
             players = players,
             blueprints = sorted,
         )
+        return ExtractionResult(export, skipped)
+    }
+
+    /** Why a chosen output path cannot be written; `null` from [validateOutputPath] = OK. */
+    enum class OutputPathProblem { IS_DIRECTORY, PARENT_NOT_WRITABLE, FILE_NOT_WRITABLE }
+
+    /**
+     * Pre-flight check for the output path, run BEFORE the (potentially minutes-long) scan
+     * so a bad target doesn't fail at the very end. Creates missing parent folders (the
+     * same thing [writeJson] would do) as the most reliable writability probe; otherwise
+     * read-only `File`/ACL stats.
+     */
+    fun validateOutputPath(output: File): OutputPathProblem? {
+        val target = output.absoluteFile
+        if (target.isDirectory) return OutputPathProblem.IS_DIRECTORY
+        val parent = target.parentFile
+        if (parent != null) {
+            if (!parent.isDirectory && !parent.mkdirs()) return OutputPathProblem.PARENT_NOT_WRITABLE
+            if (!target.exists() && !Files.isWritable(parent.toPath())) return OutputPathProblem.PARENT_NOT_WRITABLE
+        }
+        if (target.isFile && !target.canWrite()) return OutputPathProblem.FILE_NOT_WRITABLE
+        return null
     }
 
     /** Serialize an export to pretty JSON text. */

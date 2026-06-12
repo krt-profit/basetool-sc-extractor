@@ -97,6 +97,13 @@ private class AppState {
     var progressDone by mutableStateOf(0)
     var progressTotal by mutableStateOf(0)
 
+    /** Byte progress across all files — drives the bar fill within one huge Game.log. */
+    var bytesDone by mutableStateOf(0L)
+    var bytesTotal by mutableStateOf(0L)
+
+    /** Log files the last run skipped because they could not be read (locked/corrupt). */
+    var skippedFiles by mutableStateOf<List<String>>(emptyList())
+
     /**
      * Live status line. Blank means "initial" — the screen then renders the localized initial
      * hint from the active string catalogue, so the pre-first-action text follows the DE/EN
@@ -407,10 +414,17 @@ private fun BpRunningStep(state: AppState) {
                 Spacer(Modifier.height(10.dp))
                 // Indeterminate fallback only for the brief "finding files" phase, before
                 // the file count is known; once it is, the determinate bar takes over.
+                // The fill follows BYTES, not files, so it keeps moving inside the one
+                // huge current Game.log instead of stalling per file.
                 if (state.progressTotal == 0) {
                     CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Krt.Orange, strokeWidth = 2.dp)
                 } else {
-                    KrtProgressBar(done = state.progressDone, total = state.progressTotal)
+                    val fraction = if (state.bytesTotal > 0) {
+                        state.bytesDone.toFloat() / state.bytesTotal
+                    } else {
+                        state.progressDone.toFloat() / state.progressTotal
+                    }
+                    KrtProgressBar(fraction = fraction)
                 }
                 Spacer(Modifier.height(12.dp))
                 Text(state.status, style = KrtDataStyle, color = Krt.Gray2, maxLines = 2)
@@ -473,6 +487,20 @@ private fun BpSummaryStep(state: AppState) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusDot(Krt.Danger)
                 Text(state.status, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+            }
+        }
+        // Unreadable (skipped) files are a warning, not a failure: the export was still
+        // written from everything that could be read — but the user must know it's partial.
+        if (state.skippedFiles.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusDot(Krt.Orange)
+                Text(
+                    strings.bpSkippedNote(state.skippedFiles.size, state.skippedFiles.joinToString(", ")),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Krt.Gray1,
+                    maxLines = 2,
+                )
             }
         }
         Spacer(Modifier.height(14.dp))
@@ -619,7 +647,15 @@ private fun runExtraction(
         state.outputError = strings.bpErrSelectOutput
         valid = false
     } else {
-        state.outputError = null
+        // Pre-flight the output path NOW — a bad target must not surface only after
+        // a minutes-long scan, when writeJson finally runs.
+        state.outputError = when (BlueprintExtractor.validateOutputPath(output)) {
+            BlueprintExtractor.OutputPathProblem.IS_DIRECTORY -> strings.bpErrOutputIsFolder
+            BlueprintExtractor.OutputPathProblem.PARENT_NOT_WRITABLE -> strings.bpErrOutputParentNotWritable
+            BlueprintExtractor.OutputPathProblem.FILE_NOT_WRITABLE -> strings.bpErrOutputFileReadOnly
+            null -> null
+        }
+        if (state.outputError != null) valid = false
     }
     if (!valid) {
         state.isError = true
@@ -633,25 +669,39 @@ private fun runExtraction(
     state.resultSummary = ""
     state.progressDone = 0
     state.progressTotal = 0
+    state.bytesDone = 0L
+    state.bytesTotal = 0L
+    state.skippedFiles = emptyList()
     state.status = strings.bpStatusSearching
 
     scope.launch {
         try {
-            val export = withContext(Dispatchers.IO) {
-                BlueprintExtractor.extract(folder) { done, total, current ->
+            val result = withContext(Dispatchers.IO) {
+                BlueprintExtractor.extract(folder) { done, total, bytesDone, bytesTotal, current ->
                     val label = if (current.isBlank()) strings.bpStatusEvaluating else current
                     scope.launch {
                         state.progressDone = done
                         state.progressTotal = total
+                        state.bytesDone = bytesDone
+                        state.bytesTotal = bytesTotal
                         state.status = strings.bpStatusProcessing(done, total, label)
                     }
                 }
             }
+            val export = result.export
+            state.skippedFiles = result.skippedFiles
 
             if (export.logFilesScanned == 0) {
                 state.isError = true
-                state.status = strings.bpStatusNoLogs
-                state.toast = ToastInfo(strings.bpToastNoLogsTitle, strings.bpToastNoLogsBody, error = true)
+                if (result.skippedFiles.isEmpty()) {
+                    state.status = strings.bpStatusNoLogs
+                    state.toast = ToastInfo(strings.bpToastNoLogsTitle, strings.bpToastNoLogsBody, error = true)
+                } else {
+                    // Files were found, but none could be read — a different failure
+                    // than "no logs here", so it gets its own diagnosis.
+                    state.status = strings.bpStatusAllSkipped(result.skippedFiles.size)
+                    state.toast = ToastInfo(strings.bpToastErrorTitle, strings.bpStatusAllSkipped(result.skippedFiles.size), error = true)
+                }
                 state.running = false
                 return@launch
             }
@@ -698,7 +748,7 @@ private fun openWithDesktop(target: File, scope: CoroutineScope, state: AppState
  * headless extraction so the tool can be scripted (mirrors the Python original's
  * dual live/import design).
  *
- * CLI usage: `<logFolder> <outputJson> [--recursive]`
+ * CLI usage: `<channelFolder> <outputJson>`
  */
 fun main(args: Array<String>) {
     if (args.isNotEmpty()) {
@@ -706,6 +756,12 @@ fun main(args: Array<String>) {
         return
     }
     guiMain()
+}
+
+/** Print a CLI error and exit non-zero — the scripting surface must not fake success. */
+private fun failCli(message: String): Nothing {
+    System.err.println("ERROR: $message")
+    kotlin.system.exitProcess(1)
 }
 
 private fun runCli(args: Array<String>) {
@@ -722,16 +778,39 @@ private fun runCli(args: Array<String>) {
         System.err.println("Channel folder does not exist: ${folder.absolutePath}")
         kotlin.system.exitProcess(1)
     }
+    // Fail on a bad output target BEFORE the scan, not minutes later at write time.
+    when (BlueprintExtractor.validateOutputPath(output)) {
+        BlueprintExtractor.OutputPathProblem.IS_DIRECTORY ->
+            failCli("Output path is a directory, expected a file: ${output.absolutePath}")
+        BlueprintExtractor.OutputPathProblem.PARENT_NOT_WRITABLE ->
+            failCli("Output folder cannot be created or written: ${output.absolutePath}")
+        BlueprintExtractor.OutputPathProblem.FILE_NOT_WRITABLE ->
+            failCli("Output file is read-only: ${output.absolutePath}")
+        null -> {}
+    }
     println("${BlueprintExtractor.TOOL_NAME} v${BlueprintExtractor.TOOL_VERSION}")
     println("Scanning channel: ${folder.absolutePath}")
     BlueprintExtractor.siblingHotfixFolder(folder)?.let {
         println("HOTFIX channel found next to LIVE - also scanning ${it.absolutePath}")
     }
-    val export = BlueprintExtractor.extract(folder) { done, total, current ->
+    val result = BlueprintExtractor.extract(folder) { done, total, _, _, current ->
         if (current.isNotBlank()) println("  [$done/$total] $current")
+    }
+    val export = result.export
+    result.skippedFiles.forEach { System.err.println("WARNING: skipped unreadable log file: $it") }
+    if (export.logFilesScanned == 0) {
+        // No empty export for a scripting surface: a folder without (readable) logs is an error.
+        if (result.skippedFiles.isEmpty()) {
+            failCli("No Game.log and no logbackups folder found in: ${folder.absolutePath}")
+        } else {
+            failCli("All ${result.skippedFiles.size} log file(s) were unreadable; nothing extracted.")
+        }
     }
     BlueprintExtractor.writeJson(export, output)
     println("Done. ${export.blueprintCount} blueprint(s) from ${export.logFilesScanned} file(s).")
+    if (result.skippedFiles.isNotEmpty()) {
+        println("Note: ${result.skippedFiles.size} file(s) skipped as unreadable (see warnings above).")
+    }
     export.players.forEach { println("  Player ${it.handle}: ${it.blueprintCount} blueprint(s)") }
     println("Output: ${output.absolutePath}")
     println()
