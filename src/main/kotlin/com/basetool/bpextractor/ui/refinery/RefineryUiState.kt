@@ -28,6 +28,7 @@ import com.basetool.bpextractor.refinery.RefineryPipeline
 import com.basetool.bpextractor.refinery.TierDecision
 import com.basetool.bpextractor.refinery.Validation
 import com.basetool.bpextractor.refinery.WindowsGpuProbe
+import com.basetool.bpextractor.refinery.model.RefineryExtract
 import com.basetool.bpextractor.refinery.model.RefineryExtractGood
 import com.basetool.bpextractor.refinery.model.RefineryExtractOrder
 import com.basetool.bpextractor.ui.i18n.Strings
@@ -523,17 +524,29 @@ class RefineryUiState(
         }
     }
 
-    /** Write the contract JSON (with the user's review corrections) to [target], then §5.5. */
+    /**
+     * The contract extract with the user's review corrections overlaid (machine read + edits) —
+     * the single source of truth for both sending to the basetool and writing the JSON. Null until
+     * an extraction has produced a reviewable order.
+     */
+    fun reviewedExtract(): RefineryExtract? {
+        val machine = result?.extract ?: return null
+        val order = reviewedOrder ?: return null
+        return machine.copy(orders = listOf(order))
+    }
+
+    /**
+     * Write the reviewed contract JSON to [target] — the export step's "save JSON" alternative to
+     * sending. Does NOT advance the step (the user is already on the export screen); on success it
+     * sets [exportedFile] so the screen shows the written path. Failures surface in [exportError].
+     */
     fun export(scope: CoroutineScope, target: File, strings: Strings) {
-        val machine = result?.extract ?: return
-        val order = reviewedOrder ?: return
-        val extract = machine.copy(orders = listOf(order))
+        val extract = reviewedExtract() ?: return
         exportError = null
         scope.launch(Dispatchers.IO) {
             try {
                 RefineryPipeline.writeJson(extract, target)
                 exportedFile = target
-                goTo(4)
             } catch (t: Throwable) {
                 exportError = strings.rfExportFailed(t.message ?: t::class.simpleName ?: strings.unknownError)
             }

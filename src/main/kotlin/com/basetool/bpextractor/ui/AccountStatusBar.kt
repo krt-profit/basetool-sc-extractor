@@ -44,19 +44,19 @@ fun AccountStatusRow(account: AccountController) {
         Box(Modifier.size(6.dp).background(if (account.connected) Krt.Orange else Krt.Gray3))
         if (account.connected) {
             Text(
-                strings.accountConnected,
+                strings.account.connected,
                 style = MaterialTheme.typography.bodySmall,
                 color = Krt.Gray2,
             )
             Spacer(Modifier.size(4.dp))
             GhostButton(
-                strings.accountDisconnect,
+                strings.account.disconnect,
                 onClick = { account.requestDisconnect() },
                 enabled = !account.working,
             )
         } else {
             Text(
-                strings.accountDisconnected,
+                strings.account.disconnected,
                 style = MaterialTheme.typography.bodySmall,
                 color = Krt.Gray3,
             )
@@ -112,14 +112,14 @@ fun AccountDisconnectOverlay(account: AccountController, scope: CoroutineScope) 
                         .padding(horizontal = 18.dp, vertical = 14.dp),
             ) {
                 Text(
-                    strings.accountDisconnectTitle.uppercase(),
+                    strings.account.disconnectTitle.uppercase(),
                     style = MaterialTheme.typography.headlineSmall,
                     color = Krt.Orange,
                 )
             }
             Column(modifier = Modifier.padding(18.dp)) {
                 Text(
-                    strings.accountDisconnectBody,
+                    strings.account.disconnectBody,
                     style = MaterialTheme.typography.bodyMedium,
                     color = Krt.Gray1,
                 )
@@ -137,7 +137,7 @@ fun AccountDisconnectOverlay(account: AccountController, scope: CoroutineScope) 
                 GhostButton(strings.cancel, onClick = { account.cancelDisconnect() })
                 Spacer(Modifier.weight(1f))
                 CtaButton(
-                    strings.accountDisconnectConfirm,
+                    strings.account.disconnectConfirm,
                     onClick = { account.confirmDisconnect(scope) },
                 )
             }

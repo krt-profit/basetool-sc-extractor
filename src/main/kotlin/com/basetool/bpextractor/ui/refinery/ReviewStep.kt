@@ -45,13 +45,10 @@ import com.basetool.bpextractor.ui.FootNote
 import com.basetool.bpextractor.ui.GhostButton
 import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.KrtDataStyle
-import com.basetool.bpextractor.ui.PickerMode
-import com.basetool.bpextractor.ui.PickerRequest
 import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
-import kotlinx.coroutines.CoroutineScope
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -66,7 +63,7 @@ import kotlin.math.roundToInt
  * pinned footer.
  */
 @Composable
-fun ReviewStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (PickerRequest) -> Unit) {
+fun ReviewStep(state: RefineryUiState) {
     val strings = LocalStrings.current
     val result = state.result ?: return
     val order = state.reviewedOrder ?: return
@@ -89,24 +86,11 @@ fun ReviewStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
         footer = {
             GhostButton(strings.back, onClick = { state.goTo(2) })
             Spacer(Modifier.weight(1f))
-            val exportError = state.exportError
-            if (exportError != null) {
-                Text(exportError, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
-            } else {
-                FootNote(strings.rfManualNote)
-            }
+            FootNote(strings.rfManualNote)
+            // Review only finalises the data; choosing send-vs-save-JSON happens on the export step.
             CtaButton(
-                strings.rfCtaExport,
-                onClick = {
-                    onPicker(
-                        PickerRequest(
-                            mode = PickerMode.SAVE_FILE,
-                            title = strings.rfPickerExportTitle,
-                            confirmLabel = strings.rfPickerExportConfirm,
-                            initialPath = defaultExportPath(state),
-                        ) { path -> state.export(appScope, File(path), strings) },
-                    )
-                },
+                strings.rfCtaToExport,
+                onClick = { state.goTo(4) },
             )
         },
     ) {
@@ -232,7 +216,7 @@ fun ReviewStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
 }
 
 /** Default export target: `RefineryExtract.json` next to the screenshots (or Documents). */
-private fun defaultExportPath(state: RefineryUiState): String {
+internal fun defaultExportPath(state: RefineryUiState): String {
     val base = state.folder.takeIf { it.isNotBlank() && File(it).isDirectory }
         ?: File(System.getProperty("user.home"), "Documents").absolutePath
     return File(base, "RefineryExtract.json").absolutePath

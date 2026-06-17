@@ -32,8 +32,8 @@ fun RefineryScreen(state: RefineryUiState, appScope: CoroutineScope, onPicker: (
             0 -> PreflightStep(state, appScope)
             1 -> ImagesStep(state, appScope, onPicker)
             2 -> ExtractStep(state, appScope)
-            3 -> ReviewStep(state, appScope, onPicker)
-            else -> ExportStep(state, appScope)
+            3 -> ReviewStep(state)
+            else -> ExportStep(state, appScope, onPicker)
         }
     }
 }

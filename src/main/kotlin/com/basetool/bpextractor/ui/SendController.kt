@@ -39,10 +39,20 @@ sealed interface SendState {
     data class Error(val message: String) : SendState
 }
 
+/** Which ingest endpoint a send targets — the refinery extract or the blueprint export. */
+enum class SendKind {
+    /** {@code POST /v1/refinery-extract} — a {@code RefineryExtract} document. */
+    REFINERY,
+
+    /** {@code POST /v1/blueprint-preview} — a {@code BlueprintExport} document. */
+    BLUEPRINT,
+}
+
 /**
- * Drives the "An Basetool senden" flow for the refinery export: one-time consent → Keycloak device
- * grant (show the user code, open the browser, poll) → upload to the ingest gateway → open the
- * pre-filled basetool page. A Compose state holder ([state]); the heavy work runs on
+ * Drives the "An Basetool senden" flow for a workflow export (refinery extract or blueprint):
+ * one-time consent → Keycloak device grant (show the user code, open the browser, poll) → upload to
+ * the ingest gateway → open the pre-filled basetool page. A Compose state holder ([state]); the
+ * heavy work runs on
  * [Dispatchers.IO]. The collaborators are injected so the net layer stays pure and the controller
  * is exercisable without a real Keycloak/gateway.
  */
@@ -65,17 +75,21 @@ class SendController(
 
     private var pendingJson: String = ""
     private var pendingLang: String = "de"
+    private var pendingKind: SendKind = SendKind.REFINERY
 
     /**
-     * Entry point from the export step: stashes the payload, then shows the consent overlay on the
-     * first ever send or starts the flow directly once consent was given.
+     * Entry point from a workflow's export/summary step: stashes the payload + which ingest
+     * endpoint it targets, then shows the consent overlay on the first ever send or starts the flow
+     * directly once consent was given.
      *
      * @param scope the UI coroutine scope to run the flow on
-     * @param extractJson the serialized RefineryExtract to send
+     * @param kind which ingest endpoint to send to (refinery extract vs blueprint export)
+     * @param exportJson the serialized export to send (RefineryExtract or BlueprintExport)
      * @param lang the UI locale tag to relay as Accept-Language
      */
-    fun request(scope: CoroutineScope, extractJson: String, lang: String) {
-        pendingJson = extractJson
+    fun request(scope: CoroutineScope, kind: SendKind, exportJson: String, lang: String) {
+        pendingKind = kind
+        pendingJson = exportJson
         pendingLang = lang
         if (configStore.load().consentGiven) run(scope) else state = SendState.Consent
     }
@@ -114,8 +128,13 @@ class SendController(
                 state = SendState.Sending
                 val response =
                     withContext(Dispatchers.IO) {
-                        ingestClientFor(baseUrl)
-                            .sendRefinery(token.accessToken, pendingJson, pendingLang)
+                        val client = ingestClientFor(baseUrl)
+                        when (pendingKind) {
+                            SendKind.REFINERY ->
+                                client.sendRefinery(token.accessToken, pendingJson, pendingLang)
+                            SendKind.BLUEPRINT ->
+                                client.sendBlueprint(token.accessToken, pendingJson, pendingLang)
+                        }
                     }
                 state = SendState.Done(response.frontendUrl)
             } catch (e: DeviceGrantException) {

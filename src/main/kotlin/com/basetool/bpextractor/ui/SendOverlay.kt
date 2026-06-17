@@ -36,18 +36,24 @@ import kotlinx.coroutines.CoroutineScope
  *
  * @param controller the send state machine + actions
  * @param appScope the UI scope the flow runs on
+ * @param onSaveLocally optional "save the export as JSON instead" fallback shown on the error
+ *     screen (the workflow's local-write action); null → no fallback button
  */
 @Composable
-fun SendOverlay(controller: SendController, appScope: CoroutineScope) {
+fun SendOverlay(
+    controller: SendController,
+    appScope: CoroutineScope,
+    onSaveLocally: (() -> Unit)? = null,
+) {
     val strings = LocalStrings.current
     val state = controller.state
     if (state is SendState.Idle) return
 
     val title =
         when (state) {
-            is SendState.Authenticating -> strings.sendAuthTitle
-            is SendState.Done -> strings.sendResultTitle
-            else -> strings.sendConsentTitle
+            is SendState.Authenticating -> strings.send.authTitle
+            is SendState.Done -> strings.send.resultTitle
+            else -> strings.send.consentTitle
         }
 
     Box(
@@ -114,42 +120,42 @@ fun SendOverlay(controller: SendController, appScope: CoroutineScope) {
                 when (state) {
                     is SendState.Consent ->
                         Text(
-                            strings.sendConsentBody,
+                            strings.send.consentBody,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )
                     is SendState.Authenticating -> {
                         Text(
-                            strings.sendAuthBody,
+                            strings.send.authBody,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )
                         Text(
-                            strings.sendAuthCode(state.userCode),
+                            strings.send.authCode(state.userCode),
                             style = MaterialTheme.typography.headlineSmall,
                             color = Krt.White,
                         )
                         Text(
-                            strings.sendWaiting,
+                            strings.send.waiting,
                             style = MaterialTheme.typography.bodySmall,
                             color = Krt.Gray2,
                         )
                     }
                     is SendState.Sending ->
                         Text(
-                            strings.sendInProgress,
+                            strings.send.inProgress,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )
                     is SendState.Done ->
                         Text(
-                            strings.sendResultBody,
+                            strings.send.resultBody,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )
                     is SendState.Error ->
                         Text(
-                            strings.sendError(state.message),
+                            strings.send.error(state.message),
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )
@@ -172,13 +178,13 @@ fun SendOverlay(controller: SendController, appScope: CoroutineScope) {
                         GhostButton(strings.cancel, onClick = { controller.dismiss() })
                         Spacer(Modifier.weight(1f))
                         CtaButton(
-                            strings.sendConsentConfirm,
+                            strings.send.consentConfirm,
                             onClick = { controller.confirmConsent(appScope) },
                         )
                     }
                     is SendState.Authenticating -> {
                         GhostButton(
-                            strings.sendAuthOpenBrowser,
+                            strings.send.authOpenBrowser,
                             onClick = { controller.reopenBrowser() },
                         )
                         Spacer(Modifier.weight(1f))
@@ -188,9 +194,19 @@ fun SendOverlay(controller: SendController, appScope: CoroutineScope) {
                     is SendState.Done -> {
                         GhostButton(strings.close, onClick = { controller.dismiss() })
                         Spacer(Modifier.weight(1f))
-                        CtaButton(strings.sendOpenInBasetool, onClick = { controller.openResult() })
+                        CtaButton(strings.send.openInBasetool, onClick = { controller.openResult() })
                     }
                     is SendState.Error -> {
+                        // Send failed → offer the local-write fallback (if the caller supplied one).
+                        if (onSaveLocally != null) {
+                            GhostButton(
+                                strings.send.saveLocally,
+                                onClick = {
+                                    controller.dismiss()
+                                    onSaveLocally()
+                                },
+                            )
+                        }
                         Spacer(Modifier.weight(1f))
                         GhostButton(strings.close, onClick = { controller.dismiss() })
                     }

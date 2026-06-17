@@ -6,6 +6,42 @@ import androidx.compose.runtime.staticCompositionLocalOf
 enum class Lang { DE, EN }
 
 /**
+ * Strings for the one-click "An Basetool senden" flow (epic krt-iri/basetool#639). Grouped into a
+ * holder rather than flattened onto [Strings] so the catalogue's constructor stays under the JVM's
+ * hard 255-parameter method limit (the flat catalogue had grown to its edge).
+ */
+class SendStrings(
+    val button: String,
+    val consentTitle: String,
+    val consentBody: String,
+    val consentConfirm: String,
+    val authTitle: String,
+    val authBody: String,
+    val authCode: (String) -> String,
+    val authOpenBrowser: String,
+    val waiting: String,
+    val inProgress: String,
+    val resultTitle: String,
+    val resultBody: String,
+    val openInBasetool: String,
+    val saveLocally: String,
+    val error: (String) -> String,
+)
+
+/**
+ * Strings for the "remember me" account surface (epic krt-iri/basetool#639, sub-issue #648).
+ * Grouped for the same 255-parameter reason as [SendStrings].
+ */
+class AccountStrings(
+    val connected: String,
+    val disconnected: String,
+    val disconnect: String,
+    val disconnectTitle: String,
+    val disconnectBody: String,
+    val disconnectConfirm: String,
+)
+
+/**
  * Every user-facing UI string of the app, one property (or formatter) per string. The design spec
  * (DESIGN_SC_EXTRACTOR.md §6) demands German default with full English parity and a title-bar
  * DE/EN toggle, so strings live in this lightweight catalogue instead of being hardcoded at the
@@ -52,6 +88,7 @@ class Strings(
     // --- blueprint workflow ---
     val bpSteps: List<String>,
     val bpAgain: String,
+    val bpCtaExport: String,
     val bpConfigSubtitle: String,
     val bpRunningTitle: String,
     val bpSummaryTitle: String,
@@ -205,6 +242,7 @@ class Strings(
     val rfExtractionFailed: (String) -> String,
     val rfEtaRemaining: (Int) -> String,
     val rfCtaToReview: String,
+    val rfCtaToExport: String,
 
     // §5.4 Review
     val rfReviewTitle: String,
@@ -280,28 +318,9 @@ class Strings(
     val pickerPathPlaceholder: String,
     val pickerPathNotFound: String,
     val pickerClearPath: String,
-    // --- one-click "An Basetool senden" (epic krt-iri/basetool#639) ---
-    val sendButton: String,
-    val sendConsentTitle: String,
-    val sendConsentBody: String,
-    val sendConsentConfirm: String,
-    val sendAuthTitle: String,
-    val sendAuthBody: String,
-    val sendAuthCode: (String) -> String,
-    val sendAuthOpenBrowser: String,
-    val sendWaiting: String,
-    val sendInProgress: String,
-    val sendResultTitle: String,
-    val sendResultBody: String,
-    val sendOpenInBasetool: String,
-    val sendError: (String) -> String,
-    // --- "remember me" account surface (epic krt-iri/basetool#639, #648) ---
-    val accountConnected: String,
-    val accountDisconnected: String,
-    val accountDisconnect: String,
-    val accountDisconnectTitle: String,
-    val accountDisconnectBody: String,
-    val accountDisconnectConfirm: String,
+    // --- grouped holders: kept off the flat constructor to stay under the JVM 255-arg limit ---
+    val send: SendStrings,
+    val account: AccountStrings,
 )
 
 /** German catalogue — the default language. */
@@ -349,6 +368,7 @@ val StringsDe = Strings(
 
     bpSteps = listOf("Konfiguration", "Extraktion", "Zusammenf."),
     bpAgain = "Erneut",
+    bpCtaExport = "Als JSON exportieren",
     bpConfigSubtitle = "Quelle und Ziel wählen, dann extrahieren.",
     bpRunningTitle = "Extraktion läuft",
     bpSummaryTitle = "Zusammenfassung",
@@ -510,6 +530,7 @@ val StringsDe = Strings(
     rfExtractionFailed = { msg -> "Extraktion fehlgeschlagen: $msg" },
     rfEtaRemaining = { s -> "≈ ${s}s verbleibend" },
     rfCtaToReview = "Weiter: Review",
+    rfCtaToExport = "Weiter zum Export",
 
     rfReviewTitle = "Review & Bestätigung",
     rfReviewSubtitle = "Extrahierte Werte prüfen und bei Bedarf korrigieren (✎) — gespeichert wird erst beim Import im Basetool.",
@@ -598,36 +619,44 @@ val StringsDe = Strings(
     pickerPathPlaceholder = "Pfad eingeben oder einfügen…",
     pickerPathNotFound = "Pfad existiert nicht oder ist nicht erreichbar.",
     pickerClearPath = "Pfad leeren",
-    sendButton = "An Basetool senden",
-    sendConsentTitle = "An Basetool senden",
-    sendConsentBody =
-        "Die erzeugte JSON-Datei wird über eine verschlüsselte Verbindung an dein eigenes " +
-            "Basetool-Konto gesendet (enthält dein Spieler-Handle und die abgefragten " +
-            "Mengen/Beträge). Danach öffnet sich die Basetool-Seite mit vorausgefüllten Werten — " +
-            "gespeichert wird erst nach deiner Prüfung dort. Bilder verlassen deinen Rechner nie.",
-    sendConsentConfirm = "Senden",
-    sendAuthTitle = "Im Browser bestätigen",
-    sendAuthBody =
-        "Wir haben deinen Browser geöffnet. Melde dich an (falls nötig) und bestätige den unten " +
-            "gezeigten Code, um den Versand freizugeben.",
-    sendAuthCode = { code -> "Code: $code" },
-    sendAuthOpenBrowser = "Browser erneut öffnen",
-    sendWaiting = "Warte auf Freigabe…",
-    sendInProgress = "Sende an Basetool…",
-    sendResultTitle = "Gesendet",
-    sendResultBody =
-        "Die Daten liegen in deinem Basetool bereit. Öffne die Seite, um sie zu prüfen und zu " +
-            "speichern.",
-    sendOpenInBasetool = "Im Basetool öffnen",
-    sendError = { msg -> "Versand fehlgeschlagen: $msg" },
-    accountConnected = "Mit Basetool verbunden",
-    accountDisconnected = "Nicht mit Basetool verbunden",
-    accountDisconnect = "Vom Basetool trennen",
-    accountDisconnectTitle = "Vom Basetool trennen",
-    accountDisconnectBody =
-        "Die gespeicherte Anmeldung wird zurückgezogen und vom Rechner gelöscht. Beim nächsten " +
-            "Senden wird die Freigabe erneut abgefragt.",
-    accountDisconnectConfirm = "Trennen",
+    send =
+        SendStrings(
+            button = "An Basetool senden",
+            consentTitle = "An Basetool senden",
+            consentBody =
+                "Die erzeugte JSON-Datei wird über eine verschlüsselte Verbindung an dein eigenes " +
+                    "Basetool-Konto gesendet (enthält dein Spieler-Handle und die abgefragten " +
+                    "Mengen/Beträge). Danach öffnet sich die Basetool-Seite mit vorausgefüllten " +
+                    "Werten — gespeichert wird erst nach deiner Prüfung dort. Bilder verlassen " +
+                    "deinen Rechner nie.",
+            consentConfirm = "Senden",
+            authTitle = "Im Browser bestätigen",
+            authBody =
+                "Wir haben deinen Browser geöffnet. Melde dich an (falls nötig) und bestätige den " +
+                    "unten gezeigten Code, um den Versand freizugeben.",
+            authCode = { code -> "Code: $code" },
+            authOpenBrowser = "Browser erneut öffnen",
+            waiting = "Warte auf Freigabe…",
+            inProgress = "Sende an Basetool…",
+            resultTitle = "Gesendet",
+            resultBody =
+                "Die Daten liegen in deinem Basetool bereit. Öffne die Seite, um sie zu prüfen " +
+                    "und zu speichern.",
+            openInBasetool = "Im Basetool öffnen",
+            saveLocally = "Stattdessen als JSON speichern",
+            error = { msg -> "Versand fehlgeschlagen: $msg" },
+        ),
+    account =
+        AccountStrings(
+            connected = "Mit Basetool verbunden",
+            disconnected = "Nicht mit Basetool verbunden",
+            disconnect = "Vom Basetool trennen",
+            disconnectTitle = "Vom Basetool trennen",
+            disconnectBody =
+                "Die gespeicherte Anmeldung wird zurückgezogen und vom Rechner gelöscht. Beim " +
+                    "nächsten Senden wird die Freigabe erneut abgefragt.",
+            disconnectConfirm = "Trennen",
+        ),
 )
 
 /** English catalogue — full parity with [StringsDe]. */
@@ -675,6 +704,7 @@ val StringsEn = Strings(
 
     bpSteps = listOf("Setup", "Extract", "Summary"),
     bpAgain = "Again",
+    bpCtaExport = "Export as JSON",
     bpConfigSubtitle = "Pick source and target, then extract.",
     bpRunningTitle = "Extraction running",
     bpSummaryTitle = "Summary",
@@ -836,6 +866,7 @@ val StringsEn = Strings(
     rfExtractionFailed = { msg -> "Extraction failed: $msg" },
     rfEtaRemaining = { s -> "≈ ${s}s remaining" },
     rfCtaToReview = "Next: review",
+    rfCtaToExport = "Continue to export",
 
     rfReviewTitle = "Review & confirmation",
     rfReviewSubtitle = "Review the extracted values and correct them where needed (✎) — nothing is saved until the basetool import.",
@@ -924,35 +955,41 @@ val StringsEn = Strings(
     pickerPathPlaceholder = "Type or paste a path…",
     pickerPathNotFound = "Path does not exist or is not reachable.",
     pickerClearPath = "Clear path",
-    sendButton = "Send to basetool",
-    sendConsentTitle = "Send to basetool",
-    sendConsentBody =
-        "The generated JSON file is sent over an encrypted connection to your own basetool " +
-            "account (it includes your player handle and the quoted amounts/balances). The " +
-            "basetool page then opens pre-filled — nothing is saved until you review it there. " +
-            "Images never leave your machine.",
-    sendConsentConfirm = "Send",
-    sendAuthTitle = "Confirm in the browser",
-    sendAuthBody =
-        "We opened your browser. Sign in (if needed) and confirm the code shown below to " +
-            "authorize the send.",
-    sendAuthCode = { code -> "Code: $code" },
-    sendAuthOpenBrowser = "Open browser again",
-    sendWaiting = "Waiting for approval…",
-    sendInProgress = "Sending to basetool…",
-    sendResultTitle = "Sent",
-    sendResultBody =
-        "Your data is waiting in basetool. Open the page to review and save it.",
-    sendOpenInBasetool = "Open in basetool",
-    sendError = { msg -> "Send failed: $msg" },
-    accountConnected = "Connected to basetool",
-    accountDisconnected = "Not connected to basetool",
-    accountDisconnect = "Disconnect from basetool",
-    accountDisconnectTitle = "Disconnect from basetool",
-    accountDisconnectBody =
-        "The saved login is revoked and removed from this machine. The next send will ask for " +
-            "approval again.",
-    accountDisconnectConfirm = "Disconnect",
+    send =
+        SendStrings(
+            button = "Send to basetool",
+            consentTitle = "Send to basetool",
+            consentBody =
+                "The generated JSON file is sent over an encrypted connection to your own basetool " +
+                    "account (it includes your player handle and the quoted amounts/balances). The " +
+                    "basetool page then opens pre-filled — nothing is saved until you review it " +
+                    "there. Images never leave your machine.",
+            consentConfirm = "Send",
+            authTitle = "Confirm in the browser",
+            authBody =
+                "We opened your browser. Sign in (if needed) and confirm the code shown below to " +
+                    "authorize the send.",
+            authCode = { code -> "Code: $code" },
+            authOpenBrowser = "Open browser again",
+            waiting = "Waiting for approval…",
+            inProgress = "Sending to basetool…",
+            resultTitle = "Sent",
+            resultBody = "Your data is waiting in basetool. Open the page to review and save it.",
+            openInBasetool = "Open in basetool",
+            saveLocally = "Save as JSON instead",
+            error = { msg -> "Send failed: $msg" },
+        ),
+    account =
+        AccountStrings(
+            connected = "Connected to basetool",
+            disconnected = "Not connected to basetool",
+            disconnect = "Disconnect from basetool",
+            disconnectTitle = "Disconnect from basetool",
+            disconnectBody =
+                "The saved login is revoked and removed from this machine. The next send will ask " +
+                    "for approval again.",
+            disconnectConfirm = "Disconnect",
+        ),
 )
 
 /** Resolve the catalogue for a language. */

@@ -40,6 +40,9 @@ class SendControllerTest {
         server.createContext("/v1/refinery-extract") { ex ->
             respond(ex, 200, """{"handoffId":"H1","kind":"REFINERY","frontendUrl":"https://app/x?handoff=H1"}""")
         }
+        server.createContext("/v1/blueprint-preview") { ex ->
+            respond(ex, 200, """{"handoffId":"B1","kind":"BLUEPRINT","frontendUrl":"https://app/bp?handoff=B1"}""")
+        }
         server.start()
         base = "http://localhost:${server.address.port}"
     }
@@ -80,7 +83,7 @@ class SendControllerTest {
         val store = FakeCredentialStore("RT-STORED")
         val controller = controller(store)
 
-        runBlocking { controller.request(this, """{"x":1}""", "de") }
+        runBlocking { controller.request(this, SendKind.REFINERY, """{"x":1}""", "de") }
 
         assertTrue(controller.state is SendState.Done, "expected Done, was ${controller.state}")
         assertEquals("https://app/x?handoff=H1", (controller.state as SendState.Done).frontendUrl)
@@ -98,10 +101,24 @@ class SendControllerTest {
         val store = FakeCredentialStore("RT-DEAD")
         val controller = controller(store)
 
-        runBlocking { controller.request(this, """{"x":1}""", "de") }
+        runBlocking { controller.request(this, SendKind.REFINERY, """{"x":1}""", "de") }
 
         assertNull(store.stored, "the dead token must be dropped")
         assertEquals(1, deviceCalls.get(), "it must fall back to a device grant")
         assertTrue(controller.state is SendState.Error, "the stubbed device grant fails, so we end in Error")
+    }
+
+    @Test
+    fun `a blueprint send posts to the blueprint endpoint`() {
+        server.createContext("/protocol/openid-connect/token") { ex ->
+            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-ROTATED","token_type":"Bearer","expires_in":300}""")
+        }
+        val controller = controller(FakeCredentialStore("RT-STORED"))
+
+        runBlocking { controller.request(this, SendKind.BLUEPRINT, """{"schemaVersion":1}""", "en") }
+
+        // The BLUEPRINT kind routes to /v1/blueprint-preview, whose stand-in returns the B1 handoff.
+        assertTrue(controller.state is SendState.Done, "expected Done, was ${controller.state}")
+        assertEquals("https://app/bp?handoff=B1", (controller.state as SendState.Done).frontendUrl)
     }
 }

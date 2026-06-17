@@ -253,10 +253,14 @@ class RefineryPipeline(
             encodeDefaults = true
         }
 
+        /** Serialize the contract document to the exact JSON [writeJson] writes, without disk I/O. */
+        fun toJson(extract: RefineryExtract): String =
+            JSON.encodeToString(RefineryExtract.serializer(), extract)
+
         /** Write the contract document as pretty-printed JSON (every field explicit). */
         fun writeJson(extract: RefineryExtract, target: File) {
             target.absoluteFile.parentFile?.mkdirs()
-            target.writeText(JSON.encodeToString(RefineryExtract.serializer(), extract))
+            target.writeText(toJson(extract))
         }
     }
 }

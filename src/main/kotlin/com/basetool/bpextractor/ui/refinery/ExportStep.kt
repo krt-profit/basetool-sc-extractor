@@ -14,13 +14,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.basetool.bpextractor.refinery.RefineryPipeline
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.GhostButton
 import com.basetool.bpextractor.ui.Krt
+import com.basetool.bpextractor.ui.PickerMode
+import com.basetool.bpextractor.ui.PickerRequest
 import com.basetool.bpextractor.ui.SendController
+import com.basetool.bpextractor.ui.SendKind
 import com.basetool.bpextractor.ui.SendOverlay
 import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
@@ -31,98 +34,126 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
+import java.io.File
 
 /**
- * §5.5 Export & Upload on the [StepScaffold]: the green written-path success alert, then two
- * height-filling panels side by side — the manual-upload v1 instructions card (Refinery →
- * Import order → pick the JSON → review the pre-filled form) and the provenance panel mirroring
- * the contract fields. "Show in folder" and the "Neue Extraktion" CTA sit in the pinned footer.
+ * §5.5 Export & Versand on the [StepScaffold]: the reviewed contract is either **sent straight to
+ * the basetool** (the single filled CTA — nothing is written to disk) or **saved as JSON locally**
+ * (the alternative). Saving locally is never required for sending; if a send fails, the save-JSON
+ * path stays available as a fallback (also offered inside the send overlay). After a local save the
+ * green written-path alert + "show in folder" appear. A provenance panel mirrors the contract
+ * fields, and the manual-upload card explains how to import a saved JSON by hand.
+ *
+ * @param state the refinery workflow state (provides the reviewed extract + the local-save write)
+ * @param appScope the window-root scope long-running send/write work runs on
+ * @param onPicker hosts the KRT save-file picker at the window root (no native dialogs)
  */
 @Composable
-fun ExportStep(state: RefineryUiState, appScope: CoroutineScope) {
+fun ExportStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (PickerRequest) -> Unit) {
     val strings = LocalStrings.current
-    val file = state.exportedFile ?: return
-    val extract = state.result?.extract ?: return
+    val extract = state.reviewedExtract() ?: return
     val order = extract.orders.first()
+    val exportedFile = state.exportedFile
+    val exportError = state.exportError
     val canOpen = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
     val sendController = remember { SendController() }
     // The export's locale tag for the relayed Accept-Language (derived from the active catalogue).
     val langTag = if (strings === StringsEn) "en" else "de"
 
-    Box(Modifier.fillMaxSize()) {
-    StepScaffold(
-        overline = strings.rfStepOverline(5),
-        title = strings.rfExportTitle,
-        scrollBody = false,
-        footer = {
-            if (canOpen) {
-                GhostButton(
-                    strings.bpShowInFolder,
-                    onClick = {
-                        val parent = file.absoluteFile.parentFile ?: return@GhostButton
-                        appScope.launch { withContext(Dispatchers.IO) { runCatching { Desktop.getDesktop().open(parent) } } }
-                    },
-                )
-            }
-            // "Neue Extraktion" is now a secondary (ghost) action: the export step's single filled
-            // CTA is the one-click send (epic krt-iri/basetool#639), which is the point of the step.
-            GhostButton(strings.rfNewExtraction, onClick = { state.newExtraction() })
-            Spacer(Modifier.weight(1f))
-            CtaButton(
-                strings.sendButton,
-                onClick = {
-                    // Send the exact bytes that were written to disk (a few KB); the gateway
-                    // matches it server-side and the browser opens the pre-filled basetool page.
-                    val json = runCatching { file.readText() }.getOrNull()
-                    if (json != null) sendController.request(appScope, json, langTag)
-                },
-            )
-        },
-    ) {
-        AlertBox(Krt.Success) {
-            Text(
-                strings.rfExportSuccess(file.absolutePath),
-                style = MaterialTheme.typography.bodyMedium,
-                color = Krt.Gray1,
-            )
-        }
-        Spacer(Modifier.height(14.dp))
-
-        Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            // Manual-upload v1 instructions (no direct upload — Phase 4 is deferred).
-            Column(
-                modifier = Modifier.weight(1.4f).fillMaxHeight().hudBox().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    strings.rfUploadCardTitle.uppercase(),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Krt.Orange,
-                )
-                strings.rfUploadSteps.forEach { stepText ->
-                    Text(stepText, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
-                }
-            }
-            // Provenance panel mirroring the contract fields.
-            Column(
-                modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Gray3).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    strings.rfProvenanceTitle.uppercase(),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Krt.Orange,
-                )
-                KeyValueRow(strings.rfProvTool, extract.tool)
-                KeyValueRow(strings.rfProvVersion, extract.toolVersion)
-                KeyValueRow(strings.rfProvModel, extract.model)
-                KeyValueRow(strings.rfProvSchema, extract.schemaVersion.toString())
-                KeyValueRow(strings.rfProvPanel, order.panelType)
-                KeyValueRow(strings.rfProvGenerated, extract.generatedAt)
-            }
-        }
+    // Save-JSON-locally: open the KRT save picker, then write the reviewed contract to the chosen
+    // path. Used both as the explicit alternative to sending and as the fallback after a failed send.
+    val saveJsonLocally = {
+        onPicker(
+            PickerRequest(
+                mode = PickerMode.SAVE_FILE,
+                title = strings.rfPickerExportTitle,
+                confirmLabel = strings.rfPickerExportConfirm,
+                initialPath = defaultExportPath(state),
+            ) { path -> state.export(appScope, File(path), strings) },
+        )
     }
 
-        SendOverlay(sendController, appScope)
+    Box(Modifier.fillMaxSize()) {
+        StepScaffold(
+            overline = strings.rfStepOverline(5),
+            title = strings.rfExportTitle,
+            scrollBody = false,
+            footer = {
+                if (canOpen && exportedFile != null) {
+                    GhostButton(
+                        strings.bpShowInFolder,
+                        onClick = {
+                            val parent = exportedFile.absoluteFile.parentFile ?: return@GhostButton
+                            appScope.launch {
+                                withContext(Dispatchers.IO) { runCatching { Desktop.getDesktop().open(parent) } }
+                            }
+                        },
+                    )
+                }
+                GhostButton(strings.rfNewExtraction, onClick = { state.newExtraction() })
+                // Saving the JSON locally is the alternative to sending — no file is written unless used.
+                GhostButton(strings.rfCtaExport, onClick = saveJsonLocally)
+                Spacer(Modifier.weight(1f))
+                CtaButton(
+                    strings.send.button,
+                    onClick = {
+                        // Send the reviewed contract straight from memory — nothing is written to disk.
+                        val json = runCatching { RefineryPipeline.toJson(extract) }.getOrNull()
+                        if (json != null) sendController.request(appScope, SendKind.REFINERY, json, langTag)
+                    },
+                )
+            },
+        ) {
+            if (exportError != null) {
+                Text(exportError, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+                Spacer(Modifier.height(8.dp))
+            }
+            if (exportedFile != null) {
+                AlertBox(Krt.Success) {
+                    Text(
+                        strings.rfExportSuccess(exportedFile.absolutePath),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Krt.Gray1,
+                    )
+                }
+                Spacer(Modifier.height(14.dp))
+            }
+
+            Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                // Manual-upload instructions — the fallback path if you saved the JSON instead of sending.
+                Column(
+                    modifier = Modifier.weight(1.4f).fillMaxHeight().hudBox().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        strings.rfUploadCardTitle.uppercase(),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Krt.Orange,
+                    )
+                    strings.rfUploadSteps.forEach { stepText ->
+                        Text(stepText, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
+                    }
+                }
+                // Provenance panel mirroring the contract fields.
+                Column(
+                    modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Gray3).padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        strings.rfProvenanceTitle.uppercase(),
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Krt.Orange,
+                    )
+                    KeyValueRow(strings.rfProvTool, extract.tool)
+                    KeyValueRow(strings.rfProvVersion, extract.toolVersion)
+                    KeyValueRow(strings.rfProvModel, extract.model)
+                    KeyValueRow(strings.rfProvSchema, extract.schemaVersion.toString())
+                    KeyValueRow(strings.rfProvPanel, order.panelType)
+                    KeyValueRow(strings.rfProvGenerated, extract.generatedAt)
+                }
+            }
+        }
+
+        SendOverlay(sendController, appScope, onSaveLocally = saveJsonLocally)
     }
 }
