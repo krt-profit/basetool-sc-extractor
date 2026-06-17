@@ -32,8 +32,9 @@ dependencies {
 }
 
 // Generate BuildInfo.VERSION from the project version (which CI sets from the release tag) so the
-// app's reported version — the CLI banner and the export `toolVersion` — always matches the MSI
-// version, with no hand-edited constant to drift out of sync. Generated into build/ (gitignored),
+// app's reported version — shown in the GUI and written into the export `toolVersion` — always
+// matches the MSI version, with no hand-edited constant to drift out of sync. Generated into
+// build/ (gitignored),
 // regenerated whenever the version changes.
 val generateBuildInfo by tasks.registering {
     val versionValue = project.version.toString()

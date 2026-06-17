@@ -6,7 +6,6 @@ import com.basetool.bpextractor.model.PlayerSummary
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.IOException
-import java.nio.file.Files
 import java.time.Instant
 
 /**
@@ -44,10 +43,11 @@ object BlueprintExtractor {
     const val TOOL_NAME = "Basetool SC Extractor"
 
     /**
-     * App version shown in the CLI banner and written as the export's `toolVersion`. Generated from
-     * the project version (the release tag in CI) by the `generateBuildInfo` Gradle task — see
-     * [BuildInfo] — so it always matches the MSI version, with no hand-edited constant to drift. A
-     * local dev build reports the build's dev-fallback version.
+     * App version shown in the GUI (start screen / update banner) and written as the export's
+     * `toolVersion`. Generated from the project version (the release tag in CI) by the
+     * `generateBuildInfo` Gradle task — see [BuildInfo] — so it always matches the MSI version,
+     * with no hand-edited constant to drift. A local dev build reports the build's dev-fallback
+     * version.
      */
     val TOOL_VERSION: String = BuildInfo.VERSION
 
@@ -197,27 +197,6 @@ object BlueprintExtractor {
             blueprints = sorted,
         )
         return ExtractionResult(export, skipped)
-    }
-
-    /** Why a chosen output path cannot be written; `null` from [validateOutputPath] = OK. */
-    enum class OutputPathProblem { IS_DIRECTORY, PARENT_NOT_WRITABLE, FILE_NOT_WRITABLE }
-
-    /**
-     * Pre-flight check for the output path, run BEFORE the (potentially minutes-long) scan
-     * so a bad target doesn't fail at the very end. Creates missing parent folders (the
-     * same thing [writeJson] would do) as the most reliable writability probe; otherwise
-     * read-only `File`/ACL stats.
-     */
-    fun validateOutputPath(output: File): OutputPathProblem? {
-        val target = output.absoluteFile
-        if (target.isDirectory) return OutputPathProblem.IS_DIRECTORY
-        val parent = target.parentFile
-        if (parent != null) {
-            if (!parent.isDirectory && !parent.mkdirs()) return OutputPathProblem.PARENT_NOT_WRITABLE
-            if (!target.exists() && !Files.isWritable(parent.toPath())) return OutputPathProblem.PARENT_NOT_WRITABLE
-        }
-        if (target.isFile && !target.canWrite()) return OutputPathProblem.FILE_NOT_WRITABLE
-        return null
     }
 
     /** Serialize an export to pretty JSON text. */

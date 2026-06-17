@@ -2,7 +2,7 @@ package com.basetool.bpextractor
 
 /**
  * Star Citizen Fankit attribution shown wherever the tool surfaces its Star Citizen
- * affiliation (GUI footer, CLI, docs). Required by the Star Citizen Fankit Guidelines
+ * affiliation (GUI footer, docs). Required by the Star Citizen Fankit Guidelines
  * when using fankit assets such as the "Made by the Community" logo:
  *  - the trademark notice must be visible, legible, and ≥10pt (Guidelines 2b);
  *  - it must accompany the "Made by the Community" logo (Guidelines 2/6).

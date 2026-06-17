@@ -56,7 +56,7 @@ internal data class ParsedVersion(val major: Int, val minor: Int, val patch: Int
  * that folder on every start as a belt-and-braces guard against a crashed or killed helper.
  *
  * Only release *metadata* is fetched from GitHub; no usage data is sent (the request carries
- * nothing but the standard headers). The CLI never calls any of this — scripting stays offline.
+ * nothing but the standard headers).
  */
 object UpdateChecker {
 
