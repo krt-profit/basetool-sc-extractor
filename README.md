@@ -1,7 +1,11 @@
 # Basetool SC Extractor
 
 Eine **Kotlin-Desktop-App** (Compose for Desktop), die Star-Citizen-Daten **lokal**
-ausliest und als JSON für das Basetool exportiert — nichts verlässt deinen Rechner.
+ausliest und als JSON für das Basetool exportiert. Das Auslesen bleibt vollständig
+lokal und **automatisch wird nichts hochgeladen** — der einzige Versand ist der
+optionale Knopf **„An Basetool senden"**, den du selbst auslöst: er schickt die
+erzeugte Export-JSON über eine verschlüsselte Verbindung an dein eigenes
+Basetool-Konto (Screenshots verlassen deinen Rechner nie). Die CLI sendet nie etwas.
 Zwei Workflows unter einem Dach (Top-Tabs: Start · Blueprints · Refinery, Sprache
 über den DE/EN-Schalter in der Titelleiste):
 
@@ -171,6 +175,18 @@ warum sonst ein leerer Programmordner zurückbleibt.
 > Deine **exportierten JSON-Dateien** liegen am selbst gewählten Ort (Standard:
 > `Dokumente\blueprints.json`) und werden bei der Deinstallation **absichtlich nicht**
 > gelöscht — das sind deine Daten, kein Programm-Rest.
+
+**„An Basetool senden" und die gemerkte Anmeldung.** Sobald du **„An Basetool senden"**
+nutzt, legt die App zwei nutzerbezogene Dinge **außerhalb** des Programmordners ab — der
+Programmordner bleibt also weiterhin restlos entfernbar:
+
+- eine **`config.json`** unter `%APPDATA%\Basetool SC Extractor\` (kein Geheimnis: nur die
+  Einwilligung zum Senden und die Ziel-URL). Roaming-Daten, kein Programm-Rest.
+- ein **Auffrischungs-Token** (Refresh Token) im **Windows-Anmeldeinformations-Manager**
+  (DPAPI-geschützt, pro Benutzer) — damit du beim nächsten Senden nicht erneut bestätigen
+  musst. Dieses Token wird bei der **Deinstallation nicht** entfernt; lösche es über
+  **Start → „Vom Basetool trennen"** (das zieht es serverseitig zurück und löscht es lokal)
+  oder im Windows-Anmeldeinformations-Manager unter dem Eintrag „Basetool SC Extractor".
 
 ---
 

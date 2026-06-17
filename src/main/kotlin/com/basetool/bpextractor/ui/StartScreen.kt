@@ -21,8 +21,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -46,6 +48,11 @@ fun StartScreen(
 ) {
     val strings = LocalStrings.current
     val honeycomb = rememberHoneycombPainter()
+    // The "remember me" account state (#648); refreshed on entry so a token a send just stored
+    // shows as connected when the user returns to Start.
+    val account = remember { AccountController() }
+    val accountScope = rememberCoroutineScope()
+    LaunchedEffect(Unit) { account.refresh() }
     Box(modifier = Modifier.fillMaxSize().background(Krt.Black).tiled(honeycomb)) {
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 16.dp)) {
             GreetingHeader(title = strings.startTitle, subtitle = strings.startSubtitle)
@@ -86,12 +93,19 @@ fun StartScreen(
             }
 
             Spacer(Modifier.height(14.dp))
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 KrtChip(strings.unofficialChip)
                 KrtChip("v${BlueprintExtractor.TOOL_VERSION}")
                 Text(strings.startLocalNote, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+                Spacer(Modifier.weight(1f))
+                AccountStatusRow(account)
             }
         }
+        AccountDisconnectOverlay(account, accountScope)
     }
 }
 
