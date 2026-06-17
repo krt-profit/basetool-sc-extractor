@@ -176,6 +176,18 @@ warum sonst ein leerer Programmordner zurückbleibt.
 > `Dokumente\blueprints.json`) und werden bei der Deinstallation **absichtlich nicht**
 > gelöscht — das sind deine Daten, kein Programm-Rest.
 
+**„An Basetool senden" und die gemerkte Anmeldung.** Sobald du **„An Basetool senden"**
+nutzt, legt die App zwei nutzerbezogene Dinge **außerhalb** des Programmordners ab — der
+Programmordner bleibt also weiterhin restlos entfernbar:
+
+- eine **`config.json`** unter `%APPDATA%\Basetool SC Extractor\` (kein Geheimnis: nur die
+  Einwilligung zum Senden und die Ziel-URL). Roaming-Daten, kein Programm-Rest.
+- ein **Auffrischungs-Token** (Refresh Token) im **Windows-Anmeldeinformations-Manager**
+  (DPAPI-geschützt, pro Benutzer) — damit du beim nächsten Senden nicht erneut bestätigen
+  musst. Dieses Token wird bei der **Deinstallation nicht** entfernt; lösche es über
+  **Start → „Vom Basetool trennen"** (das zieht es serverseitig zurück und löscht es lokal)
+  oder im Windows-Anmeldeinformations-Manager unter dem Eintrag „Basetool SC Extractor".
+
 ---
 
 ## Die JSON-Ausgabe

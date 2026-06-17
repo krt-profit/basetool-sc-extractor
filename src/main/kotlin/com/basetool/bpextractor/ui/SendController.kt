@@ -6,8 +6,11 @@ import androidx.compose.runtime.setValue
 import com.basetool.bpextractor.config.AppConfigStore
 import com.basetool.bpextractor.net.BasetoolIngestClient
 import com.basetool.bpextractor.net.IngestException
+import com.basetool.bpextractor.net.auth.CredentialStore
 import com.basetool.bpextractor.net.auth.DeviceGrantClient
 import com.basetool.bpextractor.net.auth.DeviceGrantException
+import com.basetool.bpextractor.net.auth.TokenResponse
+import com.basetool.bpextractor.net.auth.WinCredentialStore
 import java.awt.Desktop
 import java.net.URI
 import kotlinx.coroutines.CoroutineScope
@@ -46,6 +49,7 @@ sealed interface SendState {
 class SendController(
     private val configStore: AppConfigStore = AppConfigStore(),
     private val deviceGrant: DeviceGrantClient = DeviceGrantClient(),
+    private val credentialStore: CredentialStore = WinCredentialStore(),
     private val ingestClientFor: (String) -> BasetoolIngestClient = { BasetoolIngestClient(it) },
     private val browse: (String) -> Unit = { url ->
         runCatching {
@@ -102,10 +106,11 @@ class SendController(
         scope.launch {
             try {
                 val baseUrl = withContext(Dispatchers.IO) { configStore.load().ingestBaseUrl }
-                val device = withContext(Dispatchers.IO) { deviceGrant.requestDeviceCode() }
-                state = SendState.Authenticating(device.userCode, device.browserUrl())
-                browse(device.browserUrl())
-                val token = withContext(Dispatchers.IO) { deviceGrant.pollForToken(device) }
+                val token = withContext(Dispatchers.IO) { obtainToken() }
+                // Persist (the possibly rotated) refresh token for the next silent send (#648).
+                withContext(Dispatchers.IO) {
+                    if (token.refreshToken.isNotBlank()) credentialStore.save(token.refreshToken)
+                }
                 state = SendState.Sending
                 val response =
                     withContext(Dispatchers.IO) {
@@ -121,5 +126,27 @@ class SendController(
                 state = SendState.Error(e.message ?: "send failed")
             }
         }
+    }
+
+    /**
+     * Obtains an access token: the "remember me" silent refresh first (no browser, no overlay
+     * step), falling back to an interactive device grant when there is no stored token or the
+     * refresh is rejected (expired / revoked / reuse-detected). Runs on the calling IO context.
+     *
+     * @return a token answer whose {@code refreshToken} is the one to re-persist
+     * @throws DeviceGrantException when the interactive grant ultimately fails
+     */
+    private fun obtainToken(): TokenResponse {
+        credentialStore.load()?.let { stored ->
+            try {
+                return deviceGrant.refreshAccessToken(stored)
+            } catch (_: DeviceGrantException) {
+                credentialStore.clear() // the stored token is dead — drop it and log in afresh
+            }
+        }
+        val device = deviceGrant.requestDeviceCode()
+        state = SendState.Authenticating(device.userCode, device.browserUrl())
+        browse(device.browserUrl())
+        return deviceGrant.pollForToken(device)
     }
 }

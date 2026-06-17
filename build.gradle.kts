@@ -71,6 +71,10 @@ tasks.named("compileKotlin") {
 tasks.test {
     useJUnitPlatform()
     testLogging { showStandardStreams = true }
+    // The CredentialStore round-trip test binds Advapi32.dll via the Foreign Function & Memory
+    // API; grant native access so it does not warn (and is not blocked by a future JDK), matching
+    // the packaged app's jvmArgs.
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
 
 compose.desktop {

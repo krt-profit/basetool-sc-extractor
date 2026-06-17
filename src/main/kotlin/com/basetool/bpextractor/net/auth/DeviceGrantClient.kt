@@ -171,6 +171,72 @@ class DeviceGrantClient(
         throw DeviceGrantException("the approval window expired — please try again")
     }
 
+    /**
+     * Exchanges a stored refresh token for a fresh access token (and, with rotation enabled on the
+     * client, a new refresh token) — the "remember me" silent path (#648). On any failure (expired,
+     * revoked, reuse-detected) it throws so the caller falls back to an interactive device grant.
+     *
+     * @param refreshToken the persisted refresh token
+     * @return the new token answer (its {@code refreshToken} is the rotated one to re-persist)
+     * @throws DeviceGrantException when the refresh is rejected or the answer is unparseable
+     */
+    fun refreshAccessToken(refreshToken: String): TokenResponse {
+        val form =
+            encodeForm(
+                "grant_type" to "refresh_token",
+                "refresh_token" to refreshToken,
+                "client_id" to clientId,
+            )
+        val request =
+            HttpRequest.newBuilder(URI.create(tokenEndpoint))
+                .timeout(Duration.ofSeconds(15))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .header("Accept", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(form))
+                .build()
+        val response =
+            try {
+                http.send(request, HttpResponse.BodyHandlers.ofString())
+            } catch (e: Exception) {
+                throw DeviceGrantException("token refresh failed: ${e.message}")
+            }
+        if (response.statusCode() != 200) {
+            throw DeviceGrantException("token refresh rejected (HTTP ${response.statusCode()})")
+        }
+        return try {
+            json.decodeFromString<TokenResponse>(response.body())
+        } catch (e: Exception) {
+            throw DeviceGrantException("token-refresh answer was not parseable: ${e.message}")
+        }
+    }
+
+    /**
+     * Revokes a refresh token at Keycloak's RFC 7009 revocation endpoint — the server side of "Vom
+     * Basetool trennen" (#648). Best-effort: a failure is swallowed because the local credential is
+     * deleted regardless, and a stale server-side token expires on its own.
+     *
+     * @param refreshToken the refresh token to revoke
+     */
+    fun revoke(refreshToken: String) {
+        val form =
+            encodeForm(
+                "token" to refreshToken,
+                "token_type_hint" to "refresh_token",
+                "client_id" to clientId,
+            )
+        val request =
+            HttpRequest.newBuilder(URI.create("$issuer/protocol/openid-connect/revoke"))
+                .timeout(Duration.ofSeconds(15))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(form))
+                .build()
+        try {
+            http.send(request, HttpResponse.BodyHandlers.discarding())
+        } catch (_: Exception) {
+            // Best effort — local deletion is what actually disconnects the user.
+        }
+    }
+
     private fun parseError(body: String): String =
         try {
             json.decodeFromString<TokenErrorResponse>(body).error

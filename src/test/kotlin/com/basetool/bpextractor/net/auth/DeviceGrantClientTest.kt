@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -91,5 +92,36 @@ class DeviceGrantClientTest {
     @Test
     fun rejectsNonHttpsIssuer() {
         assertFailsWith<IllegalArgumentException> { DeviceGrantClient(issuer = "http://evil.example") }
+    }
+
+    @Test
+    fun refreshExchangesStoredTokenForRotatedOne() {
+        server.createContext("/protocol/openid-connect/token") { ex ->
+            respond(ex, 200, """{"access_token":"AT2","refresh_token":"RT2","token_type":"Bearer","expires_in":300}""")
+        }
+        val token = client().refreshAccessToken("OLD-RT")
+        assertEquals("AT2", token.accessToken)
+        assertEquals("RT2", token.refreshToken)
+    }
+
+    @Test
+    fun refreshRejectionThrows() {
+        server.createContext("/protocol/openid-connect/token") { ex ->
+            respond(ex, 400, """{"error":"invalid_grant"}""")
+        }
+        assertFailsWith<DeviceGrantException> { client().refreshAccessToken("DEAD-RT") }
+    }
+
+    @Test
+    fun revokePostsTokenToRevocationEndpoint() {
+        val captured = AtomicReference<String>("")
+        server.createContext("/protocol/openid-connect/revoke") { ex ->
+            captured.set(ex.requestBody.readBytes().decodeToString())
+            ex.sendResponseHeaders(200, -1)
+            ex.close()
+        }
+        client().revoke("RT-TO-REVOKE")
+        assertTrue(captured.get().contains("token=RT-TO-REVOKE"))
+        assertTrue(captured.get().contains("token_type_hint=refresh_token"))
     }
 }

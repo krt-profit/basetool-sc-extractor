@@ -295,6 +295,13 @@ class Strings(
     val sendResultBody: String,
     val sendOpenInBasetool: String,
     val sendError: (String) -> String,
+    // --- "remember me" account surface (epic krt-iri/basetool#639, #648) ---
+    val accountConnected: String,
+    val accountDisconnected: String,
+    val accountDisconnect: String,
+    val accountDisconnectTitle: String,
+    val accountDisconnectBody: String,
+    val accountDisconnectConfirm: String,
 )
 
 /** German catalogue — the default language. */
@@ -613,6 +620,14 @@ val StringsDe = Strings(
             "speichern.",
     sendOpenInBasetool = "Im Basetool öffnen",
     sendError = { msg -> "Versand fehlgeschlagen: $msg" },
+    accountConnected = "Mit Basetool verbunden",
+    accountDisconnected = "Nicht mit Basetool verbunden",
+    accountDisconnect = "Vom Basetool trennen",
+    accountDisconnectTitle = "Vom Basetool trennen",
+    accountDisconnectBody =
+        "Die gespeicherte Anmeldung wird zurückgezogen und vom Rechner gelöscht. Beim nächsten " +
+            "Senden wird die Freigabe erneut abgefragt.",
+    accountDisconnectConfirm = "Trennen",
 )
 
 /** English catalogue — full parity with [StringsDe]. */
@@ -930,6 +945,14 @@ val StringsEn = Strings(
         "Your data is waiting in basetool. Open the page to review and save it.",
     sendOpenInBasetool = "Open in basetool",
     sendError = { msg -> "Send failed: $msg" },
+    accountConnected = "Connected to basetool",
+    accountDisconnected = "Not connected to basetool",
+    accountDisconnect = "Disconnect from basetool",
+    accountDisconnectTitle = "Disconnect from basetool",
+    accountDisconnectBody =
+        "The saved login is revoked and removed from this machine. The next send will ask for " +
+            "approval again.",
+    accountDisconnectConfirm = "Disconnect",
 )
 
 /** Resolve the catalogue for a language. */

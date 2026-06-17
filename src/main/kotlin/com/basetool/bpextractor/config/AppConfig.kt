@@ -7,9 +7,10 @@ import java.io.File
 /**
  * Non-secret app configuration (epic krt-iri/basetool#639): the ingest base URL and whether the
  * user has accepted the one-time send consent. This is the app's **first** persisted state — it
- * lives under {@code %LOCALAPPDATA%\Basetool SC Extractor\config.json}, **never** the install dir
- * (CLAUDE.md guardrail 2: clean uninstall depends on the install dir staying stateless). It holds
- * **no secret** — the refresh token is stored separately in Windows Credential Manager (#648).
+ * lives under {@code %APPDATA%\Basetool SC Extractor\config.json} (the Roaming per-user data dir),
+ * deliberately **outside** the {@code %LOCALAPPDATA%\Basetool SC Extractor\} install dir so the
+ * install dir stays stateless and the MSI uninstall remains restloss (CLAUDE.md guardrail 2). It
+ * holds **no secret** — the refresh token is stored separately in Windows Credential Manager (#648).
  *
  * @param ingestBaseUrl base URL of the ingest gateway the export is sent to
  * @param consentGiven {@code true} once the user accepted the first-send consent
@@ -68,12 +69,16 @@ class AppConfigStore(private val dir: File = defaultDir()) {
     }
 
     companion object {
-        /** {@code %LOCALAPPDATA%\Basetool SC Extractor}, falling back to {@code ~/AppData/Local}. */
+        /**
+         * {@code %APPDATA%\Basetool SC Extractor} (Roaming), falling back to
+         * {@code ~/AppData/Roaming}. Roaming, not Local, so this data dir is outside the
+         * {@code %LOCALAPPDATA%} install dir and the MSI uninstall stays restloss.
+         */
         private fun defaultDir(): File {
-            val localAppData =
-                System.getenv("LOCALAPPDATA")
-                    ?: (System.getProperty("user.home") + File.separator + "AppData" + File.separator + "Local")
-            return File(localAppData, "Basetool SC Extractor")
+            val appData =
+                System.getenv("APPDATA")
+                    ?: (System.getProperty("user.home") + File.separator + "AppData" + File.separator + "Roaming")
+            return File(appData, "Basetool SC Extractor")
         }
     }
 }
