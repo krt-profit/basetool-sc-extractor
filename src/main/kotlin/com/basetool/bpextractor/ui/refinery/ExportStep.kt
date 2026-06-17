@@ -1,6 +1,7 @@
 package com.basetool.bpextractor.ui.refinery
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,9 +20,12 @@ import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.GhostButton
 import com.basetool.bpextractor.ui.Krt
+import com.basetool.bpextractor.ui.SendController
+import com.basetool.bpextractor.ui.SendOverlay
 import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
+import com.basetool.bpextractor.ui.i18n.StringsEn
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -41,7 +45,11 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope) {
     val extract = state.result?.extract ?: return
     val order = extract.orders.first()
     val canOpen = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
+    val sendController = remember { SendController() }
+    // The export's locale tag for the relayed Accept-Language (derived from the active catalogue).
+    val langTag = if (strings === StringsEn) "en" else "de"
 
+    Box(Modifier.fillMaxSize()) {
     StepScaffold(
         overline = strings.rfStepOverline(5),
         title = strings.rfExportTitle,
@@ -56,8 +64,19 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope) {
                     },
                 )
             }
+            // "Neue Extraktion" is now a secondary (ghost) action: the export step's single filled
+            // CTA is the one-click send (epic krt-iri/basetool#639), which is the point of the step.
+            GhostButton(strings.rfNewExtraction, onClick = { state.newExtraction() })
             Spacer(Modifier.weight(1f))
-            CtaButton(strings.rfNewExtraction, onClick = { state.newExtraction() })
+            CtaButton(
+                strings.sendButton,
+                onClick = {
+                    // Send the exact bytes that were written to disk (a few KB); the gateway
+                    // matches it server-side and the browser opens the pre-filled basetool page.
+                    val json = runCatching { file.readText() }.getOrNull()
+                    if (json != null) sendController.request(appScope, json, langTag)
+                },
+            )
         },
     ) {
         AlertBox(Krt.Success) {
@@ -102,5 +121,8 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope) {
                 KeyValueRow(strings.rfProvGenerated, extract.generatedAt)
             }
         }
+    }
+
+        SendOverlay(sendController, appScope)
     }
 }

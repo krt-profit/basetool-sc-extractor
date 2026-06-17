@@ -1,7 +1,11 @@
 # Basetool SC Extractor
 
 Eine **Kotlin-Desktop-App** (Compose for Desktop), die Star-Citizen-Daten **lokal**
-ausliest und als JSON für das Basetool exportiert — nichts verlässt deinen Rechner.
+ausliest und als JSON für das Basetool exportiert. Das Auslesen bleibt vollständig
+lokal und **automatisch wird nichts hochgeladen** — der einzige Versand ist der
+optionale Knopf **„An Basetool senden"**, den du selbst auslöst: er schickt die
+erzeugte Export-JSON über eine verschlüsselte Verbindung an dein eigenes
+Basetool-Konto (Screenshots verlassen deinen Rechner nie). Die CLI sendet nie etwas.
 Zwei Workflows unter einem Dach (Top-Tabs: Start · Blueprints · Refinery, Sprache
 über den DE/EN-Schalter in der Titelleiste):
 

@@ -280,6 +280,21 @@ class Strings(
     val pickerPathPlaceholder: String,
     val pickerPathNotFound: String,
     val pickerClearPath: String,
+    // --- one-click "An Basetool senden" (epic krt-iri/basetool#639) ---
+    val sendButton: String,
+    val sendConsentTitle: String,
+    val sendConsentBody: String,
+    val sendConsentConfirm: String,
+    val sendAuthTitle: String,
+    val sendAuthBody: String,
+    val sendAuthCode: (String) -> String,
+    val sendAuthOpenBrowser: String,
+    val sendWaiting: String,
+    val sendInProgress: String,
+    val sendResultTitle: String,
+    val sendResultBody: String,
+    val sendOpenInBasetool: String,
+    val sendError: (String) -> String,
 )
 
 /** German catalogue — the default language. */
@@ -576,6 +591,28 @@ val StringsDe = Strings(
     pickerPathPlaceholder = "Pfad eingeben oder einfügen…",
     pickerPathNotFound = "Pfad existiert nicht oder ist nicht erreichbar.",
     pickerClearPath = "Pfad leeren",
+    sendButton = "An Basetool senden",
+    sendConsentTitle = "An Basetool senden",
+    sendConsentBody =
+        "Die erzeugte JSON-Datei wird über eine verschlüsselte Verbindung an dein eigenes " +
+            "Basetool-Konto gesendet (enthält dein Spieler-Handle und die abgefragten " +
+            "Mengen/Beträge). Danach öffnet sich die Basetool-Seite mit vorausgefüllten Werten — " +
+            "gespeichert wird erst nach deiner Prüfung dort. Bilder verlassen deinen Rechner nie.",
+    sendConsentConfirm = "Senden",
+    sendAuthTitle = "Im Browser bestätigen",
+    sendAuthBody =
+        "Wir haben deinen Browser geöffnet. Melde dich an (falls nötig) und bestätige den unten " +
+            "gezeigten Code, um den Versand freizugeben.",
+    sendAuthCode = { code -> "Code: $code" },
+    sendAuthOpenBrowser = "Browser erneut öffnen",
+    sendWaiting = "Warte auf Freigabe…",
+    sendInProgress = "Sende an Basetool…",
+    sendResultTitle = "Gesendet",
+    sendResultBody =
+        "Die Daten liegen in deinem Basetool bereit. Öffne die Seite, um sie zu prüfen und zu " +
+            "speichern.",
+    sendOpenInBasetool = "Im Basetool öffnen",
+    sendError = { msg -> "Versand fehlgeschlagen: $msg" },
 )
 
 /** English catalogue — full parity with [StringsDe]. */
@@ -872,6 +909,27 @@ val StringsEn = Strings(
     pickerPathPlaceholder = "Type or paste a path…",
     pickerPathNotFound = "Path does not exist or is not reachable.",
     pickerClearPath = "Clear path",
+    sendButton = "Send to basetool",
+    sendConsentTitle = "Send to basetool",
+    sendConsentBody =
+        "The generated JSON file is sent over an encrypted connection to your own basetool " +
+            "account (it includes your player handle and the quoted amounts/balances). The " +
+            "basetool page then opens pre-filled — nothing is saved until you review it there. " +
+            "Images never leave your machine.",
+    sendConsentConfirm = "Send",
+    sendAuthTitle = "Confirm in the browser",
+    sendAuthBody =
+        "We opened your browser. Sign in (if needed) and confirm the code shown below to " +
+            "authorize the send.",
+    sendAuthCode = { code -> "Code: $code" },
+    sendAuthOpenBrowser = "Open browser again",
+    sendWaiting = "Waiting for approval…",
+    sendInProgress = "Sending to basetool…",
+    sendResultTitle = "Sent",
+    sendResultBody =
+        "Your data is waiting in basetool. Open the page to review and save it.",
+    sendOpenInBasetool = "Open in basetool",
+    sendError = { msg -> "Send failed: $msg" },
 )
 
 /** Resolve the catalogue for a language. */
