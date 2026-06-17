@@ -67,6 +67,9 @@ import com.basetool.bpextractor.ui.RefineryScreen
 import com.basetool.bpextractor.ui.ResizeCorner
 import com.basetool.bpextractor.ui.StartScreen
 import com.basetool.bpextractor.ui.StatusDot
+import com.basetool.bpextractor.ui.SendController
+import com.basetool.bpextractor.ui.SendKind
+import com.basetool.bpextractor.ui.SendOverlay
 import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.UpdateUiState
 import com.basetool.bpextractor.ui.hudBox
@@ -75,6 +78,7 @@ import com.basetool.bpextractor.ui.refinery.KrtChip
 import com.basetool.bpextractor.ui.i18n.Lang
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import com.basetool.bpextractor.ui.i18n.Strings
+import com.basetool.bpextractor.ui.i18n.StringsEn
 import com.basetool.bpextractor.ui.i18n.stringsFor
 import com.basetool.bpextractor.ui.refinery.RefineryUiState
 import com.basetool.bpextractor.ui.rememberHoneycombPainter
@@ -448,10 +452,26 @@ private fun BpSummaryStep(state: AppState) {
     // Whether we can offer "open folder / open file" actions on this platform.
     val canOpenFiles = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
     val export = state.resultExport
+    val sendController = remember { SendController() }
+    // The export's locale tag for the relayed Accept-Language (derived from the active catalogue).
+    val langTag = if (strings === StringsEn) "en" else "de"
+    Box(Modifier.fillMaxSize()) {
     StepScaffold(
         overline = strings.bpStepOverline(3),
         title = strings.bpSummaryTitle,
         scrollBody = false,
+        footer = {
+            // §4.3: the screen's primary CTA lives in the footer — here the one-click send (#639).
+            Spacer(Modifier.weight(1f))
+            CtaButton(
+                strings.send.button,
+                onClick = {
+                    // Send the exact JSON written to disk; the gateway opens the pre-filled page.
+                    val json = state.resultFile?.let { runCatching { it.readText() }.getOrNull() }
+                    if (json != null) sendController.request(scope, SendKind.BLUEPRINT, json, langTag)
+                },
+            )
+        },
         headRight = {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 val file = state.resultFile
@@ -620,6 +640,8 @@ private fun BpSummaryStep(state: AppState) {
                 }
             }
         }
+    }
+        SendOverlay(sendController, scope)
     }
 }
 

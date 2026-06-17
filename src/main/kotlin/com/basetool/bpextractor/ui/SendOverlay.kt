@@ -45,9 +45,9 @@ fun SendOverlay(controller: SendController, appScope: CoroutineScope) {
 
     val title =
         when (state) {
-            is SendState.Authenticating -> strings.sendAuthTitle
-            is SendState.Done -> strings.sendResultTitle
-            else -> strings.sendConsentTitle
+            is SendState.Authenticating -> strings.send.authTitle
+            is SendState.Done -> strings.send.resultTitle
+            else -> strings.send.consentTitle
         }
 
     Box(
@@ -114,42 +114,42 @@ fun SendOverlay(controller: SendController, appScope: CoroutineScope) {
                 when (state) {
                     is SendState.Consent ->
                         Text(
-                            strings.sendConsentBody,
+                            strings.send.consentBody,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )
                     is SendState.Authenticating -> {
                         Text(
-                            strings.sendAuthBody,
+                            strings.send.authBody,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )
                         Text(
-                            strings.sendAuthCode(state.userCode),
+                            strings.send.authCode(state.userCode),
                             style = MaterialTheme.typography.headlineSmall,
                             color = Krt.White,
                         )
                         Text(
-                            strings.sendWaiting,
+                            strings.send.waiting,
                             style = MaterialTheme.typography.bodySmall,
                             color = Krt.Gray2,
                         )
                     }
                     is SendState.Sending ->
                         Text(
-                            strings.sendInProgress,
+                            strings.send.inProgress,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )
                     is SendState.Done ->
                         Text(
-                            strings.sendResultBody,
+                            strings.send.resultBody,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )
                     is SendState.Error ->
                         Text(
-                            strings.sendError(state.message),
+                            strings.send.error(state.message),
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )
@@ -172,13 +172,13 @@ fun SendOverlay(controller: SendController, appScope: CoroutineScope) {
                         GhostButton(strings.cancel, onClick = { controller.dismiss() })
                         Spacer(Modifier.weight(1f))
                         CtaButton(
-                            strings.sendConsentConfirm,
+                            strings.send.consentConfirm,
                             onClick = { controller.confirmConsent(appScope) },
                         )
                     }
                     is SendState.Authenticating -> {
                         GhostButton(
-                            strings.sendAuthOpenBrowser,
+                            strings.send.authOpenBrowser,
                             onClick = { controller.reopenBrowser() },
                         )
                         Spacer(Modifier.weight(1f))
@@ -188,7 +188,7 @@ fun SendOverlay(controller: SendController, appScope: CoroutineScope) {
                     is SendState.Done -> {
                         GhostButton(strings.close, onClick = { controller.dismiss() })
                         Spacer(Modifier.weight(1f))
-                        CtaButton(strings.sendOpenInBasetool, onClick = { controller.openResult() })
+                        CtaButton(strings.send.openInBasetool, onClick = { controller.openResult() })
                     }
                     is SendState.Error -> {
                         Spacer(Modifier.weight(1f))

@@ -21,6 +21,7 @@ import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.GhostButton
 import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.SendController
+import com.basetool.bpextractor.ui.SendKind
 import com.basetool.bpextractor.ui.SendOverlay
 import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.hudBox
@@ -69,12 +70,12 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope) {
             GhostButton(strings.rfNewExtraction, onClick = { state.newExtraction() })
             Spacer(Modifier.weight(1f))
             CtaButton(
-                strings.sendButton,
+                strings.send.button,
                 onClick = {
                     // Send the exact bytes that were written to disk (a few KB); the gateway
                     // matches it server-side and the browser opens the pre-filled basetool page.
                     val json = runCatching { file.readText() }.getOrNull()
-                    if (json != null) sendController.request(appScope, json, langTag)
+                    if (json != null) sendController.request(appScope, SendKind.REFINERY, json, langTag)
                 },
             )
         },
