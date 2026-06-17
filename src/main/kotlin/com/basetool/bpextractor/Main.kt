@@ -455,19 +455,50 @@ private fun BpSummaryStep(state: AppState) {
     val sendController = remember { SendController() }
     // The export's locale tag for the relayed Accept-Language (derived from the active catalogue).
     val langTag = if (strings === StringsEn) "en" else "de"
+    // Save the in-memory export as JSON locally — the alternative to sending, and the post-failure
+    // fallback. Uses the config step's chosen path as the picker default (#639).
+    val saveBlueprintJson = {
+        val export = state.resultExport
+        if (export != null) {
+            state.picker =
+                PickerRequest(
+                    mode = PickerMode.SAVE_FILE,
+                    title = strings.bpPickerSaveTitle,
+                    confirmLabel = strings.bpPickerSaveConfirm,
+                    initialPath = state.outputFile,
+                ) { path ->
+                    scope.launch {
+                        runCatching {
+                            withContext(Dispatchers.IO) { BlueprintExtractor.writeJson(export, File(path)) }
+                        }
+                            .onSuccess { state.resultFile = File(path) }
+                            .onFailure { t ->
+                                state.toast =
+                                    ToastInfo(
+                                        strings.bpToastErrorTitle,
+                                        t.message ?: t::class.simpleName ?: strings.unknownError,
+                                        error = true,
+                                    )
+                            }
+                    }
+                }
+        }
+    }
     Box(Modifier.fillMaxSize()) {
     StepScaffold(
         overline = strings.bpStepOverline(3),
         title = strings.bpSummaryTitle,
         scrollBody = false,
         footer = {
-            // §4.3: the screen's primary CTA lives in the footer — here the one-click send (#639).
+            // Send to the basetool (the filled CTA) OR save as JSON locally (the alternative — no
+            // file is written unless chosen). Saving also stays available after a failed send (#639).
+            GhostButton(strings.bpCtaExport, onClick = saveBlueprintJson)
             Spacer(Modifier.weight(1f))
             CtaButton(
                 strings.send.button,
                 onClick = {
-                    // Send the exact JSON written to disk; the gateway opens the pre-filled page.
-                    val json = state.resultFile?.let { runCatching { it.readText() }.getOrNull() }
+                    // Send straight from the in-memory export — nothing is written to disk.
+                    val json = state.resultExport?.let { BlueprintExtractor.toJson(it) }
                     if (json != null) sendController.request(scope, SendKind.BLUEPRINT, json, langTag)
                 },
             )
@@ -497,8 +528,10 @@ private fun BpSummaryStep(state: AppState) {
             Text(strings.bpSumSuccessTitle, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
             if (export != null) {
                 Spacer(Modifier.height(4.dp))
+                // The saved-file path only appears once the user actually saves the JSON (#639).
+                val savedPrefix = state.resultFile?.let { "${it.absolutePath} · " } ?: ""
                 Text(
-                    "${state.resultFile?.absolutePath ?: ""} · schemaVersion ${export.schemaVersion} · " +
+                    savedPrefix + "schemaVersion ${export.schemaVersion} · " +
                         strings.bpSumSuccessDetail(export.blueprintCount, export.logFilesScanned),
                     style = MaterialTheme.typography.bodySmall,
                     color = Krt.Gray2,
@@ -641,7 +674,7 @@ private fun BpSummaryStep(state: AppState) {
             }
         }
     }
-        SendOverlay(sendController, scope)
+        SendOverlay(sendController, scope, onSaveLocally = saveBlueprintJson)
     }
 }
 
@@ -651,7 +684,6 @@ private fun runExtraction(
     strings: Strings,
 ) {
     val folder = File(state.channelFolder.trim())
-    val output = File(state.outputFile.trim())
     state.toast = null
 
     // Validate on click and mark the offending field(s) — the CTA itself stays
@@ -668,20 +700,9 @@ private fun runExtraction(
         }
         else -> state.channelError = null
     }
-    if (state.outputFile.isBlank()) {
-        state.outputError = strings.bpErrSelectOutput
-        valid = false
-    } else {
-        // Pre-flight the output path NOW — a bad target must not surface only after
-        // a minutes-long scan, when writeJson finally runs.
-        state.outputError = when (BlueprintExtractor.validateOutputPath(output)) {
-            BlueprintExtractor.OutputPathProblem.IS_DIRECTORY -> strings.bpErrOutputIsFolder
-            BlueprintExtractor.OutputPathProblem.PARENT_NOT_WRITABLE -> strings.bpErrOutputParentNotWritable
-            BlueprintExtractor.OutputPathProblem.FILE_NOT_WRITABLE -> strings.bpErrOutputFileReadOnly
-            null -> null
-        }
-        if (state.outputError != null) valid = false
-    }
+    // Writing the JSON is now optional (the summary step offers send-or-save), so a missing/bad
+    // output path no longer blocks the run — it is validated when the user actually saves (#639).
+    state.outputError = null
     if (!valid) {
         state.isError = true
         state.resultSummary = ""
@@ -731,11 +752,10 @@ private fun runExtraction(
                 return@launch
             }
 
-            withContext(Dispatchers.IO) { BlueprintExtractor.writeJson(export, output) }
-
             state.isError = false
-            state.status = strings.bpStatusDone(export.blueprintCount, export.logFilesScanned, output.absolutePath)
-            state.resultFile = output
+            // Nothing is written automatically — the summary step lets the user send or save (#639).
+            state.status = ""
+            state.resultFile = null
             state.resultExport = export
             // Non-blank marker that drives blueprintStep() to the summary screen; the
             // structured panels render from resultExport, not from this text.

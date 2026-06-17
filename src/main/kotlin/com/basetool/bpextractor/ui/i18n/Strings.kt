@@ -24,6 +24,7 @@ class SendStrings(
     val resultTitle: String,
     val resultBody: String,
     val openInBasetool: String,
+    val saveLocally: String,
     val error: (String) -> String,
 )
 
@@ -87,6 +88,7 @@ class Strings(
     // --- blueprint workflow ---
     val bpSteps: List<String>,
     val bpAgain: String,
+    val bpCtaExport: String,
     val bpConfigSubtitle: String,
     val bpRunningTitle: String,
     val bpSummaryTitle: String,
@@ -240,6 +242,7 @@ class Strings(
     val rfExtractionFailed: (String) -> String,
     val rfEtaRemaining: (Int) -> String,
     val rfCtaToReview: String,
+    val rfCtaToExport: String,
 
     // §5.4 Review
     val rfReviewTitle: String,
@@ -365,6 +368,7 @@ val StringsDe = Strings(
 
     bpSteps = listOf("Konfiguration", "Extraktion", "Zusammenf."),
     bpAgain = "Erneut",
+    bpCtaExport = "Als JSON exportieren",
     bpConfigSubtitle = "Quelle und Ziel wählen, dann extrahieren.",
     bpRunningTitle = "Extraktion läuft",
     bpSummaryTitle = "Zusammenfassung",
@@ -526,6 +530,7 @@ val StringsDe = Strings(
     rfExtractionFailed = { msg -> "Extraktion fehlgeschlagen: $msg" },
     rfEtaRemaining = { s -> "≈ ${s}s verbleibend" },
     rfCtaToReview = "Weiter: Review",
+    rfCtaToExport = "Weiter zum Export",
 
     rfReviewTitle = "Review & Bestätigung",
     rfReviewSubtitle = "Extrahierte Werte prüfen und bei Bedarf korrigieren (✎) — gespeichert wird erst beim Import im Basetool.",
@@ -638,6 +643,7 @@ val StringsDe = Strings(
                 "Die Daten liegen in deinem Basetool bereit. Öffne die Seite, um sie zu prüfen " +
                     "und zu speichern.",
             openInBasetool = "Im Basetool öffnen",
+            saveLocally = "Stattdessen als JSON speichern",
             error = { msg -> "Versand fehlgeschlagen: $msg" },
         ),
     account =
@@ -698,6 +704,7 @@ val StringsEn = Strings(
 
     bpSteps = listOf("Setup", "Extract", "Summary"),
     bpAgain = "Again",
+    bpCtaExport = "Export as JSON",
     bpConfigSubtitle = "Pick source and target, then extract.",
     bpRunningTitle = "Extraction running",
     bpSummaryTitle = "Summary",
@@ -859,6 +866,7 @@ val StringsEn = Strings(
     rfExtractionFailed = { msg -> "Extraction failed: $msg" },
     rfEtaRemaining = { s -> "≈ ${s}s remaining" },
     rfCtaToReview = "Next: review",
+    rfCtaToExport = "Continue to export",
 
     rfReviewTitle = "Review & confirmation",
     rfReviewSubtitle = "Review the extracted values and correct them where needed (✎) — nothing is saved until the basetool import.",
@@ -968,6 +976,7 @@ val StringsEn = Strings(
             resultTitle = "Sent",
             resultBody = "Your data is waiting in basetool. Open the page to review and save it.",
             openInBasetool = "Open in basetool",
+            saveLocally = "Save as JSON instead",
             error = { msg -> "Send failed: $msg" },
         ),
     account =

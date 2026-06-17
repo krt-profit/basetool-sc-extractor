@@ -36,9 +36,15 @@ import kotlinx.coroutines.CoroutineScope
  *
  * @param controller the send state machine + actions
  * @param appScope the UI scope the flow runs on
+ * @param onSaveLocally optional "save the export as JSON instead" fallback shown on the error
+ *     screen (the workflow's local-write action); null → no fallback button
  */
 @Composable
-fun SendOverlay(controller: SendController, appScope: CoroutineScope) {
+fun SendOverlay(
+    controller: SendController,
+    appScope: CoroutineScope,
+    onSaveLocally: (() -> Unit)? = null,
+) {
     val strings = LocalStrings.current
     val state = controller.state
     if (state is SendState.Idle) return
@@ -191,6 +197,16 @@ fun SendOverlay(controller: SendController, appScope: CoroutineScope) {
                         CtaButton(strings.send.openInBasetool, onClick = { controller.openResult() })
                     }
                     is SendState.Error -> {
+                        // Send failed → offer the local-write fallback (if the caller supplied one).
+                        if (onSaveLocally != null) {
+                            GhostButton(
+                                strings.send.saveLocally,
+                                onClick = {
+                                    controller.dismiss()
+                                    onSaveLocally()
+                                },
+                            )
+                        }
                         Spacer(Modifier.weight(1f))
                         GhostButton(strings.close, onClick = { controller.dismiss() })
                     }
