@@ -788,80 +788,8 @@ private fun openWithDesktop(target: File, scope: CoroutineScope, state: AppState
     }
 }
 
-/**
- * Entry point. With no arguments it opens the GUI; with arguments it runs a
- * headless extraction so the tool can be scripted (mirrors the Python original's
- * dual live/import design).
- *
- * CLI usage: `<channelFolder> <outputJson>`
- */
-fun main(args: Array<String>) {
-    if (args.isNotEmpty()) {
-        runCli(args)
-        return
-    }
-    guiMain()
-}
-
-/** Print a CLI error and exit non-zero — the scripting surface must not fake success. */
-private fun failCli(message: String): Nothing {
-    System.err.println("ERROR: $message")
-    kotlin.system.exitProcess(1)
-}
-
-private fun runCli(args: Array<String>) {
-    val positional = args.filterNot { it.startsWith("--") }
-    if (positional.size < 2) {
-        System.err.println("Usage: basetool-sc-extractor <channelFolder> <outputJson>")
-        System.err.println("  channelFolder: a Star Citizen channel dir, e.g. ...\\StarCitizen\\LIVE")
-        System.err.println("  (reads its Game.log + every *.log in its logbackups subfolder)")
-        kotlin.system.exitProcess(2)
-    }
-    val folder = File(positional[0])
-    val output = File(positional[1])
-    if (!folder.isDirectory) {
-        System.err.println("Channel folder does not exist: ${folder.absolutePath}")
-        kotlin.system.exitProcess(1)
-    }
-    // Fail on a bad output target BEFORE the scan, not minutes later at write time.
-    when (BlueprintExtractor.validateOutputPath(output)) {
-        BlueprintExtractor.OutputPathProblem.IS_DIRECTORY ->
-            failCli("Output path is a directory, expected a file: ${output.absolutePath}")
-        BlueprintExtractor.OutputPathProblem.PARENT_NOT_WRITABLE ->
-            failCli("Output folder cannot be created or written: ${output.absolutePath}")
-        BlueprintExtractor.OutputPathProblem.FILE_NOT_WRITABLE ->
-            failCli("Output file is read-only: ${output.absolutePath}")
-        null -> {}
-    }
-    println("${BlueprintExtractor.TOOL_NAME} v${BlueprintExtractor.TOOL_VERSION}")
-    println("Scanning channel: ${folder.absolutePath}")
-    BlueprintExtractor.siblingHotfixFolder(folder)?.let {
-        println("HOTFIX channel found next to LIVE - also scanning ${it.absolutePath}")
-    }
-    val result = BlueprintExtractor.extract(folder) { done, total, _, _, current ->
-        if (current.isNotBlank()) println("  [$done/$total] $current")
-    }
-    val export = result.export
-    result.skippedFiles.forEach { System.err.println("WARNING: skipped unreadable log file: $it") }
-    if (export.logFilesScanned == 0) {
-        // No empty export for a scripting surface: a folder without (readable) logs is an error.
-        if (result.skippedFiles.isEmpty()) {
-            failCli("No Game.log and no logbackups folder found in: ${folder.absolutePath}")
-        } else {
-            failCli("All ${result.skippedFiles.size} log file(s) were unreadable; nothing extracted.")
-        }
-    }
-    BlueprintExtractor.writeJson(export, output)
-    println("Done. ${export.blueprintCount} blueprint(s) from ${export.logFilesScanned} file(s).")
-    if (result.skippedFiles.isNotEmpty()) {
-        println("Note: ${result.skippedFiles.size} file(s) skipped as unreadable (see warnings above).")
-    }
-    export.players.forEach { println("  Player ${it.handle}: ${it.blueprintCount} blueprint(s)") }
-    println("Output: ${output.absolutePath}")
-    println()
-    println(Legal.UNAFFILIATED)
-    println(Legal.TRADEMARK_NOTICE)
-}
+/** Entry point — Basetool SC Extractor is a GUI-only Compose Desktop app. */
+fun main() = guiMain()
 
 private fun guiMain() = application {
     val state = remember { AppState() }
@@ -879,7 +807,7 @@ private fun guiMain() = application {
     // below can launch on it too.
     val appScope = rememberCoroutineScope()
 
-    // One silent update check per GUI start (the CLI never checks): sweep leftovers of a previous
+    // One silent update check per GUI start: sweep leftovers of a previous
     // update helper, then ask GitHub for the latest release. Any failure — offline, rate-limited,
     // no releases — just keeps the banner hidden; the check must never block or break the app.
     var update by remember { mutableStateOf<UpdateUiState>(UpdateUiState.Hidden) }

@@ -18,7 +18,7 @@ JSON files for the basetool. Two workflows behind a Top-Tabs launcher
   `docs/refinery-extractor/PHASE0_FINDINGS.md`).
 
 It ships as an MSI installer with a bundled JDK runtime (no separate Java needed) and
-also runs headless as a CLI (blueprint workflow).
+is operated entirely through the GUI.
 
 **Scope discipline:** exactly these two workflows. Mission data and other log analysis
 stay out of scope — for blueprints, capture every detail the log carries; for refinery,
@@ -33,18 +33,9 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
 ```powershell
 .\gradlew.bat test                                              # unit tests (the source of truth for behavior)
 .\gradlew.bat run                                               # launch the GUI
-.\gradlew.bat run --args="<channelFolder> <outputJson>"         # headless CLI
 .\package-msi.ps1                                               # build the MSI -> dist\
 ```
 
-- CLI args: `<channelFolder> <outputJson>` — `channelFolder` is an SC channel dir
-  (e.g. `…\StarCitizen\LIVE`); the app reads its `Game.log` + every `*.log` in the
-  `logbackups\` subfolder. When the channel is **LIVE** and a sibling `HOTFIX` folder
-  with logs sits next to it, that channel is swept in too (crafting knowledge is
-  account-wide but each channel logs separately, so HOTFIX-farmed blueprints would
-  otherwise be missed). No args ⇒ GUI. The CLI exits non-zero when the channel folder
-  holds no (readable) logs or the output path isn't writable — it never fakes success
-  with an empty export.
 - **Build the MSI only via `package-msi.ps1`**, never `gradlew packageMsi` directly
   (see *Packaging* below).
 
@@ -97,12 +88,11 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   (export + `skippedFiles`): an unreadable log is skipped and reported, never fatal,
   and events whose identity (player/name/timestamp/notification id) was already seen
   in another file are counted once (guards against manually copied logs).
-  `validateOutputPath` is the pre-scan write-target check both GUI and CLI call. Also
-  `writeJson`. No line-level parsing here.
+  `writeJson`/`toJson` serialize the export to disk/string. No line-level parsing here.
 - **`model/Models.kt`** — `@Serializable` data classes (`BlueprintEvent`,
   `PlayerSummary`, `BlueprintExport`). The exported JSON *is* this shape.
 - **`update/UpdateChecker.kt`** — the GUI's startup update check against this repo's
-  GitHub releases (`releases/latest`; the CLI never checks). Pure/testable parts:
+  GitHub releases (`releases/latest`). Pure/testable parts:
   version compare, release-JSON parsing, MSI-asset selection, installer-command
   construction. Thin I/O: silent fetch (any failure ⇒ no offer), download into a fixed
   folder under `%TEMP%` — never the install dir (guardrail 2) and deliberately NOT the
@@ -112,7 +102,7 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   deletes the MSI, itself and the folder again; `cleanupLeftovers()` sweeps that folder
   on every GUI start as the crash fallback. Only release metadata is fetched; nothing
   is uploaded.
-- **`Main.kt`** — entry point. No args ⇒ Compose GUI (`guiMain`); args ⇒ `runCli`. Keep
+- **`Main.kt`** — entry point: opens the Compose GUI (`guiMain`). Keep
   the GUI a thin shell over `BlueprintExtractor`; business logic stays in the parser/
   extractor so tests cover it without a UI. `guiMain` also owns the update flow state
   (check on start, download with progress, launch installer, exit).
@@ -143,8 +133,8 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
 - **Comments in English; user-facing UI strings via the i18n catalogue.** Every
   UI string lives in `ui/i18n/Strings.kt` (German default + full English parity,
   switched by the title-bar DE/EN toggle — design spec §6). Never hardcode UI text at a
-  call site; add a property to BOTH catalogues. CLI output stays English (scripting
-  surface). README is German; this file is English by convention (agent/dev guidance).
+  call site; add a property to BOTH catalogues. README is German; this file is English
+  by convention (agent/dev guidance).
 - **Model fields are nullable when the log may omit them** (`player`, `notificationId`,
   `queueSize`, `gameBuild`). `productName`/`receivedAt` are always present. JSON uses
   `encodeDefaults = true` + `prettyPrint`; `schemaVersion` is explicit — bump it if you
@@ -236,9 +226,9 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   repos' contract tests in the same change.
 - **the released version** → don't edit it anywhere by hand; it comes from the git tag
   (see *Releases*). CI sets `project.version`, the `generateBuildInfo` task writes it into
-  the generated `BuildInfo.VERSION`, and `BlueprintExtractor.TOOL_VERSION` (CLI banner +
-  export `toolVersion`) reads that — so the MSI and the app's reported version stay in
-  lockstep. The dev fallback in `build.gradle.kts` stays `1.0.0`.
+  the generated `BuildInfo.VERSION`, and `BlueprintExtractor.TOOL_VERSION` (the app's
+  reported version + the export `toolVersion`) reads that — so the MSI and the app's
+  reported version stay in lockstep. The dev fallback in `build.gradle.kts` stays `1.0.0`.
 
 ## Releases (CI)
 

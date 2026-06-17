@@ -5,7 +5,7 @@ ausliest und als JSON für das Basetool exportiert. Das Auslesen bleibt vollstä
 lokal und **automatisch wird nichts hochgeladen** — der einzige Versand ist der
 optionale Knopf **„An Basetool senden"**, den du selbst auslöst: er schickt die
 erzeugte Export-JSON über eine verschlüsselte Verbindung an dein eigenes
-Basetool-Konto (Screenshots verlassen deinen Rechner nie). Die CLI sendet nie etwas.
+Basetool-Konto (Screenshots verlassen deinen Rechner nie).
 Zwei Workflows unter einem Dach (Top-Tabs: Start · Blueprints · Refinery, Sprache
 über den DE/EN-Schalter in der Titelleiste):
 
@@ -51,7 +51,7 @@ Startmenü, Desktop-Verknüpfung).
 
 ### Updates
 
-Beim Start prüft die App (nur die GUI, nicht der Skript-Modus) still auf
+Beim Start prüft die App still auf
 [GitHub-Releases](https://github.com/krt-iri/basetool-bp-extractor/releases). Gibt
 es eine neuere Version, erscheint auf der Start-Seite ein Banner mit
 **Herunterladen & installieren**:
@@ -272,11 +272,8 @@ Wrapper bereitgestellt.
 # Tests ausführen
 .\gradlew.bat test
 
-# App starten (GUI)
+# App starten
 .\gradlew.bat run
-
-# Headless / Skript-Modus
-.\gradlew.bat run --args="C:\Program Files\Roberts Space Industries\StarCitizen\LIVE C:\Pfad\zu\out.json"
 
 # Windows-Installer (MSI) bauen — IMMER über dieses Skript (s. WiX-Hinweis unten)
 .\package-msi.ps1
@@ -352,7 +349,7 @@ basetool-bp-extractor/
 ├── gradlew(.bat)                     # Gradle-Wrapper (9.5.1)
 ├── package-msi.ps1                   # MSI-Build (WiX-Auswahl, EULA-/Extension-Preflight)
 ├── src/main/kotlin/com/basetool/bpextractor/
-│   ├── Main.kt                       # Compose-GUI (Tabs/Shell) + CLI-Einstieg
+│   ├── Main.kt                       # Compose-GUI (Tabs/Shell), Einstiegspunkt
 │   ├── BlueprintParser.kt            # Blueprint-Zeilen-Parsing (Kern)
 │   ├── BlueprintExtractor.kt         # Ordner-Scan, Aggregation, JSON
 │   ├── Legal.kt                      # Fankit-Pflichttexte (Markenhinweis, verbatim)

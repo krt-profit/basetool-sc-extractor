@@ -226,36 +226,4 @@ class BlueprintExtractorTest {
             channel.deleteRecursively()
         }
     }
-
-    @Test
-    fun `validateOutputPath flags directories and read-only files`() {
-        val dir = Files.createTempDirectory("out-check").toFile()
-        try {
-            assertEquals(
-                BlueprintExtractor.OutputPathProblem.IS_DIRECTORY,
-                BlueprintExtractor.validateOutputPath(dir),
-            )
-
-            val readOnly = File(dir, "ro.json").apply { writeText("{}"); setReadOnly() }
-            assertEquals(
-                BlueprintExtractor.OutputPathProblem.FILE_NOT_WRITABLE,
-                BlueprintExtractor.validateOutputPath(readOnly),
-            )
-            readOnly.setWritable(true)
-
-            // A file sitting where a parent folder would have to be created.
-            val blocker = File(dir, "blocker").apply { writeText("x") }
-            assertEquals(
-                BlueprintExtractor.OutputPathProblem.PARENT_NOT_WRITABLE,
-                BlueprintExtractor.validateOutputPath(File(blocker, "out.json")),
-            )
-
-            // Happy path: missing parent folders are created as the writability probe.
-            val nested = File(dir, "a/b/out.json")
-            assertNull(BlueprintExtractor.validateOutputPath(nested))
-            assertTrue(nested.parentFile.isDirectory)
-        } finally {
-            dir.deleteRecursively()
-        }
-    }
 }
