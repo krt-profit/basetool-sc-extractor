@@ -334,9 +334,9 @@ val StringsDe = Strings(
     close = "Schließen",
 
     startTitle = "Basetool SC Extractor",
-    startSubtitle = "Liest Star-Citizen-Daten lokal aus und erzeugt JSON-Dateien für das Basetool — nichts verlässt deinen Rechner.",
+    startSubtitle = "Liest Star-Citizen-Daten lokal aus und erzeugt JSON-Dateien für das Basetool — gesendet wird nur, wenn du es auslöst.",
     startChooseWorkflow = "Workflow wählen",
-    startLocalNote = "Beide Workflows laufen vollständig lokal — deine Daten bleiben bei dir.",
+    startLocalNote = "Beide Workflows laufen lokal; Daten verlassen den Rechner nur, wenn du sie ans Basetool sendest.",
     startOpen = "Öffnen →",
     bpCardTitle = "Blueprints",
     bpCardDesc = "Liest die erhaltenen Blueprints aus den Game.log-Dateien aus und schreibt sie als JSON.",
@@ -352,7 +352,7 @@ val StringsDe = Strings(
     rfCardBullets = listOf(
         "Eingabe: Screenshots (ein Ordner = ein Auftrag)",
         "Ausgabe: RefineryExtract.json",
-        "Läuft lokal über Ollama · nichts wird hochgeladen",
+        "Läuft lokal über Ollama · kein automatischer Upload",
     ),
     unofficialChip = "Inoffizielles Fan-Tool",
 
@@ -372,7 +372,7 @@ val StringsDe = Strings(
     bpConfigSubtitle = "Quelle und Ziel wählen, dann extrahieren.",
     bpRunningTitle = "Extraktion läuft",
     bpSummaryTitle = "Zusammenfassung",
-    bpFootReadOnly = "Nur Lesezugriff · keine Spieldaten verlassen deinen Rechner.",
+    bpFootReadOnly = "Nur Lesezugriff · gesendet wird nur auf deinen Knopfdruck.",
     bpFootAnchored = "Verankert auf „Added notification\" — jedes Blueprint wird genau einmal gezählt.",
     bpCtxTitle = "Was gelesen wird",
     bpCtxItems = listOf(
@@ -670,9 +670,9 @@ val StringsEn = Strings(
     close = "Close",
 
     startTitle = "Basetool SC Extractor",
-    startSubtitle = "Extracts Star Citizen data locally and produces JSON files for the basetool — nothing leaves your machine.",
+    startSubtitle = "Extracts Star Citizen data locally and produces JSON files for the basetool — sent only when you choose to.",
     startChooseWorkflow = "Choose a workflow",
-    startLocalNote = "Both workflows run fully locally — your data stays with you.",
+    startLocalNote = "Both workflows run locally; data leaves your machine only if you send it to the basetool.",
     startOpen = "Open →",
     bpCardTitle = "Blueprints",
     bpCardDesc = "Reads the received blueprints from the Game.log files and writes them as JSON.",
@@ -688,7 +688,7 @@ val StringsEn = Strings(
     rfCardBullets = listOf(
         "Input: screenshots (one folder = one order)",
         "Output: RefineryExtract.json",
-        "Runs locally via Ollama · nothing is uploaded",
+        "Runs locally via Ollama · no automatic upload",
     ),
     unofficialChip = "Unofficial fan tool",
 
@@ -708,7 +708,7 @@ val StringsEn = Strings(
     bpConfigSubtitle = "Pick source and target, then extract.",
     bpRunningTitle = "Extraction running",
     bpSummaryTitle = "Summary",
-    bpFootReadOnly = "Read-only · no game data leaves your machine.",
+    bpFootReadOnly = "Read-only · sent only when you choose to.",
     bpFootAnchored = "Anchored on the \"Added notification\" line — each blueprint is counted exactly once.",
     bpCtxTitle = "What gets read",
     bpCtxItems = listOf(
