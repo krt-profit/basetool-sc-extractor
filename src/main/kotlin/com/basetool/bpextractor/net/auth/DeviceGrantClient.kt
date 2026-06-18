@@ -47,7 +47,7 @@ class DeviceGrantException(message: String) : Exception(message)
 
 /**
  * OAuth2 Device Authorization Grant (RFC 8628) client for Keycloak (epic
- * krt-iri/basetool#639, sub-issue #641's public client `basetool-sc-extractor`). It requests a
+ * krt-profit/basetool#639, sub-issue #641's public client `basetool-sc-extractor`). It requests a
  * device + user code, the UI shows the user code and opens the verification URL in the browser,
  * and this client polls the token endpoint until the user approves — one click under an active
  * SSO session.

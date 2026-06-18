@@ -30,7 +30,7 @@ import com.basetool.bpextractor.ui.i18n.LocalStrings
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * The "An Basetool senden" overlay (epic krt-iri/basetool#639): a KRT-styled scrim modal — never a
+ * The "An Basetool senden" overlay (epic krt-profit/basetool#639): a KRT-styled scrim modal — never a
  * native dialog — that walks the user through consent → browser approval (device grant) → sending →
  * result, driven by [SendController.state]. Hidden when the state is [SendState.Idle].
  *

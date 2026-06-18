@@ -2,7 +2,7 @@
 
 > **Doc type:** Spike report — frozen once Phase 0 closes; Phase 3 (#436) consumes its
 > artifacts. **Status: complete** (one owner action open: low-resolution captures, §10).
-> Epic: [krt-iri/basetool#439](https://github.com/krt-iri/basetool/issues/439) ·
+> Epic: [krt-profit/basetool#439](https://github.com/krt-profit/basetool/issues/439) ·
 > Plan: `basetool/docs/REFINERY_SCREENSHOT_IMPORT_PLAN.md` §Phase 0.
 > Date: 2026-06-10 · Hardware: RTX 5090 32 GB VRAM, Ryzen 9 9950X3D, 95.6 GB RAM,
 > Ollama 0.30.7, Python 3.13 + Pillow 12.2.

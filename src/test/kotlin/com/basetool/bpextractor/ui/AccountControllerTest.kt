@@ -14,7 +14,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
 /**
- * Exercises the "remember me" disconnect (epic krt-iri/basetool#639, #648) against a local stand-in
+ * Exercises the "remember me" disconnect (epic krt-profit/basetool#639, #648) against a local stand-in
  * for Keycloak's revocation endpoint (JDK [HttpServer]) and an in-memory credential store — no real
  * credentials, no real network. Confirms the connected indicator and that disconnect both revokes
  * server-side and deletes the local token.

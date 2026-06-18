@@ -18,7 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** The one-click-send overlay state machine (epic krt-iri/basetool#639). */
+/** The one-click-send overlay state machine (epic krt-profit/basetool#639). */
 sealed interface SendState {
     /** No send in progress; the overlay is hidden. */
     data object Idle : SendState

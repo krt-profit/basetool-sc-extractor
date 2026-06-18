@@ -10,7 +10,7 @@ import java.nio.charset.StandardCharsets
 
 /**
  * The per-user OS secret store for the single "remember me" refresh token (epic
- * krt-iri/basetool#639, sub-issue #648). One secret, one fixed target — the abstraction is
+ * krt-profit/basetool#639, sub-issue #648). One secret, one fixed target — the abstraction is
  * parameterless so callers cannot smear secrets across keys. Implementations must be **fail-safe**:
  * a store that is unavailable (wrong OS, locked vault) returns "no credential" rather than throwing,
  * so the send flow simply falls back to a fresh device-grant login.

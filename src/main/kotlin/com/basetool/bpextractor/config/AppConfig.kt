@@ -5,7 +5,7 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 /**
- * Non-secret app configuration (epic krt-iri/basetool#639): the ingest base URL and whether the
+ * Non-secret app configuration (epic krt-profit/basetool#639): the ingest base URL and whether the
  * user has accepted the one-time send consent. This is the app's **first** persisted state — it
  * lives under {@code %APPDATA%\Basetool SC Extractor\config.json} (the Roaming per-user data dir),
  * deliberately **outside** the {@code %LOCALAPPDATA%\Basetool SC Extractor\} install dir so the

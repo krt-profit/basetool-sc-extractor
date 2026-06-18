@@ -17,7 +17,7 @@
 #      `wix eula accept wix<major>` was run once for the current user (creates
 #      ~\.wix\wix<major>-osmf-eula.txt). On a dev machine this script never accepts
 #      it silently — it tells you what to run. On CI ($env:CI = 'true') it accepts
-#      automatically (project decision, see issue krt-iri/basetool-bp-extractor#1).
+#      automatically (project decision, see issue krt-profit/basetool-sc-extractor#1).
 #   3. Bare machines / CI runners. If no WiX 7 is installed, WiX is bootstrapped
 #      as a LOCAL dotnet tool under tools\wix (gitignored; nothing system-wide),
 #      and missing Util/UI extensions are added to the user's extension cache.

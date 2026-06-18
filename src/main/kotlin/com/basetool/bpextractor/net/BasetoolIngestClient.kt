@@ -30,7 +30,7 @@ class IngestException(message: String) : Exception(message)
 
 /**
  * Sends the locally-produced export JSON to the basetool ingest gateway (epic
- * krt-iri/basetool#639, the `:ingest` module). The caller supplies the access token obtained via
+ * krt-profit/basetool#639, the `:ingest` module). The caller supplies the access token obtained via
  * the device grant; this client never authenticates.
  *
  * <p>The gateway terminates TLS at nginx-proxy-manager and runs plain HTTP behind it, so the prod

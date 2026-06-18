@@ -14,7 +14,7 @@ JSON files for the basetool. Two workflows behind a Top-Tabs launcher
   received** (the original tool, behaviour unchanged).
 - **Refinery** — reads refinery work-order SETUP screenshots via a **local VLM**
   (Ollama) and emits the frozen `RefineryExtract` JSON contract (epic
-  krt-iri/basetool#439, Phase 3 = #436; model/prompt/strategy decisions in
+  krt-profit/basetool#439, Phase 3 = #436; model/prompt/strategy decisions in
   `docs/refinery-extractor/PHASE0_FINDINGS.md`).
 
 It ships as an MSI installer with a bundled JDK runtime (no separate Java needed) and
@@ -257,7 +257,7 @@ extensions) is honored on the runner too. The release job is the only one grante
 
 ## Repo / publishing
 
-- Public repo: `https://github.com/krt-iri/basetool-bp-extractor` (branch `main`).
+- Public repo: `https://github.com/krt-profit/basetool-sc-extractor` (branch `main`).
 - **License: GPL-3.0-or-later** (`LICENSE`). Deps are permissive (Apache-2.0/BSD); the
   bundled JRE is GPLv2 + Classpath Exception (redistribution OK, does not infect app
   code). The bundled font (Lato) ships its OFL text under

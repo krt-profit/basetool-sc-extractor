@@ -18,7 +18,7 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
 /**
- * Exercises the [SendController] "remember me" path (epic krt-iri/basetool#639, #648) against a
+ * Exercises the [SendController] "remember me" path (epic krt-profit/basetool#639, #648) against a
  * single local stand-in for Keycloak + the ingest gateway (JDK [HttpServer]) — no real credentials,
  * no real network. Proves the silent refresh skips the browser and re-persists the rotated token,
  * and that a dead stored token is dropped.
