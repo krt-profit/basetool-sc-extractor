@@ -27,7 +27,7 @@ import com.basetool.bpextractor.ui.i18n.LocalStrings
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * The compact "remember me" status line (epic krt-iri/basetool#639, #648), shown in the Start
+ * The compact "remember me" status line (epic krt-profit/basetool#639, #648), shown in the Start
  * footer: an orange dot + „Mit Basetool verbunden" + a „Vom Basetool trennen" action when a token
  * is stored, or a muted „Nicht mit Basetool verbunden" otherwise. Pairs with
  * [AccountDisconnectOverlay], which renders the confirmation above the page.

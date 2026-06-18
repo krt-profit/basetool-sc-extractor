@@ -12,7 +12,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Drives the "remember me" account surface (epic krt-iri/basetool#639, sub-issue #648): reflects
+ * Drives the "remember me" account surface (epic krt-profit/basetool#639, sub-issue #648): reflects
  * whether a basetool refresh token is stored and runs the "Vom Basetool trennen" disconnect —
  * revoke the token at Keycloak (best-effort), then delete it from Windows Credential Manager. A
  * Compose state holder; the revoke/delete runs off the UI thread. Collaborators are injected so the

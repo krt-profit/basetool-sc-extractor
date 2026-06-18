@@ -61,7 +61,7 @@ internal data class ParsedVersion(val major: Int, val minor: Int, val patch: Int
 object UpdateChecker {
 
     /** The public repo whose releases are checked. */
-    const val REPO = "krt-iri/basetool-bp-extractor"
+    const val REPO = "krt-profit/basetool-sc-extractor"
 
     private val json = Json { ignoreUnknownKeys = true }
 

@@ -6,7 +6,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 enum class Lang { DE, EN }
 
 /**
- * Strings for the one-click "An Basetool senden" flow (epic krt-iri/basetool#639). Grouped into a
+ * Strings for the one-click "An Basetool senden" flow (epic krt-profit/basetool#639). Grouped into a
  * holder rather than flattened onto [Strings] so the catalogue's constructor stays under the JVM's
  * hard 255-parameter method limit (the flat catalogue had grown to its edge).
  */
@@ -29,7 +29,7 @@ class SendStrings(
 )
 
 /**
- * Strings for the "remember me" account surface (epic krt-iri/basetool#639, sub-issue #648).
+ * Strings for the "remember me" account surface (epic krt-profit/basetool#639, sub-issue #648).
  * Grouped for the same 255-parameter reason as [SendStrings].
  */
 class AccountStrings(

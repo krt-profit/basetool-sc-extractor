@@ -15,7 +15,7 @@ Zwei Workflows unter einem Dach (Top-Tabs: Start · Blueprints · Refinery, Spra
 - **Refinery** — liest **Raffinerie-Auftragsdaten aus SETUP-Screenshots** per
   lokalem KI-Modell (Ollama-VLM) aus und erzeugt eine `RefineryExtract`-JSON, die
   das Basetool beim Anlegen eines Raffinerie-Auftrags vorausfüllt (Epic
-  krt-iri/basetool#439).
+  krt-profit/basetool#439).
 
 <table>
 <tr>
@@ -52,7 +52,7 @@ Startmenü, Desktop-Verknüpfung).
 ### Updates
 
 Beim Start prüft die App still auf
-[GitHub-Releases](https://github.com/krt-iri/basetool-bp-extractor/releases). Gibt
+[GitHub-Releases](https://github.com/krt-profit/basetool-sc-extractor/releases). Gibt
 es eine neuere Version, erscheint auf der Start-Seite ein Banner mit
 **Herunterladen & installieren**:
 
