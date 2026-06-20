@@ -364,7 +364,12 @@ class RefineryPipelineTest {
             .extract(listOf(PipelineInput("a.png", fullFrame())))
 
         val goods = result.extract.orders.single().goods
-        assertEquals(483L, goods[1].inputQuantity, "primary read stands")
+        // The verify pass degraded (no cross-check), yet the single-model checksum repair still
+        // recovers the over-read (46 + 483 exceeds TO REFINE 449; 483 -> 403 uniquely lands it) —
+        // proving the run neither failed nor depended on the verify model, and that the repair fills
+        // the gap where verify can't run.
+        assertEquals(403L, goods[1].inputQuantity)
+        assertTrue(ExtractWarning.CHECKSUM_REPAIRED in result.validated.warnings)
         assertTrue(ExtractWarning.VERIFY_CORRECTED !in result.validated.warnings)
         assertTrue(ExtractWarning.VERIFY_MISMATCH !in result.validated.warnings)
     }

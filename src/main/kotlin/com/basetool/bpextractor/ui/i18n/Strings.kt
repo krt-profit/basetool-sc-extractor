@@ -230,6 +230,7 @@ class Strings(
     val rfCaptureAberrationHint: String,
     val rfCaptureFramingTitle: String,
     val rfCaptureFramingHint: String,
+    val rfLowResNote: (Int) -> String,
     val rfTempNote: String,
     val rfCtaStartExtraction: String,
 
@@ -265,6 +266,7 @@ class Strings(
     val rfColConfidence: String,
     val rfWarningLabel: (String) -> String,
     val rfManualNote: String,
+    val rfRecaptureHint: String,
     val rfEditRow: String,
     val rfEditApply: String,
     val rfEditCancel: String,
@@ -525,6 +527,7 @@ val StringsDe = Strings(
     rfCaptureAberrationHint = "Den Regler in den Star-Citizen-Grafikeinstellungen auf 0 stellen, bevor die Screenshots entstehen — die Farbsäume machen Ziffern für das Modell mehrdeutig und sind nachträglich nicht entfernbar.",
     rfCaptureFramingTitle = "Frontal und in höchster Auflösung aufnehmen",
     rfCaptureFramingHint = "Gerade auf den Bildschirm blicken (nicht schräg/seitlich) und in der höchstmöglichen Monitorauflösung aufnehmen — verzerrte oder niedrig aufgelöste Ziffern liest das Modell unzuverlässig. 4K ist nicht nötig, aber je höher die Auflösung, desto sicherer.",
+    rfLowResNote = { n -> "$n Bild(er) niedrig aufgelöst (kein Vollbild) — für sichere Ziffern als Vollbild in höchster Auflösung erneut aufnehmen." },
     rfTempNote = "Eingefügte Bilder ohne gewählten Ordner liegen in einem temporären Ordner und werden beim Beenden gelöscht.",
     rfCtaStartExtraction = "Extraktion starten",
 
@@ -567,10 +570,12 @@ val StringsDe = Strings(
             "CTA_MISMATCH" -> "Button-Beschriftung widerspricht dem Quote-Status — Kopfzeile prüfen"
             "YIELD_RATIO_OUTLIER" -> "Ausbeute/Menge passt nicht zu den anderen Zeilen dieses Materials — Ziffern prüfen"
             "STITCH_CONTESTED" -> "Zeile in mehreren Screenshots unterschiedlich gelesen — Wert prüfen"
+            "CHECKSUM_REPAIRED" -> "QTY-Ziffer automatisch über die TO-REFINE-Summe korrigiert — bitte prüfen"
             else -> warning
         }
     },
     rfManualNote = "Bleibt manuell — bitte im Basetool ergänzen: Besitzer · Mission · Sonstige Kosten · Erzverkäufe · Start.",
+    rfRecaptureHint = "Unsichere Werte? Mit „Zurück\" zu den Bildern, den Auftrag näher/größer und frontal erneut aufnehmen (neue Screenshots werden automatisch eingelesen) und neu extrahieren.",
     rfEditRow = "Zeile korrigieren",
     rfEditApply = "Übernehmen",
     rfEditCancel = "Verwerfen",
@@ -870,6 +875,7 @@ val StringsEn = Strings(
     rfCaptureAberrationHint = "Set the slider to 0 in Star Citizen's graphics settings before taking the screenshots — the colour fringing makes digits ambiguous for the model and cannot be removed afterwards.",
     rfCaptureFramingTitle = "Capture head-on and at the highest resolution",
     rfCaptureFramingHint = "Look straight at the screen (not from an angle/side) and capture at your monitor's highest available resolution — warped or low-resolution digits read unreliably. 4K isn't required, but the higher the resolution, the more reliable the read.",
+    rfLowResNote = { n -> "$n image(s) are low-resolution (not a full-screen capture) — for reliable digits, re-capture full-screen at the highest resolution." },
     rfTempNote = "Images pasted without a selected folder go to a temporary folder that is deleted on exit.",
     rfCtaStartExtraction = "Start extraction",
 
@@ -912,10 +918,12 @@ val StringsEn = Strings(
             "CTA_MISMATCH" -> "Button label contradicts the quote state — check the header"
             "YIELD_RATIO_OUTLIER" -> "Yield/quantity doesn't fit this material's other rows — check the digits"
             "STITCH_CONTESTED" -> "Row read differently across screenshots — check the value"
+            "CHECKSUM_REPAIRED" -> "A QTY digit was auto-corrected from the TO REFINE total — please verify"
             else -> warning
         }
     },
     rfManualNote = "Stays manual — complete in the basetool: owner · mission · other costs · ore sales · start.",
+    rfRecaptureHint = "Some values uncertain? Use Back to the images, re-capture the order closer/larger and head-on (new screenshots are ingested automatically) and extract again.",
     rfEditRow = "Edit row",
     rfEditApply = "Apply",
     rfEditCancel = "Discard",

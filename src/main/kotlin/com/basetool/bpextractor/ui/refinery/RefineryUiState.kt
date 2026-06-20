@@ -77,7 +77,21 @@ data class RefineryImage(
     val thumbnail: ImageBitmap?,
     /** False → kept in the grid but excluded from the extraction run (§5.2 tile checkbox). */
     val selected: Boolean = true,
-)
+) {
+    /**
+     * Best-effort low-resolution heuristic for the §5.2 capture-quality warning: a NON-pre-cropped
+     * capture below a full-HD long edge is a terminal-area crop or a downscaled shot whose ~9px
+     * digit glyphs read less reliably than a full-resolution, head-on capture (PHASE0: the hardest
+     * digit ambiguities are not recoverable post-capture). Pre-cropped panels are intentionally
+     * small and exempt.
+     */
+    val lowResolution: Boolean get() = !precropped && maxOf(width, height) < LOW_RES_LONG_EDGE
+
+    companion object {
+        /** Below this long edge a non-pre-cropped capture is flagged low-resolution (terminal crop / sub-HD). */
+        const val LOW_RES_LONG_EDGE = 1300
+    }
+}
 
 /**
  * All UI state of the refinery workflow (design spec §5) + the glue that drives the preflight

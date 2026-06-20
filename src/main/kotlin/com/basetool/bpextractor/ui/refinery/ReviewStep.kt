@@ -138,6 +138,12 @@ fun ReviewStep(state: RefineryUiState) {
                     }
                 }
             }
+            // Unresolved findings: a human re-shoot of the order (closer/larger, head-on) is the one
+            // legitimate "retry" — genuinely new pixels — and the folder watch ingests it live.
+            if (open > 0) {
+                Spacer(Modifier.height(8.dp))
+                FootNote(strings.rfRecaptureHint)
+            }
             Spacer(Modifier.height(12.dp))
 
             // Four order-header cards, each value correctable in place.

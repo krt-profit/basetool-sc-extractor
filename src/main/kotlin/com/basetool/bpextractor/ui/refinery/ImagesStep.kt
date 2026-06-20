@@ -208,6 +208,16 @@ private fun ImagesStepContent(
                 style = MaterialTheme.typography.bodySmall,
                 color = Krt.Gray1,
             )
+            // Best-effort gate: flag loaded captures below full-HD before the slow run wastes on them.
+            val lowRes = state.images.count { it.lowResolution }
+            if (lowRes > 0) {
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "⚠ ${strings.rfLowResNote(lowRes)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Krt.Warning,
+                )
+            }
         }
         Spacer(Modifier.height(12.dp))
 

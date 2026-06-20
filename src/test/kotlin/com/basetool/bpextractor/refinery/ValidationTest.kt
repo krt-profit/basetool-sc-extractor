@@ -339,6 +339,24 @@ class ValidationTest {
     }
 
     @Test
+    fun `validate applies the checksum repair to the exported qty and clears the mismatch`() {
+        val rows = listOf(
+            StitchedRow("TUNGSTEN (ORE)", "363", "2171", "1055", "ON", "a.png", quotedRead = true),
+            StitchedRow("TUNGSTEN (ORE)", "958", "950", "413", "ON", "a.png", quotedRead = true, contested = true),
+            StitchedRow("TUNGSTEN (ORE)", "902", "312", "151", "ON", "a.png", quotedRead = true),
+        )
+        // Sum(ON) 2171+950+312 = 3433 exceeds TO REFINE 3333 by 100; 950 -> 850 lands it AND matches
+        // the row's yield, so the repair fires, the export carries 850, and the mismatch clears.
+        val order = Validation.validate(stitched(rows, toRefine = "3333"))
+
+        val repaired = order.goods.single { it.quality == 958 }
+        assertEquals(850L, repaired.inputQuantity)
+        assertEquals(Validation.CONFIDENCE_CHECKSUM_REPAIRED, repaired.confidence)
+        assertTrue(ExtractWarning.CHECKSUM_REPAIRED in order.warnings)
+        assertFalse(ExtractWarning.SUM_MISMATCH in order.warnings)
+    }
+
+    @Test
     fun `row indices follow the stitched order`() {
         val rows = listOf(cleanRow(), cleanRow(name = "TUNGSTEN (ORE)"))
 

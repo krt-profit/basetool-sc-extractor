@@ -55,6 +55,15 @@ enum class ExtractWarning {
      * TUNGSTEN row read 850 in one capture and 858 in the next).
      */
     STITCH_CONTESTED,
+
+    /**
+     * A QTY digit was DETERMINISTICALLY corrected ([Validation.checksumRepair]): a unique
+     * confusable single-digit edit of one over-reading ON row simultaneously lands the sum of ON-row
+     * QTY on the TO REFINE header AND matches that row's own YIELD via the material's rate. The
+     * export carries the corrected value (the only read-time fix that recovers truth from arithmetic,
+     * not from pixels that don't contain it).
+     */
+    CHECKSUM_REPAIRED,
 }
 
 /** The validated order: contract-ready goods + order fields + warnings + layout confidence. */
@@ -120,6 +129,23 @@ object Validation {
 
     /** A row whose YIELD/QTY ratio deviates from its material's siblings (likely digit mis-read). */
     const val CONFIDENCE_YIELD_OUTLIER = 0.6
+
+    /** A QTY cell deterministically corrected from the checksum + yield rate (reviewed-grade). */
+    const val CONFIDENCE_CHECKSUM_REPAIRED = 0.85
+
+    /**
+     * Digits the SC HUD font renders ambiguously (the round/loopy glyphs) — the observed confusion
+     * set across the golden mis-reads (0<->8: 850/858, 403/483, 510/518; 0<->9: 404/494; 6<->8:
+     * 365/385, 965/985; 8<->9: 858/958). [checksumRepair] only swaps WITHIN this set.
+     */
+    private val CONFUSABLE_DIGITS = setOf('0', '6', '8', '9')
+
+    /**
+     * Tight YIELD/QTY tolerance for a checksum REPAIR (vs. the looser flagging tolerance): a
+     * proposed corrected QTY must match the row's read YIELD within this, so a checksum-only edit
+     * that happens to land the sum but contradicts the yield (e.g. 591->501) is rejected.
+     */
+    private const val REPAIR_YIELD_TOLERANCE = 0.06
 
     /**
      * Relative tolerance for the per-material YIELD/QTY ratio cross-check. Within-material spread
@@ -196,6 +222,67 @@ object Validation {
         val n = s.size
         return if (n % 2 == 1) s[n / 2] else (s[n / 2 - 1] + s[n / 2]) / 2.0
     }
+
+    /**
+     * Deterministic single-digit QTY repair from the TO-REFINE checksum + per-material yield rate.
+     * Returns rowIndex -> corrected QTY, or an empty map when nothing is UNIQUELY determined (it
+     * abstains rather than guess). Fires only when Σ QTY(ON) EXCEEDS the header — the one direction
+     * the sum can never legally take (a complete or scrolled-out capture is at most header + per-row
+     * rounding), so an over-shoot is a guaranteed over-read. A candidate is one CONFUSABLE-digit
+     * edit of one ON row's QTY that simultaneously: (a) lands Σ QTY(ON) back inside the ±1/row
+     * rounding band of TO REFINE — a tight landing that doubles as a completeness check, since a
+     * scrolled-out order's corrected sum stays short of the band and the repair abstains;
+     * (b) keeps YIELD <= QTY (physics); and (c) matches the row's own YIELD via the material's
+     * median rate when derivable (rejecting a checksum-only coincidence like 591->501). Applies only
+     * when exactly one candidate survives.
+     */
+    fun checksumRepair(goods: List<RefineryExtractGood>, toRefineTotal: Long?): Map<Int, Long> {
+        if (toRefineTotal == null) return emptyMap()
+        val on = goods.filter { it.refine && it.inputQuantity != null }
+        val sumOn = on.sumOf { it.inputQuantity!! }
+        val tol = goods.size.toLong()
+        if (sumOn <= toRefineTotal + tol) return emptyMap() // not an over-read — nothing to repair
+        val rates = materialRates(goods)
+        val candidates = mutableSetOf<Pair<Int, Long>>()
+        for (row in on) {
+            val qty = row.inputQuantity!!
+            val yieldQ = row.outputQuantity
+            for (newQty in confusableEdits(qty)) {
+                if (newQty < 1L) continue
+                if (yieldQ != null && newQty < yieldQ) continue // physics: yield <= qty
+                val newSum = sumOn - qty + newQty
+                if (newSum < toRefineTotal - tol || newSum > toRefineTotal + tol) continue
+                val rate = rates[foldMaterial(row.rawMaterialName)]
+                if (rate != null && yieldQ != null && yieldQ > 0L) {
+                    val implied = yieldQ / rate
+                    if (implied <= 0.0 || kotlin.math.abs(newQty - implied) / implied > REPAIR_YIELD_TOLERANCE) continue
+                }
+                candidates += row.rowIndex to newQty
+            }
+        }
+        return if (candidates.size == 1) mapOf(candidates.first().first to candidates.first().second) else emptyMap()
+    }
+
+    /** All single-position CONFUSABLE-digit substitutions of [n] (both directions). */
+    private fun confusableEdits(n: Long): List<Long> {
+        val s = n.toString()
+        val out = mutableListOf<Long>()
+        for (i in s.indices) {
+            if (s[i] !in CONFUSABLE_DIGITS) continue
+            for (d in CONFUSABLE_DIGITS) {
+                if (d == s[i]) continue
+                (s.substring(0, i) + d + s.substring(i + 1)).toLongOrNull()?.let { out += it }
+            }
+        }
+        return out
+    }
+
+    /** Per-material median YIELD/QTY rate over refine-ON rows with positive QTY+YIELD (>= 2 rows). */
+    private fun materialRates(goods: List<RefineryExtractGood>): Map<String, Double> =
+        goods.filter { it.refine && (it.inputQuantity ?: 0L) > 0L && (it.outputQuantity ?: 0L) > 0L }
+            .groupBy { foldMaterial(it.rawMaterialName) }
+            .filterValues { it.size >= 2 }
+            .mapValues { (_, rows) -> median(rows.map { it.outputQuantity!!.toDouble() / it.inputQuantity!! }) }
 
     fun validate(stitch: StitchResult, crossCheck: CrossModelVerify.Outcome? = null): ValidatedOrder {
         val warnings = mutableSetOf<ExtractWarning>()
@@ -276,6 +363,20 @@ object Validation {
             for (i in goods.indices) {
                 if (goods[i].rowIndex in ratioOutliers && goods[i].confidence > CONFIDENCE_YIELD_OUTLIER) {
                     goods[i] = goods[i].copy(confidence = CONFIDENCE_YIELD_OUTLIER)
+                }
+            }
+        }
+
+        // Deterministic checksum repair: a unique confusable single-digit edit that lands Σ QTY(ON)
+        // on TO REFINE and matches the row's yield is APPLIED — the export carries the corrected
+        // value. Runs after the flags so it upgrades a contested/outlier cell to corrected, and
+        // before the sum check below so a repaired order stops flagging SUM_MISMATCH.
+        val repair = checksumRepair(goods, PanelValues.toQuantity(stitch.toRefine))
+        if (repair.isNotEmpty()) {
+            warnings += ExtractWarning.CHECKSUM_REPAIRED
+            for (i in goods.indices) {
+                repair[goods[i].rowIndex]?.let { fixed ->
+                    goods[i] = goods[i].copy(inputQuantity = fixed, confidence = CONFIDENCE_CHECKSUM_REPAIRED)
                 }
             }
         }
