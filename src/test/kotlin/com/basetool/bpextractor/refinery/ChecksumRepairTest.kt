@@ -51,19 +51,29 @@ class ChecksumRepairTest {
     }
 
     @Test
-    fun `abstains when two different edits both land the sum (ambiguous)`() {
-        // Two different-material single rows (no yield-rate tie-break): 190 -> 100 and 290 -> 200
-        // each reduce the sum by 90 and land TO REFINE 390. Ambiguous -> must abstain.
-        val goods = listOf(good(0, "A (ORE)", 300, 190, 90), good(1, "B (ORE)", 300, 290, 90))
-        assertTrue(Validation.checksumRepair(goods, 390).isEmpty())
+    fun `abstains rather than corrupt a correctly-read row when the true error is unreachable`() {
+        // THE headline safety case. The real error is RICCITE 762 mis-read as 821 (7->8, NOT a
+        // confusable digit, so unreachable). Read Σ(ON)=3490 over-reads TO REFINE 3431 by 59. The
+        // ONLY confusable edit that lands the band is LARANITE 968 -> 908 — but LARANITE was read
+        // CORRECTLY and has no same-material witness, so the repair MUST abstain rather than export
+        // 908 over a correct cell (and silently clear the mismatch). Checksum-landing alone is unsafe.
+        val goods = listOf(
+            good(0, "GOLD (ORE)", 553, 850, 410),
+            good(1, "BORASE (ORE)", 359, 144, 70),
+            good(2, "LARANITE (RAW)", 510, 968, 470),
+            good(3, "TUNGSTEN (ORE)", 363, 707, 343),
+            good(4, "RICCITE (ORE)", 325, 821, 390),
+        )
+        assertTrue(Validation.checksumRepair(goods, 3431).isEmpty())
     }
 
     @Test
-    fun `abstains when the only checksum fix would push qty below yield`() {
-        // 980 -> 900 lands TO REFINE 1100 but 900 < yield 950 (refining cannot output more than
-        // input), so the only candidate is rejected on physics and the repair abstains.
-        val goods = listOf(good(0, "A (ORE)", 300, 980, 950), good(1, "B (ORE)", 400, 200, 90))
-        assertTrue(Validation.checksumRepair(goods, 1100).isEmpty())
+    fun `abstains without a same-material yield-rate witness`() {
+        // A single-material over-reading row whose confusable edit DOES land the sum (190 -> 100 and
+        // 290 -> 200 each reduce by 90 to land TO REFINE 390) is still NOT repaired: with no sibling
+        // there is no independent witness that THIS row, rather than the other, is the wrong one.
+        val goods = listOf(good(0, "A (ORE)", 300, 190, 90), good(1, "B (ORE)", 300, 290, 90))
+        assertTrue(Validation.checksumRepair(goods, 390).isEmpty())
     }
 
     @Test

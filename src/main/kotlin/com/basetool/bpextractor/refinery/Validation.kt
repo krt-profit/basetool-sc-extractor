@@ -233,8 +233,12 @@ object Validation {
      * rounding band of TO REFINE — a tight landing that doubles as a completeness check, since a
      * scrolled-out order's corrected sum stays short of the band and the repair abstains;
      * (b) keeps YIELD <= QTY (physics); and (c) matches the row's own YIELD via the material's
-     * median rate when derivable (rejecting a checksum-only coincidence like 591->501). Applies only
-     * when exactly one candidate survives.
+     * REQUIRED row-specific witness — its own YIELD, via the material's rate from OTHER rows
+     * (leave-one-out), must predict the corrected qty. Checksum-landing ALONE is never enough: the
+     * over-read proves some row is wrong but not which, so a confusable edit on an innocent row could
+     * otherwise land the band and corrupt a correct cell. A row with no yield or no same-material
+     * sibling has no witness and is never repaired (it stays flagged). Applies only when exactly one
+     * candidate survives.
      */
     fun checksumRepair(goods: List<RefineryExtractGood>, toRefineTotal: Long?): Map<Int, Long> {
         if (toRefineTotal == null) return emptyMap()
@@ -242,28 +246,43 @@ object Validation {
         val sumOn = on.sumOf { it.inputQuantity!! }
         val tol = goods.size.toLong()
         if (sumOn <= toRefineTotal + tol) return emptyMap() // not an over-read — nothing to repair
-        val rates = materialRates(goods)
         val candidates = mutableSetOf<Pair<Int, Long>>()
         for (row in on) {
             val qty = row.inputQuantity!!
-            val yieldQ = row.outputQuantity
+            // MANDATORY row-specific witness: the over-read direction proves SOME row is wrong, but
+            // checksum-landing alone does not say WHICH — a confusable edit on an innocent row can
+            // uniquely land the band and corrupt a correct cell. So a row is only repairable when its
+            // OWN yield, via the material's rate from OTHER rows (leave-one-out, so the over-read
+            // can't pollute its own gate), independently predicts the corrected qty. No yield or no
+            // same-material sibling ⇒ no witness ⇒ this row is never repaired (it stays flagged).
+            val yieldQ = row.outputQuantity ?: continue
+            if (yieldQ <= 0L) continue
+            val siblingRatios = on.filter {
+                it.rowIndex != row.rowIndex &&
+                    foldMaterial(it.rawMaterialName) == foldMaterial(row.rawMaterialName) &&
+                    (it.inputQuantity ?: 0L) > 0L && (it.outputQuantity ?: 0L) > 0L
+            }.map { it.outputQuantity!!.toDouble() / it.inputQuantity!! }
+            if (siblingRatios.isEmpty()) continue
+            val rate = median(siblingRatios)
+            if (rate <= 0.0) continue
+            val implied = yieldQ / rate
+            if (implied <= 0.0) continue
             for (newQty in confusableEdits(qty)) {
-                if (newQty < 1L) continue
-                if (yieldQ != null && newQty < yieldQ) continue // physics: yield <= qty
+                if (newQty < yieldQ) continue // physics: yield <= qty
                 val newSum = sumOn - qty + newQty
-                if (newSum < toRefineTotal - tol || newSum > toRefineTotal + tol) continue
-                val rate = rates[foldMaterial(row.rawMaterialName)]
-                if (rate != null && yieldQ != null && yieldQ > 0L) {
-                    val implied = yieldQ / rate
-                    if (implied <= 0.0 || kotlin.math.abs(newQty - implied) / implied > REPAIR_YIELD_TOLERANCE) continue
-                }
+                if (newSum < toRefineTotal - tol || newSum > toRefineTotal + tol) continue // checksum band
+                if (kotlin.math.abs(newQty - implied) / implied > REPAIR_YIELD_TOLERANCE) continue // yield witness
                 candidates += row.rowIndex to newQty
             }
         }
         return if (candidates.size == 1) mapOf(candidates.first().first to candidates.first().second) else emptyMap()
     }
 
-    /** All single-position CONFUSABLE-digit substitutions of [n] (both directions). */
+    /**
+     * Single-position CONFUSABLE-digit substitutions of [n] that preserve the digit length (a
+     * leading digit may not become 0 — a length-collapsing "edit" like 608->8 is not a digit
+     * mis-read and would only pad the candidate set, risking a legitimate repair's uniqueness).
+     */
     private fun confusableEdits(n: Long): List<Long> {
         val s = n.toString()
         val out = mutableListOf<Long>()
@@ -271,18 +290,12 @@ object Validation {
             if (s[i] !in CONFUSABLE_DIGITS) continue
             for (d in CONFUSABLE_DIGITS) {
                 if (d == s[i]) continue
+                if (i == 0 && d == '0') continue
                 (s.substring(0, i) + d + s.substring(i + 1)).toLongOrNull()?.let { out += it }
             }
         }
         return out
     }
-
-    /** Per-material median YIELD/QTY rate over refine-ON rows with positive QTY+YIELD (>= 2 rows). */
-    private fun materialRates(goods: List<RefineryExtractGood>): Map<String, Double> =
-        goods.filter { it.refine && (it.inputQuantity ?: 0L) > 0L && (it.outputQuantity ?: 0L) > 0L }
-            .groupBy { foldMaterial(it.rawMaterialName) }
-            .filterValues { it.size >= 2 }
-            .mapValues { (_, rows) -> median(rows.map { it.outputQuantity!!.toDouble() / it.inputQuantity!! }) }
 
     fun validate(stitch: StitchResult, crossCheck: CrossModelVerify.Outcome? = null): ValidatedOrder {
         val warnings = mutableSetOf<ExtractWarning>()
