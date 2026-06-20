@@ -228,6 +228,8 @@ class Strings(
     val rfPasteDropHint: String,
     val rfCaptureAberrationTitle: String,
     val rfCaptureAberrationHint: String,
+    val rfCaptureFramingTitle: String,
+    val rfCaptureFramingHint: String,
     val rfTempNote: String,
     val rfCtaStartExtraction: String,
 
@@ -268,6 +270,10 @@ class Strings(
     val rfEditCancel: String,
     val rfEditRevert: String,
     val rfEditedTag: String,
+    val rfUnsavedTitle: String,
+    val rfUnsavedBody: String,
+    val rfUnsavedDiscard: String,
+    val rfUnsavedBack: String,
     val rfWarningResolved: String,
     val rfAllWarningsResolved: String,
     val rfCtaExport: String,
@@ -517,6 +523,8 @@ val StringsDe = Strings(
     rfPasteDropHint = "Strg+V fügt ein Bild aus der Zwischenablage ein (z. B. Snipping Tool) — Bilder lassen sich auch per Drag & Drop hierher ziehen.",
     rfCaptureAberrationTitle = "Chromatische Aberration vor der Aufnahme ausschalten",
     rfCaptureAberrationHint = "Den Regler in den Star-Citizen-Grafikeinstellungen auf 0 stellen, bevor die Screenshots entstehen — die Farbsäume machen Ziffern für das Modell mehrdeutig und sind nachträglich nicht entfernbar.",
+    rfCaptureFramingTitle = "Frontal und in höchster Auflösung aufnehmen",
+    rfCaptureFramingHint = "Gerade auf den Bildschirm blicken (nicht schräg/seitlich) und in der höchstmöglichen Monitorauflösung aufnehmen — verzerrte oder niedrig aufgelöste Ziffern liest das Modell unzuverlässig. 4K ist nicht nötig, aber je höher die Auflösung, desto sicherer.",
     rfTempNote = "Eingefügte Bilder ohne gewählten Ordner liegen in einem temporären Ordner und werden beim Beenden gelöscht.",
     rfCtaStartExtraction = "Extraktion starten",
 
@@ -557,6 +565,8 @@ val StringsDe = Strings(
             "VERIFY_CORRECTED" -> "Zweitmodell-Abgleich: Menge per TO-REFINE-Checksumme korrigiert"
             "VERIFY_MISMATCH" -> "Zweitmodell-Abgleich: Modelle widersprechen sich — markierte Zeilen prüfen"
             "CTA_MISMATCH" -> "Button-Beschriftung widerspricht dem Quote-Status — Kopfzeile prüfen"
+            "YIELD_RATIO_OUTLIER" -> "Ausbeute/Menge passt nicht zu den anderen Zeilen dieses Materials — Ziffern prüfen"
+            "STITCH_CONTESTED" -> "Zeile in mehreren Screenshots unterschiedlich gelesen — Wert prüfen"
             else -> warning
         }
     },
@@ -566,6 +576,11 @@ val StringsDe = Strings(
     rfEditCancel = "Verwerfen",
     rfEditRevert = "Gelesenen Wert wiederherstellen",
     rfEditedTag = "manuell",
+    rfUnsavedTitle = "Ungespeicherte Korrektur",
+    rfUnsavedBody = "Eine Zeile oder ein Feld ist noch in Bearbeitung und wurde nicht mit „Übernehmen“ (✓) bestätigt. " +
+        "Wenn du jetzt fortfährst, geht diese Korrektur verloren.",
+    rfUnsavedDiscard = "Verwerfen & weiter",
+    rfUnsavedBack = "Zurück zum Bearbeiten",
     rfWarningResolved = "durch Korrektur behoben",
     rfAllWarningsResolved = "Alle Auffälligkeiten durch Korrekturen behoben.",
     rfCtaExport = "Als JSON exportieren",
@@ -853,6 +868,8 @@ val StringsEn = Strings(
     rfPasteDropHint = "Ctrl+V pastes an image from the clipboard (e.g. the snipping tool) — images can also be dragged & dropped here.",
     rfCaptureAberrationTitle = "Turn off chromatic aberration before capturing",
     rfCaptureAberrationHint = "Set the slider to 0 in Star Citizen's graphics settings before taking the screenshots — the colour fringing makes digits ambiguous for the model and cannot be removed afterwards.",
+    rfCaptureFramingTitle = "Capture head-on and at the highest resolution",
+    rfCaptureFramingHint = "Look straight at the screen (not from an angle/side) and capture at your monitor's highest available resolution — warped or low-resolution digits read unreliably. 4K isn't required, but the higher the resolution, the more reliable the read.",
     rfTempNote = "Images pasted without a selected folder go to a temporary folder that is deleted on exit.",
     rfCtaStartExtraction = "Start extraction",
 
@@ -893,6 +910,8 @@ val StringsEn = Strings(
             "VERIFY_CORRECTED" -> "Cross-check: quantity corrected via the TO REFINE checksum"
             "VERIFY_MISMATCH" -> "Cross-check: models disagree — review the flagged rows"
             "CTA_MISMATCH" -> "Button label contradicts the quote state — check the header"
+            "YIELD_RATIO_OUTLIER" -> "Yield/quantity doesn't fit this material's other rows — check the digits"
+            "STITCH_CONTESTED" -> "Row read differently across screenshots — check the value"
             else -> warning
         }
     },
@@ -902,6 +921,11 @@ val StringsEn = Strings(
     rfEditCancel = "Discard",
     rfEditRevert = "Restore the read value",
     rfEditedTag = "manual",
+    rfUnsavedTitle = "Unsaved correction",
+    rfUnsavedBody = "A row or field is still in edit mode and hasn't been confirmed with “Apply” (✓). " +
+        "If you continue now, that correction will be lost.",
+    rfUnsavedDiscard = "Discard & continue",
+    rfUnsavedBack = "Back to editing",
     rfWarningResolved = "resolved by correction",
     rfAllWarningsResolved = "All findings resolved by corrections.",
     rfCtaExport = "Export as JSON",

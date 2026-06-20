@@ -39,6 +39,22 @@ enum class ExtractWarning {
      * panel, `GET QUOTE` to an un-quoted one) — one of the two header reads is wrong.
      */
     CTA_MISMATCH,
+
+    /**
+     * A refine-ON row whose YIELD/QTY ratio deviates from the SAME material's other rows: the
+     * refinery method's per-material yield rate is constant within an order, so a divergent ratio
+     * is a likely digit mis-read in the QTY or YIELD cell (deterministic, needs ≥ 2 rows of the
+     * material; flags for review, never guesses which cell).
+     */
+    YIELD_RATIO_OUTLIER,
+
+    /**
+     * A row re-read across OVERLAPPING captures with a disagreeing numeric cell
+     * ([StitchedRow.contested]): one capture mis-read it, so the kept value is consensus-unsafe —
+     * the only signal that catches the single-digit flips no checksum can (Auftrag 14: the same
+     * TUNGSTEN row read 850 in one capture and 858 in the next).
+     */
+    STITCH_CONTESTED,
 }
 
 /** The validated order: contract-ready goods + order fields + warnings + layout confidence. */
@@ -99,6 +115,19 @@ object Validation {
     /** A row the two models read differently with no deterministic arbiter — one of them errs. */
     const val CONFIDENCE_VERIFY_CONTESTED = 0.75
 
+    /** A row re-read with a disagreeing cell across overlapping captures (consensus-unsafe). */
+    const val CONFIDENCE_STITCH_CONTESTED = 0.75
+
+    /** A row whose YIELD/QTY ratio deviates from its material's siblings (likely digit mis-read). */
+    const val CONFIDENCE_YIELD_OUTLIER = 0.6
+
+    /**
+     * Relative tolerance for the per-material YIELD/QTY ratio cross-check. Within-material spread
+     * from per-row display rounding is a few percent on small rows; only a GROSS divergence (a
+     * mis-read digit, e.g. RICCITE 2877 where the sibling rate implies ~2077) clears this.
+     */
+    private const val YIELD_RATIO_TOLERANCE = 0.18
+
     /** Dampening factor on layout confidence when the header checksum flags. */
     private const val SUM_MISMATCH_DAMPENING = 0.9
 
@@ -127,6 +156,45 @@ object Validation {
         val visibleOn = goods.filter { it.refine }.mapNotNull { it.inputQuantity }
         val tolerance = goods.size.toLong()
         return visibleOn.sum() > toRefineTotal + tolerance || visibleOn.any { it > toRefineTotal + 1 }
+    }
+
+    /**
+     * Refine-ON rows whose YIELD/QTY ratio deviates from the SAME material's other rows — the
+     * refinery method's per-material yield rate is constant within an order, so a divergent ratio
+     * is a likely digit mis-read in the QTY or YIELD cell. Each row is judged against the
+     * leave-one-out median of its material's other rows, so a single gross outlier in a 2-row
+     * material flags BOTH rows as inconsistent (a median-of-two would sit halfway and hide it)
+     * rather than picking the wrong one. Needs ≥ 2 rows of the material with positive QTY and
+     * YIELD. Public so the review screen could re-check it against user-corrected rows.
+     */
+    fun yieldRatioOutliers(goods: List<RefineryExtractGood>): Set<Int> {
+        val groups = goods
+            .filter { it.refine && (it.inputQuantity ?: 0L) > 0L && (it.outputQuantity ?: 0L) > 0L }
+            .groupBy { foldMaterial(it.rawMaterialName) }
+        val outliers = mutableSetOf<Int>()
+        for (group in groups.values) {
+            if (group.size < 2) continue
+            val ratios = group.associate { it.rowIndex to it.outputQuantity!!.toDouble() / it.inputQuantity!! }
+            for (g in group) {
+                val consensus = median(ratios.filterKeys { it != g.rowIndex }.values.toList())
+                val ratio = ratios.getValue(g.rowIndex)
+                if (consensus > 0.0 && kotlin.math.abs(ratio - consensus) / consensus > YIELD_RATIO_TOLERANCE) {
+                    outliers += g.rowIndex
+                }
+            }
+        }
+        return outliers
+    }
+
+    /** Fold a material name for grouping: trim, uppercase, collapse spaces, normalise bracket style. */
+    private fun foldMaterial(name: String): String =
+        name.trim().uppercase().replace(Regex("\\s+"), " ").replace('[', '(').replace(']', ')')
+
+    private fun median(values: List<Double>): Double {
+        if (values.isEmpty()) return 0.0
+        val s = values.sorted()
+        val n = s.size
+        return if (n % 2 == 1) s[n / 2] else (s[n / 2 - 1] + s[n / 2]) / 2.0
     }
 
     fun validate(stitch: StitchResult, crossCheck: CrossModelVerify.Outcome? = null): ValidatedOrder {
@@ -173,6 +241,11 @@ object Validation {
                     warnings += ExtractWarning.VERIFY_MISMATCH
                 }
             }
+            // Consensus across overlapping captures: a cell the captures disagreed on is unsafe.
+            if (row.contested) {
+                confidence = minOf(confidence, CONFIDENCE_STITCH_CONTESTED)
+                warnings += ExtractWarning.STITCH_CONTESTED
+            }
             if (implausible) {
                 warnings += ExtractWarning.IMPLAUSIBLE_CELL
             }
@@ -190,6 +263,21 @@ object Validation {
                 confidence = confidence,
                 sourceImage = row.sourceImage,
             )
+        }
+
+        // Yield/QTY ratio cross-check: the refinery method's per-material yield rate is constant
+        // within an order, so a refine-ON row whose ratio diverges from its material's siblings is
+        // a likely digit mis-read — cap its confidence for review. Catches gross errors a single
+        // header checksum can miss (a yield mis-read, or a divergent 2-row material); subtle
+        // ±1-digit flips that barely move the ratio are left to the contested-cell signal above.
+        val ratioOutliers = yieldRatioOutliers(goods)
+        if (ratioOutliers.isNotEmpty()) {
+            warnings += ExtractWarning.YIELD_RATIO_OUTLIER
+            for (i in goods.indices) {
+                if (goods[i].rowIndex in ratioOutliers && goods[i].confidence > CONFIDENCE_YIELD_OUTLIER) {
+                    goods[i] = goods[i].copy(confidence = CONFIDENCE_YIELD_OUTLIER)
+                }
+            }
         }
 
         // Un-quoted order: no read saw the quoted state — every yield is `--` by definition.

@@ -196,6 +196,18 @@ private fun ImagesStepContent(
                 style = MaterialTheme.typography.bodySmall,
                 color = Krt.Gray1,
             )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                strings.rfCaptureFramingTitle.uppercase(),
+                style = MaterialTheme.typography.labelMedium,
+                color = Krt.Warning,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                strings.rfCaptureFramingHint,
+                style = MaterialTheme.typography.bodySmall,
+                color = Krt.Gray1,
+            )
         }
         Spacer(Modifier.height(12.dp))
 

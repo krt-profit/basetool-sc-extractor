@@ -270,6 +270,75 @@ class ValidationTest {
     }
 
     @Test
+    fun `a contested row is capped for review and flags the order`() {
+        // The stitcher saw this row in two captures with disagreeing cells — consensus-unsafe.
+        val row = StitchedRow("TUNGSTEN (ORE)", "858", "858", "413", "ON", "a.png", quotedRead = true, contested = true)
+
+        val order = Validation.validate(stitched(listOf(row)))
+
+        assertEquals(Validation.CONFIDENCE_STITCH_CONTESTED, order.goods[0].confidence)
+        assertTrue(ExtractWarning.STITCH_CONTESTED in order.warnings)
+    }
+
+    @Test
+    fun `a divergent yield-qty ratio within a material flags both rows`() {
+        // Auftrag 14 RICCITE: one row read 2877 (ratio ~0.33), its sibling 261 (ratio ~0.45) —
+        // the method's per-material rate cannot be both, so the inconsistency is flagged for review.
+        val rows = listOf(
+            StitchedRow("RICCITE (ORE)", "325", "2877", "935", "ON", "a.png", quotedRead = true),
+            StitchedRow("RICCITE (ORE)", "965", "261", "117", "ON", "a.png", quotedRead = true),
+        )
+
+        val order = Validation.validate(stitched(rows, toRefine = "99999"))
+
+        assertTrue(ExtractWarning.YIELD_RATIO_OUTLIER in order.warnings)
+        assertEquals(Validation.CONFIDENCE_YIELD_OUTLIER, order.goods[0].confidence)
+        assertEquals(Validation.CONFIDENCE_YIELD_OUTLIER, order.goods[1].confidence)
+    }
+
+    @Test
+    fun `consistent yield-qty ratios across a material stay silent`() {
+        val rows = listOf(
+            StitchedRow("TUNGSTEN (ORE)", "363", "2171", "1055", "ON", "a.png", quotedRead = true),
+            StitchedRow("TUNGSTEN (ORE)", "902", "312", "151", "ON", "a.png", quotedRead = true),
+        )
+
+        val order = Validation.validate(stitched(rows, toRefine = "99999"))
+
+        assertFalse(ExtractWarning.YIELD_RATIO_OUTLIER in order.warnings)
+        assertEquals(Validation.CONFIDENCE_OK, order.goods[0].confidence)
+        assertEquals(Validation.CONFIDENCE_OK, order.goods[1].confidence)
+    }
+
+    @Test
+    fun `a single-row material is never a ratio outlier`() {
+        // One row of a material has no sibling to compare against — never flagged.
+        val rows = listOf(
+            cleanRow(name = "GOLD (ORE)", qty = "100").let { it.copy(yield_ = "48") },
+            StitchedRow("BORASE (ORE)", "359", "751", "365", "ON", "a.png", quotedRead = true),
+        )
+
+        val order = Validation.validate(stitched(rows, toRefine = "99999"))
+
+        assertFalse(ExtractWarning.YIELD_RATIO_OUTLIER in order.warnings)
+    }
+
+    @Test
+    fun `a row that is both contested and a ratio outlier ends at the lower confidence`() {
+        // The contested cap is 0.75, the ratio-outlier cap 0.6 — the lower must win (both fire).
+        val rows = listOf(
+            StitchedRow("RICCITE (ORE)", "325", "2877", "935", "ON", "a.png", quotedRead = true, contested = true),
+            StitchedRow("RICCITE (ORE)", "965", "261", "117", "ON", "a.png", quotedRead = true),
+        )
+
+        val order = Validation.validate(stitched(rows, toRefine = "99999"))
+
+        assertEquals(Validation.CONFIDENCE_YIELD_OUTLIER, order.goods[0].confidence)
+        assertTrue(ExtractWarning.STITCH_CONTESTED in order.warnings)
+        assertTrue(ExtractWarning.YIELD_RATIO_OUTLIER in order.warnings)
+    }
+
+    @Test
     fun `row indices follow the stitched order`() {
         val rows = listOf(cleanRow(), cleanRow(name = "TUNGSTEN (ORE)"))
 

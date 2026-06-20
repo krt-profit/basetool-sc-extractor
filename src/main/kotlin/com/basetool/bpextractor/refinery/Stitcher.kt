@@ -18,6 +18,15 @@ data class StitchedRow(
      * fire for them — in a mixed capture set the order-level `quoted` is too coarse.
      */
     val quotedRead: Boolean,
+    /**
+     * True when this row was re-read across OVERLAPPING captures with a DISAGREEING numeric cell
+     * (quality/qty/yield): the merge kept one read, but at least one other capture saw the same
+     * physical row differently, so the value is consensus-unsafe. [Validation] lowers the row's
+     * confidence so the review surfaces it — the cross-capture analogue of the cross-model
+     * `contested` signal, and the only check that catches the single-digit flips (Auftrag 14: the
+     * same TUNGSTEN row read 850 in one capture and 858 in the next) that no checksum can.
+     */
+    val contested: Boolean = false,
 )
 
 /** The stitched order: merged header fields + rows in reconstructed on-screen order. */
@@ -72,18 +81,45 @@ object Stitcher {
      * quality/qty, so the numbers disambiguate; basetool fuzzy-matches names downstream anyway.
      */
     private fun sameRow(a: PanelRow, b: PanelRow, loose: Boolean = false): Boolean {
-        if (a.quality != b.quality) return false
         val an = foldName(a.name)
         val bn = foldName(b.name)
-        if (a.qty != b.qty) {
-            // Loose mode (second-chance overlap detection): the SAME physical row read with a
-            // digit disagreement across two captures (Auftrag 10: 105 vs 185) — name + quality
-            // must then match exactly, and both cells must be actual values.
-            return loose && a.qty != null && b.qty != null && a.quality != null && an == bn
+
+        // Exact identity: same QUALITY and QTY. The name folds bracket/whitespace style, or
+        // tolerates a single-character garble (LINDINIMUM vs LINDINIUM) when BOTH numeric cells
+        // are present to disambiguate.
+        if (a.quality == b.quality && a.qty == b.qty) {
+            if (an == bn) return true
+            return a.quality != null && a.qty != null && withinOneEdit(an, bn)
         }
-        if (an == bn) return true
-        return a.quality != null && a.qty != null && withinOneEdit(an, bn)
+        if (!loose) return false
+
+        // Loose cross-image re-alignment — the SAME physical row mis-read in ONE capture must not
+        // export twice. The name must fold-match exactly; then ONE of two anchors stands in for the
+        // full triple:
+        //  (a) QUALITY matches and only a single QTY digit disagrees (Auftrag 10: 105 vs 185); or
+        //  (b) a POSITIVE YIELD matches but the QTY does NOT — "same yield, different qty" can only
+        //      be ONE physical row mis-read across the overlap (Auftrag 14 TUNGSTEN: 958|950 in one
+        //      capture, 858|858 in the next, yield 413 in both); a real sibling row sharing the
+        //      yield would share the qty too (yield scales with qty). A `--` / 0 yield is ambiguous
+        //      (every OFF row shows it) and is NOT an anchor; rows with equal qty+yield differing
+        //      ONLY in quality stay UNMERGED (could be two real tiers of an equal amount) so the
+        //      review dedupes them rather than silently dropping a row.
+        if (an != bn) return false
+        val qtyTolerance = a.quality == b.quality && a.quality != null && a.qty != null && b.qty != null
+        val yieldAnchor = a.qty != b.qty && hasQuotedYield(a) && a.yield_ == b.yield_ &&
+            (PanelValues.toQuantity(a.yield_) ?: 0L) > 0L
+        return qtyTolerance || yieldAnchor
     }
+
+    /**
+     * Do two aligned reads of the SAME physical row disagree on a numeric cell? Drives the
+     * [StitchedRow.contested] flag — a quality/qty/yield mismatch means one capture mis-read the
+     * cell, so the merged value is consensus-unsafe and the review must look.
+     */
+    private fun cellsContested(a: PanelRow, b: PanelRow): Boolean =
+        (a.quality != null && b.quality != null && a.quality != b.quality) ||
+            (a.qty != null && b.qty != null && a.qty != b.qty) ||
+            (hasQuotedYield(a) && hasQuotedYield(b) && a.yield_ != b.yield_)
 
     private fun foldName(name: String): String = name.trim().uppercase()
         .replace(Regex("\\s+"), " ").replace('[', '(').replace(']', ')')
@@ -114,11 +150,12 @@ object Stitcher {
     /** True when the row carries a quoted yield value (not the `--` marker, not unreadable). */
     private fun hasQuotedYield(row: PanelRow): Boolean = row.yield_ != null && row.yield_ != "--"
 
-    /** One assembled fragment: rows + (parallel) source-image names + quoted-state per row. */
+    /** One assembled fragment: rows + (parallel) source-image names + quoted-/contested-state per row. */
     private data class Fragment(
         val rows: MutableList<PanelRow>,
         val sources: MutableList<String>,
         val quoted: MutableList<Boolean>,
+        val contested: MutableList<Boolean>,
     )
 
     fun stitch(reads: List<ImageRead>): StitchResult {
@@ -142,6 +179,7 @@ object Stitcher {
                 rows.toMutableList(),
                 MutableList(rows.size) { read.imageName },
                 MutableList(rows.size) { read.panel.quoted },
+                MutableList(rows.size) { false },
             )
         }.filter { it.rows.isNotEmpty() }
 
@@ -197,6 +235,7 @@ object Stitcher {
                     refine = row.refine,
                     sourceImage = fragment.sources[i],
                     quotedRead = fragment.quoted[i],
+                    contested = fragment.contested[i],
                 )
             }
         }
@@ -236,11 +275,13 @@ object Stitcher {
     private fun fold(a: Fragment, b: Fragment, start: Int) {
         for (i in b.rows.indices) {
             val ai = start + i
+            val contested = a.contested[ai] || b.contested[i] || cellsContested(a.rows[ai], b.rows[i])
             if (prefersIncoming(a.rows[ai], a.quoted[ai], b.rows[i], b.quoted[i])) {
                 a.rows[ai] = b.rows[i]
                 a.sources[ai] = b.sources[i]
                 a.quoted[ai] = b.quoted[i]
             }
+            a.contested[ai] = contested
         }
     }
 
@@ -268,8 +309,10 @@ object Stitcher {
         val rows = a.rows.toMutableList()
         val sources = a.sources.toMutableList()
         val quoted = a.quoted.toMutableList()
+        val contested = a.contested.toMutableList()
         for (i in 0 until k) {
             val ai = a.rows.size - k + i
+            contested[ai] = contested[ai] || b.contested[i] || cellsContested(rows[ai], b.rows[i])
             val replace = if (loose && rows[ai].qty != b.rows[i].qty && quoted[ai] == b.quoted[i]) {
                 // QTY disagreement on the same physical row (loose overlap): trust the read
                 // that saw the row farther from its viewport edges — the edge row of one
@@ -288,7 +331,8 @@ object Stitcher {
             rows += b.rows[i]
             sources += b.sources[i]
             quoted += b.quoted[i]
+            contested += b.contested[i]
         }
-        return Fragment(rows, sources, quoted)
+        return Fragment(rows, sources, quoted, contested)
     }
 }

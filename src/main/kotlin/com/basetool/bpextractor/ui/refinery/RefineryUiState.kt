@@ -181,7 +181,8 @@ class RefineryUiState(
      * against [reviewedOrder] so the §5.4 banner can show them as settled instead of pretending
      * the finding still stands. Only the value-dependent warnings are re-checkable
      * (SUM_MISMATCH via [Validation.sumMismatch]; IMPLAUSIBLE_CELL when every flagged row was
-     * corrected to plausible numbers) — the read-provenance warnings (REFINE/VERIFY/UNQUOTED)
+     * corrected to plausible numbers; YIELD_RATIO_OUTLIER via [Validation.yieldRatioOutliers]) —
+     * the read-provenance warnings (REFINE/VERIFY/UNQUOTED/STITCH_CONTESTED)
      * describe how the values came to be and stay as they are.
      */
     val resolvedWarnings: Set<ExtractWarning>
@@ -197,6 +198,12 @@ class RefineryUiState(
             }
             if (ExtractWarning.IMPLAUSIBLE_CELL in validated.warnings && goods.none(::implausibleReviewed)) {
                 resolved += ExtractWarning.IMPLAUSIBLE_CELL
+            }
+            // The per-material yield/qty ratio re-check: correcting the divergent digit settles it.
+            if (ExtractWarning.YIELD_RATIO_OUTLIER in validated.warnings &&
+                Validation.yieldRatioOutliers(goods).isEmpty()
+            ) {
+                resolved += ExtractWarning.YIELD_RATIO_OUTLIER
             }
             return resolved
         }

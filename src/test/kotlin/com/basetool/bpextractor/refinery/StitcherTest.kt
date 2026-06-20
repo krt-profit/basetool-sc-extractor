@@ -2,6 +2,7 @@ package com.basetool.bpextractor.refinery
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -99,6 +100,7 @@ class StitcherTest {
             result.rows.map { it.name },
         )
         assertEquals("105", result.rows.single { it.name == "LARANITE (RAW)" }.qty)
+        assertTrue(result.rows.single { it.name == "LARANITE (RAW)" }.contested, "the cross-capture QTY disagreement is contested")
     }
 
     @Test
@@ -155,6 +157,57 @@ class StitcherTest {
             listOf("LINDINIUM (ORE)", "LINDINIUM (ORE)", "TUNGSTEN (ORE)", "UCTION SALVAGE"),
             result.rows.map { it.name },
         )
+    }
+
+    @Test
+    fun `a quality-and-qty misread of the same row across captures merges on the stable yield`() {
+        // Auftrag 14: the high-quality TUNGSTEN row is read 958|950 in one scroll capture and
+        // 858|858 in the next — only the YIELD (413) is stable. Identity-on-the-triple kept BOTH
+        // (the order stitched to 18 rows instead of 13); the positive-yield anchor must align them
+        // into one row and mark it contested so the review looks.
+        val upper = ImageRead(
+            "2_mid.png",
+            panel(
+                listOf(
+                    row("TUNGSTEN (ORE)", "363", "2171", "1055"),
+                    row("TUNGSTEN (ORE)", "958", "950", "413"),
+                    row("TUNGSTEN (ORE)", "902", "312", "151"),
+                ),
+            ),
+        )
+        val lower = ImageRead(
+            "3_low.png",
+            panel(
+                listOf(
+                    row("TUNGSTEN (ORE)", "858", "858", "413"),
+                    row("TUNGSTEN (ORE)", "902", "312", "151"),
+                    row("RICCITE (ORE)", "965", "261", "117"),
+                ),
+            ),
+        )
+
+        val result = Stitcher.stitch(listOf(upper, lower))
+
+        // 4 unique rows, not 6: the 958/858 row and the 902 row chain across the overlap.
+        assertEquals(
+            listOf("TUNGSTEN (ORE)", "TUNGSTEN (ORE)", "TUNGSTEN (ORE)", "RICCITE (ORE)"),
+            result.rows.map { it.name },
+        )
+        assertTrue(result.rows[1].contested, "the row the captures read differently is contested")
+        assertFalse(result.rows[2].contested, "a row both captures agree on is NOT contested")
+    }
+
+    @Test
+    fun `equal qty and yield differing only in quality is not merged across captures`() {
+        // Safety guard for the yield anchor: two genuinely distinct TUNGSTEN tiers that happen to
+        // hold an equal amount (same QTY, same YIELD, different QUALITY) must NOT collapse — only a
+        // QTY *disagreement* unlocks the yield anchor, so these stay two rows for the review.
+        val first = ImageRead("one.png", panel(listOf(row("TUNGSTEN (ORE)", "858", "850", "413"))))
+        val second = ImageRead("two.png", panel(listOf(row("TUNGSTEN (ORE)", "902", "850", "413"))))
+
+        val result = Stitcher.stitch(listOf(first, second))
+
+        assertEquals(2, result.rows.size, "equal qty+yield with only a quality difference must not merge")
     }
 
     @Test
