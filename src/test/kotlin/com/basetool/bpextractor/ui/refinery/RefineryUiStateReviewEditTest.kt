@@ -2,13 +2,16 @@ package com.basetool.bpextractor.ui.refinery
 
 import com.basetool.bpextractor.refinery.ExtractWarning
 import com.basetool.bpextractor.refinery.PipelineResult
+import com.basetool.bpextractor.refinery.RefineryPipeline
 import com.basetool.bpextractor.refinery.ValidatedOrder
 import com.basetool.bpextractor.refinery.model.RefineryExtract
 import com.basetool.bpextractor.refinery.model.RefineryExtractGood
 import com.basetool.bpextractor.refinery.model.RefineryExtractImage
 import com.basetool.bpextractor.refinery.model.RefineryExtractOrder
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -72,6 +75,30 @@ class RefineryUiStateReviewEditTest {
         assertEquals(RefineryUiState.CONFIDENCE_MANUAL, reviewed.goods[0].confidence)
         assertEquals(46L, reviewed.goods[1].inputQuantity, "untouched rows stay the machine read")
         assertEquals(0.75, reviewed.goods[1].confidence)
+    }
+
+    @Test
+    fun `the send payload (reviewedExtract JSON) carries the manual correction`() {
+        // Order 14, the TUNGSTEN row: the VLM copied the QUALITY value (858) into the QTY cell,
+        // but the real input is 850. Before v2.4.0 the "send to basetool" CTA serialized
+        // result.extract (the raw machine read) instead of reviewedExtract(), so the basetool
+        // received 858 even after the user fixed the cell on the review screen (the JSON-save path
+        // already overlaid edits — only send was wrong). This pins the actual wire payload:
+        // reviewedExtract() AND its exact JSON bytes must carry the corrected value.
+        val machine = good(rowIndex = 0, qty = 858).copy(rawMaterialName = "TUNGSTEN (ORE)", quality = 858)
+        val state = stateWith(listOf(machine))
+
+        state.editGood(machine, machine.copy(inputQuantity = 850))
+
+        val sent = state.reviewedExtract()!!
+        assertEquals(850L, sent.orders.first().goods.first().inputQuantity)
+
+        val json = RefineryPipeline.toJson(sent)
+        assertContains(json, "\"inputQuantity\": 850")
+        assertFalse(
+            json.contains("\"inputQuantity\": 858"),
+            "the raw machine read must never reach the basetool once the row is corrected",
+        )
     }
 
     @Test
