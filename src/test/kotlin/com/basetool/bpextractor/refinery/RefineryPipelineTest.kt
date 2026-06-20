@@ -364,7 +364,12 @@ class RefineryPipelineTest {
             .extract(listOf(PipelineInput("a.png", fullFrame())))
 
         val goods = result.extract.orders.single().goods
-        assertEquals(483L, goods[1].inputQuantity, "primary read stands")
+        // The verify pass degraded (no cross-check). The single-model checksum repair does NOT fire:
+        // BORASE is the only row of its material, so there is no leave-one-out yield-rate witness to
+        // tie the checksum landing to it (and checksum-landing alone could corrupt a correct row), so
+        // the read honestly stands and the order stays flagged for review.
+        assertEquals(483L, goods[1].inputQuantity, "no single-model repair without a yield-rate witness")
+        assertTrue(ExtractWarning.CHECKSUM_REPAIRED !in result.validated.warnings)
         assertTrue(ExtractWarning.VERIFY_CORRECTED !in result.validated.warnings)
         assertTrue(ExtractWarning.VERIFY_MISMATCH !in result.validated.warnings)
     }

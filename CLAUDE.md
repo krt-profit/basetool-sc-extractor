@@ -135,6 +135,14 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   switched by the title-bar DE/EN toggle — design spec §6). Never hardcode UI text at a
   call site; add a property to BOTH catalogues. README is German; this file is English
   by convention (agent/dev guidance).
+  - **`Strings` is an `interface`, `StringsDe`/`StringsEn` are `object`s — keep it that
+    way.** A flat `class Strings(val …: String, …)` hits the JVM's 254-value-parameter
+    constructor limit and throws `ClassFormatError` at class-LOAD time (the GUI crashes on
+    launch; `compileKotlin` and the unit tests do NOT catch it). The interface has no
+    constructor, so the limit can't recur. To add a string: add `val name: Type` to the
+    interface and `override val name = …` to BOTH objects (function-typed entries need the
+    explicit type on the override, e.g. `override val foo: (Int) -> String = { n -> … }`).
+    Verify by launching the GUI, not just by tests.
 - **Model fields are nullable when the log may omit them** (`player`, `notificationId`,
   `queueSize`, `gameBuild`). `productName`/`receivedAt` are always present. JSON uses
   `encodeDefaults = true` + `prettyPrint`; `schemaVersion` is explicit — bump it if you

@@ -77,7 +77,21 @@ data class RefineryImage(
     val thumbnail: ImageBitmap?,
     /** False → kept in the grid but excluded from the extraction run (§5.2 tile checkbox). */
     val selected: Boolean = true,
-)
+) {
+    /**
+     * Best-effort low-resolution heuristic for the §5.2 capture-quality warning: a NON-pre-cropped
+     * capture below a full-HD long edge is a terminal-area crop or a downscaled shot whose ~9px
+     * digit glyphs read less reliably than a full-resolution, head-on capture (PHASE0: the hardest
+     * digit ambiguities are not recoverable post-capture). Pre-cropped panels are intentionally
+     * small and exempt.
+     */
+    val lowResolution: Boolean get() = !precropped && maxOf(width, height) < LOW_RES_LONG_EDGE
+
+    companion object {
+        /** Below this long edge a non-pre-cropped capture is flagged low-resolution (terminal crop / sub-HD). */
+        const val LOW_RES_LONG_EDGE = 1300
+    }
+}
 
 /**
  * All UI state of the refinery workflow (design spec §5) + the glue that drives the preflight
@@ -181,7 +195,8 @@ class RefineryUiState(
      * against [reviewedOrder] so the §5.4 banner can show them as settled instead of pretending
      * the finding still stands. Only the value-dependent warnings are re-checkable
      * (SUM_MISMATCH via [Validation.sumMismatch]; IMPLAUSIBLE_CELL when every flagged row was
-     * corrected to plausible numbers) — the read-provenance warnings (REFINE/VERIFY/UNQUOTED)
+     * corrected to plausible numbers; YIELD_RATIO_OUTLIER via [Validation.yieldRatioOutliers]) —
+     * the read-provenance warnings (REFINE/VERIFY/UNQUOTED/STITCH_CONTESTED)
      * describe how the values came to be and stay as they are.
      */
     val resolvedWarnings: Set<ExtractWarning>
@@ -197,6 +212,12 @@ class RefineryUiState(
             }
             if (ExtractWarning.IMPLAUSIBLE_CELL in validated.warnings && goods.none(::implausibleReviewed)) {
                 resolved += ExtractWarning.IMPLAUSIBLE_CELL
+            }
+            // The per-material yield/qty ratio re-check: correcting the divergent digit settles it.
+            if (ExtractWarning.YIELD_RATIO_OUTLIER in validated.warnings &&
+                Validation.yieldRatioOutliers(goods).isEmpty()
+            ) {
+                resolved += ExtractWarning.YIELD_RATIO_OUTLIER
             }
             return resolved
         }
