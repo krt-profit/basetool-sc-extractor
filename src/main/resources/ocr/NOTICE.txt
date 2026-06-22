@@ -1,0 +1,18 @@
+Bundled OCR models
+==================
+
+ch_PP-OCRv3_det_infer.onnx   PP-OCRv3 text detection (DBNet)
+ch_PP-OCRv3_rec_infer.onnx   PP-OCRv3 text recognition (CRNN + CTC)
+
+These are the PaddleOCR PP-OCRv3 inference models, exported to ONNX as distributed
+with the RapidOCR project. They are used by the refinery extractor as a classical-OCR
+cross-reader (a decorrelated second opinion on the numeric cells the VLM mis-reads —
+see TextDetector.kt / DigitOcr.kt / PanelOcr.kt).
+
+License: Apache License 2.0
+  - PaddleOCR / PaddlePaddle Authors — https://github.com/PaddlePaddle/PaddleOCR
+  - RapidOCR (ONNX packaging) — https://github.com/RapidAI/RapidOCR
+
+Apache-2.0 is compatible with this project's GPL-3.0-or-later license and permits
+redistribution of the model files within the MSI bundle. The recognition model carries
+its character dictionary in the ONNX `character` metadata, which DigitOcr reads at load.
