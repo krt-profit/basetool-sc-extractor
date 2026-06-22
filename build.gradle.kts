@@ -27,6 +27,9 @@ dependencies {
     implementation(compose.material3)
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
+    // Classical-OCR digit cross-check (PP-OCRv3 recognition via ONNX Runtime) — a decorrelated
+    // second reader for the numeric cells the VLM mis-reads (refinery-digit-misread-recovery).
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.20.0")
 
     testImplementation(kotlin("test"))
 }

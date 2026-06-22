@@ -55,6 +55,7 @@ class PromptSmokeTest {
                 .sortedBy { it.name }
             val reads = mutableListOf<ImageRead>()
             val verifyQueue = mutableListOf<Pair<String, String>>()
+            val panels = mutableMapOf<String, java.awt.image.BufferedImage>()
             var location: String? = null
             var locationRead = false
             images.forEach { file ->
@@ -62,6 +63,7 @@ class PromptSmokeTest {
                 val precropped = Locate.isPrecropped(img.width, img.height)
                 val box = if (precropped) null else Locate.locatePanel(img)
                 val prepared = Locate.prepare(img, box)
+                panels[file.name] = prepared.readImage
                 val b64 = toBase64Png(prepared.readImage)
                 if (verifier != null) verifyQueue += file.name to b64
                 // Location semantics mirror RefineryPipeline: read ONCE, from the first capture
@@ -112,7 +114,11 @@ class PromptSmokeTest {
                     report.appendLine("  VERIFY ($verifyName) incomplete second read — skipped")
                 }
             }
-            val validated = Validation.validate(stitched, crossCheck)
+            // Classical-OCR cross-check (env OCR_MODELS_DIR or bundled), mirroring RefineryPipeline:
+            // a decorrelated third vote on the QUALITY column over the final stitched rows.
+            val ocrReadings = OcrModels.get()?.let { ocr -> OcrCrossCheck.read(stitched.rows, panels, ocr) } ?: emptyMap()
+            if (ocrReadings.isNotEmpty()) report.appendLine("  OCR cross-checked ${ocrReadings.size} row(s)")
+            val validated = Validation.validate(stitched, crossCheck, ocrReadings)
             report.appendLine(
                 "  VALIDATED quoted=${validated.quoted} toRefine=${validated.toRefineTotal} " +
                     "warnings=${validated.warnings}",

@@ -198,6 +198,60 @@ class StitcherTest {
     }
 
     @Test
+    fun `an OFF seam row mis-read in both cells reconciles instead of duplicating`() {
+        // Auftrag 15: the TARANITE overlap row (last of capture 1 = first of capture 2) is a
+        // refine-OFF row (yield "--", so no positive-yield anchor). Capture 1 reads it 310/290,
+        // capture 2 mis-reads BOTH cells as 318/298 (0/8 confusions), so overlap() finds nothing
+        // and the row would export twice. Seam reconciliation aligns the boundary pair into one
+        // contested row, keeping the upper capture's read.
+        val upper = ImageRead(
+            "1_upper.png",
+            panel(
+                listOf(
+                    row("STILERON (ORE)", "947", "386", "174"),
+                    row("BEXALITE (RAW)", "597", "89", "--", refine = "OFF"),
+                    row("TARANITE (RAW)", "310", "290", "--", refine = "OFF"),
+                ),
+            ),
+        )
+        val lower = ImageRead(
+            "2_lower.png",
+            panel(
+                listOf(
+                    row("TARANITE [RAW]", "318", "298", "--", refine = "OFF"),
+                    row("TARANITE [RAW]", "525", "619", "--", refine = "OFF"),
+                    row("INERT MATERIALS", "0", "2403", "0", refine = "OFF"),
+                ),
+            ),
+        )
+
+        val result = Stitcher.stitch(listOf(upper, lower))
+
+        assertEquals(
+            listOf("STILERON (ORE)", "BEXALITE (RAW)", "TARANITE (RAW)", "TARANITE [RAW]", "INERT MATERIALS"),
+            result.rows.map { it.name },
+            "the dual-misread seam row merges — 5 rows, not 6",
+        )
+        val seam = result.rows.single { it.name == "TARANITE (RAW)" }
+        assertEquals("310", seam.quality, "the upper capture's seam read survives")
+        assertEquals("290", seam.qty)
+        assertTrue(seam.contested, "the cross-capture seam disagreement is contested")
+    }
+
+    @Test
+    fun `a non-confusable OFF seam difference stays a scroll gap, not reconciled`() {
+        // Guard: seam reconciliation only fires on a CONFUSABLE single-digit edit of the SAME
+        // material. A boundary pair differing by a non-confusable digit (0 vs 7) is a genuine
+        // scroll gap — keep both rows and let the checksum flag the hole rather than drop one.
+        val upper = ImageRead("1.png", panel(listOf(row("TARANITE (RAW)", "310", "290", "--", refine = "OFF"))))
+        val lower = ImageRead("2.png", panel(listOf(row("TARANITE (RAW)", "317", "290", "--", refine = "OFF"))))
+
+        val result = Stitcher.stitch(listOf(upper, lower))
+
+        assertEquals(2, result.rows.size, "a non-confusable (0 vs 7) quality difference is not a seam re-read")
+    }
+
+    @Test
     fun `equal qty and yield differing only in quality is not merged across captures`() {
         // Safety guard for the yield anchor: two genuinely distinct TUNGSTEN tiers that happen to
         // hold an equal amount (same QTY, same YIELD, different QUALITY) must NOT collapse — only a
