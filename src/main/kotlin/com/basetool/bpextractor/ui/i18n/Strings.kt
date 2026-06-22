@@ -591,6 +591,8 @@ object StringsDe : Strings {
             "YIELD_OCR_REPAIRED" -> "Ausbeute-Ziffer per OCR-Abgleich (durch die Materialrate bestätigt) korrigiert — bitte prüfen"
             "OCR_CORRECTED" -> "Qualität per 8b/4b/OCR-Mehrheit korrigiert — bitte prüfen"
             "OCR_CONTESTED" -> "Qualität: Modelle/OCR widersprechen sich ohne Mehrheit — markierte Zeile prüfen"
+            "QTY_OCR_CONTESTED" -> "Menge einer Refine-OFF-Zeile: OCR liest sie anders als das Modell — markierte Zeile prüfen"
+            "TO_REFINE_CONTESTED" -> "TO-REFINE-Gesamtwert (Checksummen-Anker) von OCR/Zweitmodell bestritten — Kopfzeile prüfen"
             else -> warning
         }
     }
@@ -943,6 +945,8 @@ object StringsEn : Strings {
             "YIELD_OCR_REPAIRED" -> "A yield digit was corrected via the OCR cross-read (confirmed by the material rate) — please verify"
             "OCR_CORRECTED" -> "Quality corrected by 8b/4b/OCR majority — please verify"
             "OCR_CONTESTED" -> "Quality: models/OCR disagree with no majority — review the flagged row"
+            "QTY_OCR_CONTESTED" -> "A refine-OFF row's quantity: OCR reads it differently than the model — review the flagged row"
+            "TO_REFINE_CONTESTED" -> "TO REFINE total (the checksum anchor) is disputed by OCR/the verify model — check the header"
             else -> warning
         }
     }

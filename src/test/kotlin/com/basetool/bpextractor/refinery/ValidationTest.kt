@@ -595,4 +595,84 @@ class ValidationTest {
         assertEquals(2720L, order.goods[0].outputQuantity)
         assertFalse(ExtractWarning.YIELD_OCR_REPAIRED in order.warnings)
     }
+
+    // --- #1 QUALITY domain-bound gate (0..1000) ---
+
+    @Test
+    fun `a quality outside 0 to 1000 is flagged implausible`() {
+        // A doubled/dropped digit (510 -> 5100) parses fine but violates the documented 0..1000 bound.
+        val row = StitchedRow("LINDINIUM (ORE)", "5100", "957", "448", "ON", "a.png", quotedRead = true)
+
+        val order = Validation.validate(stitched(listOf(row)))
+
+        assertEquals(Validation.CONFIDENCE_IMPLAUSIBLE, order.goods[0].confidence)
+        assertTrue(ExtractWarning.IMPLAUSIBLE_CELL in order.warnings)
+    }
+
+    @Test
+    fun `a quality at the top of the range stays plausible`() {
+        val row = StitchedRow("STILERON (ORE)", "972", "505", "227", "ON", "a.png", quotedRead = true)
+
+        val order = Validation.validate(stitched(listOf(row)))
+
+        assertEquals(Validation.CONFIDENCE_OK, order.goods[0].confidence)
+        assertFalse(ExtractWarning.IMPLAUSIBLE_CELL in order.warnings)
+    }
+
+    // --- #4 TO_REFINE anchor cross-check ---
+
+    @Test
+    fun `a contested TO_REFINE anchor makes the checksum repair abstain and flags the order`() {
+        // Same shape as the checksum-repair test (950 would repair to 850), but with the anchor
+        // contested: the repair must ABSTAIN, the order is flagged, and the sum check is suppressed.
+        val rows = listOf(
+            StitchedRow("TUNGSTEN (ORE)", "363", "2171", "1055", "ON", "a.png", quotedRead = true),
+            StitchedRow("TUNGSTEN (ORE)", "958", "950", "413", "ON", "a.png", quotedRead = true),
+            StitchedRow("TUNGSTEN (ORE)", "902", "312", "151", "ON", "a.png", quotedRead = true),
+        )
+
+        val order = Validation.validate(stitched(rows, toRefine = "3333"), toRefineContested = true)
+
+        assertEquals(950L, order.goods.single { it.quality == 958 }.inputQuantity, "no repair against a suspect anchor")
+        assertFalse(ExtractWarning.CHECKSUM_REPAIRED in order.warnings)
+        assertTrue(ExtractWarning.TO_REFINE_CONTESTED in order.warnings)
+        assertFalse(ExtractWarning.SUM_MISMATCH in order.warnings, "sum check suppressed against a contested anchor")
+    }
+
+    @Test
+    fun `a verify-model TO_REFINE disagreement flags the anchor`() {
+        val rows = listOf(cleanRow())
+        val outcome = CrossModelVerify.Outcome(
+            rows, emptySet(), emptySet(), comparable = true, headerToRefineContested = true,
+        )
+
+        val order = Validation.validate(stitched(rows, toRefine = "957"), outcome)
+
+        assertTrue(ExtractWarning.TO_REFINE_CONTESTED in order.warnings)
+    }
+
+    // --- #5 OFF-row qty review flag ---
+
+    @Test
+    fun `an OCR-contested refine-OFF qty is flagged for review without changing the value`() {
+        val rows = listOf(
+            cleanRow(),
+            StitchedRow("INERT MATERIALS", "0", "2483", "0", "OFF", "a.png", quotedRead = true),
+        )
+
+        val order = Validation.validate(stitched(rows, toRefine = "99999"), qtyOcrContested = setOf(1))
+
+        assertEquals(2483L, order.goods[1].inputQuantity, "flag-only — the value is never changed")
+        assertEquals(Validation.CONFIDENCE_OCR_CONTESTED, order.goods[1].confidence)
+        assertTrue(ExtractWarning.QTY_OCR_CONTESTED in order.warnings)
+        assertFalse(order.goods[1].refine)
+    }
+
+    @Test
+    fun `an OCR-contested refine-ON qty is not flagged here - the checksum owns ON rows`() {
+        val order = Validation.validate(stitched(listOf(cleanRow()), toRefine = "957"), qtyOcrContested = setOf(0))
+
+        assertFalse(ExtractWarning.QTY_OCR_CONTESTED in order.warnings)
+        assertEquals(Validation.CONFIDENCE_OK, order.goods[0].confidence)
+    }
 }

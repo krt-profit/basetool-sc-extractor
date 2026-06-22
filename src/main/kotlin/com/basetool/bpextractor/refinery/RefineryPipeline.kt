@@ -179,18 +179,25 @@ class RefineryPipeline(
         if (crossCheck != null) {
             stitched = stitched.copy(rows = crossCheck.rows)
         }
-        // Classical-OCR cross-check (a decorrelated third vote on the QUALITY column): runs only
-        // when the bundled models are available, on the FINAL stitched rows, matched by the QTY
-        // anchor. Best-effort — any failure degrades to "no OCR" and the VLM result stands.
-        val ocrReadings = ocr()?.let { engine ->
-            runCatching { OcrCrossCheck.read(stitched.rows, panels, engine) }
+        // Classical-OCR cross-check (a decorrelated third reader): a QUALITY/YIELD vote per row
+        // (matched by the QTY anchor), an OFF-row QTY review flag, and a TO_REFINE anchor cross-check.
+        // Runs only when the bundled models are available, on the FINAL stitched rows. Best-effort —
+        // any failure degrades to "no OCR" and the VLM result stands.
+        val ocrResult = ocr()?.let { engine ->
+            runCatching { OcrCrossCheck.read(stitched.rows, panels, engine, PanelValues.toQuantity(stitched.toRefine)) }
                 .onFailure { listener.onLog("⚠ OCR — cross-check failed (${it.message}), keeping the VLM read") }
-                .getOrDefault(emptyMap())
-        } ?: emptyMap()
-        if (ocrReadings.isNotEmpty()) {
-            listener.onLog("· OCR — cross-checked ${ocrReadings.size} row(s) against the classical reader")
+                .getOrNull()
         }
-        val validated = Validation.validate(stitched, crossCheck, ocrReadings)
+        if (ocrResult != null) {
+            listener.onLog("· OCR — cross-checked ${ocrResult.readings.size} row(s) against the classical reader")
+        }
+        val validated = Validation.validate(
+            stitched,
+            crossCheck,
+            ocr = ocrResult?.readings ?: emptyMap(),
+            toRefineContested = ocrResult?.toRefineContested ?: false,
+            qtyOcrContested = ocrResult?.qtyContested ?: emptySet(),
+        )
         listener.onLog("✓ Stitch — ${validated.goods.size} row(s) from ${reads.size} read(s)")
         if (validated.warnings.isNotEmpty()) {
             listener.onLog("⚠ Validation — ${validated.warnings.joinToString(", ")}")
