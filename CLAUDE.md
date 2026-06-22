@@ -187,8 +187,9 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
 - Verify GUI changes by actually launching the app (Skiko/Compose init on the slim
   runtime is the thing that breaks), not just by passing tests.
 - **Star Citizen Fankit compliance:** the GUI footer (`CommunityDisclaimerFooter`) and the
-  README show the official *Made by the Community* logo
-  (`src/main/resources/MadeByTheCommunity_Black.png` = white-ink, **unaltered**: no
+  README show the official *Made by the Community* logo (GUI footer:
+  `src/main/composeResources/drawable/made_by_the_community_black.png`, loaded via the Compose
+  resources `Res`; README: the `docs/img/` copies — white-ink, **unaltered**: no
   recolor/flip/distort/effects, full opacity, proportional scale only) plus the required
   trademark notice (`Legal.TRADEMARK_NOTICE`, verbatim from the Fankit Guidelines, ≥10pt,
   always visible). Keep both wherever the SC brand is shown; don't change the notice
@@ -230,8 +231,14 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   `%TEMP%`, NOT the install dir (guardrail 2 — verified under the bundled module set). Models
   are committed to git; build-time fetch is an option if the repo should stay lean.
 - Gradle **configuration cache is off on purpose** (Compose jpackage tasks aren't
-  cc-safe). Don't enable it. The `compose.material3` deprecation warning is benign and
-  intentional (the explicit Material3 coordinate is only alpha).
+  cc-safe). Don't enable it.
+- **Material3 is pinned to an explicit coordinate** (`org.jetbrains.compose.material3:material3`,
+  stable since the alpha-only days the deprecated `compose.material3` DSL accessor was kept for) —
+  keep its version in step with the `org.jetbrains.compose` plugin when bumping either.
+- **Bundled drawables go through the Compose resources library:** images/SVGs live in
+  `src/main/composeResources/drawable/` (lowercase filenames) and are loaded via the generated
+  `Res` (`com.basetool.bpextractor.resources`) + `painterResource`, NOT the deprecated
+  `androidx.compose.ui.res.useResource`/`loadImageBitmap`/`loadSvgPainter`.
 
 ## When you change…
 

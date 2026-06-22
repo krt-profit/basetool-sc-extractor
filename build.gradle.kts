@@ -24,7 +24,13 @@ repositories {
 
 dependencies {
     implementation(compose.desktop.currentOs)
-    implementation(compose.material3)
+    // The `compose.material3` DSL accessor is deprecated; declare the dependency directly. 1.9.0 is
+    // the STABLE Material3 release the Compose 1.11.1 plugin maps to (no longer alpha) — keep it in
+    // step with the Compose plugin version when that bumps.
+    implementation("org.jetbrains.compose.material3:material3:1.9.0")
+    // Compose resources library — bundled images/SVGs via the generated `Res` + `painterResource`
+    // (replaces the deprecated androidx.compose.ui.res.useResource/loadImageBitmap/loadSvgPainter).
+    implementation(compose.components.resources)
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
     // Classical-OCR digit cross-check (PP-OCRv3 recognition via ONNX Runtime) — a decorrelated
@@ -39,7 +45,7 @@ dependencies {
 // matches the MSI version, with no hand-edited constant to drift out of sync. Generated into
 // build/ (gitignored),
 // regenerated whenever the version changes.
-val generateBuildInfo by tasks.registering {
+val generateBuildInfo = tasks.register("generateBuildInfo") {
     val versionValue = project.version.toString()
     val outDir = layout.buildDirectory.dir("generated/buildinfo/kotlin")
     inputs.property("version", versionValue)
@@ -70,6 +76,15 @@ kotlin {
 
 tasks.named("compileKotlin") {
     dependsOn(generateBuildInfo)
+}
+
+// Bundled drawables live in src/main/composeResources/drawable and are reached through the
+// generated `Res` class in this fixed package (so the imports below don't depend on the module
+// coordinate). Always generate the class — this is a JVM (not multiplatform) project.
+compose.resources {
+    publicResClass = false
+    packageOfResClass = "com.basetool.bpextractor.resources"
+    generateResClass = always
 }
 
 tasks.test {

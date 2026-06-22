@@ -373,8 +373,8 @@ basetool-bp-extractor/
 │   ├── ui/i18n/Strings.kt            # DE/EN-Stringkatalog
 │   ├── ui/WindowChrome.kt            # undekorierte Titelleiste + Fenster-Buttons
 │   └── model/Models.kt               # Blueprint-JSON-Datenmodelle
-├── src/main/resources/               # Fonts (Lato), app.ico, Prompt v1, honeycomb-bg.svg,
-│                                     #   icons/krt-icon.png, MadeByTheCommunity-Logo
+├── src/main/resources/               # Fonts (Lato), app.ico, Prompt v1, OCR-Modelle (ocr/)
+├── src/main/composeResources/drawable/ # honeycomb_bg.svg, krt_icon.png, Made-by-the-Community-Logo
 ├── src/test/kotlin/…                 # Unit-Tests
 ├── src/test/resources/sample.log     # Test-Fixture (Edge-Cases)
 ├── docs/refinery-extractor/          # Phase-0-Findings (Modell-Bake-off etc.)
@@ -394,8 +394,8 @@ Action-Hierarchie: genau **eine** gefüllte Orange-CTA pro Kontext („Blueprint
 extrahieren"), Sekundäraktionen als Ghost-Buttons, Labels neutral-grau.
 
 Das **KRT-Logo** dient als App-/Fenster-Icon (`app.ico` für Installer/Exe,
-`icons/krt-icon.png` fürs Fenster), und ein **dezenter Honeycomb-Hintergrund**
-(`honeycomb-bg.svg` — orange Hexagone bei 10 % Deckkraft) liegt als Textur hinter
+`composeResources/drawable/krt_icon.png` fürs Fenster), und ein **dezenter Honeycomb-Hintergrund**
+(`honeycomb_bg.svg` — orange Hexagone bei 10 % Deckkraft) liegt als Textur hinter
 dem Inhalt. Logo + Honeycomb (und **Lato**) stammen aus dem Skill
 `das-kartell-design/assets/`. Auf eine separate Display-Schrift wird bewusst
 verzichtet: Das Design-System ist **Lato-only** — die markenseitig vorgesehene,

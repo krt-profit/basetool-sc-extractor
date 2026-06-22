@@ -33,18 +33,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.res.loadImageBitmap
-import androidx.compose.ui.res.useResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import com.basetool.bpextractor.resources.Res
+import com.basetool.bpextractor.resources.krt_icon
+import com.basetool.bpextractor.resources.made_by_the_community_black
 import com.basetool.bpextractor.ui.CommandStrip
 import com.basetool.bpextractor.ui.CommunityDisclaimerFooter
 import com.basetool.bpextractor.ui.CtaButton
@@ -90,6 +90,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.jetbrains.compose.resources.painterResource
 import java.awt.Desktop
 import java.io.File
 
@@ -799,8 +800,8 @@ private fun guiMain() = application {
     // Locked decision (REDESIGN_IMPLEMENTATION.md): default window 1180×820, resizable
     // down to 640×520 (the ResizeCorner enforces the floor).
     val windowState = rememberWindowState(width = 1180.dp, height = 820.dp)
-    val appIcon = remember { useResource("icons/krt-icon.png") { BitmapPainter(loadImageBitmap(it)) } }
-    val communityLogo = remember { useResource("MadeByTheCommunity_Black.png") { BitmapPainter(loadImageBitmap(it)) } }
+    val appIcon = painterResource(Res.drawable.krt_icon)
+    val communityLogo = painterResource(Res.drawable.made_by_the_community_black)
     // Application-root scope for long-running work (extraction, model pull, export): it must
     // survive step/tab switches, which destroy the per-screen composables and would cancel any
     // scope remembered inside them. Hoisted above the Window so the window-level paste handler
