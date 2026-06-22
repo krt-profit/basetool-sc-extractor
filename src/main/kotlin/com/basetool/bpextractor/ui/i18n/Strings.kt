@@ -587,6 +587,10 @@ object StringsDe : Strings {
             "YIELD_RATIO_OUTLIER" -> "Ausbeute/Menge passt nicht zu den anderen Zeilen dieses Materials — Ziffern prüfen"
             "STITCH_CONTESTED" -> "Zeile in mehreren Screenshots unterschiedlich gelesen — Wert prüfen"
             "CHECKSUM_REPAIRED" -> "QTY-Ziffer automatisch über die TO-REFINE-Summe korrigiert — bitte prüfen"
+            "YIELD_REPAIRED" -> "Ausbeute-Ziffer automatisch über die Materialrate korrigiert — bitte prüfen"
+            "YIELD_OCR_REPAIRED" -> "Ausbeute-Ziffer per OCR-Abgleich (durch die Materialrate bestätigt) korrigiert — bitte prüfen"
+            "OCR_CORRECTED" -> "Qualität per 8b/4b/OCR-Mehrheit korrigiert — bitte prüfen"
+            "OCR_CONTESTED" -> "Qualität: Modelle/OCR widersprechen sich ohne Mehrheit — markierte Zeile prüfen"
             else -> warning
         }
     }
@@ -935,6 +939,10 @@ object StringsEn : Strings {
             "YIELD_RATIO_OUTLIER" -> "Yield/quantity doesn't fit this material's other rows — check the digits"
             "STITCH_CONTESTED" -> "Row read differently across screenshots — check the value"
             "CHECKSUM_REPAIRED" -> "A QTY digit was auto-corrected from the TO REFINE total — please verify"
+            "YIELD_REPAIRED" -> "A yield digit was auto-corrected from the material yield rate — please verify"
+            "YIELD_OCR_REPAIRED" -> "A yield digit was corrected via the OCR cross-read (confirmed by the material rate) — please verify"
+            "OCR_CORRECTED" -> "Quality corrected by 8b/4b/OCR majority — please verify"
+            "OCR_CONTESTED" -> "Quality: models/OCR disagree with no majority — review the flagged row"
             else -> warning
         }
     }

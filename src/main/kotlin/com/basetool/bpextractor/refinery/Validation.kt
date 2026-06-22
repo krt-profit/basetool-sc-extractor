@@ -77,6 +77,18 @@ enum class ExtractWarning {
     YIELD_REPAIRED,
 
     /**
+     * A YIELD cell was corrected by the classical-OCR cross-reader ([Validation.ocrYieldRepair]):
+     * the VLM read a yield that [yieldRepair] could NOT fix arithmetically (the deviation is inside
+     * the rate's few-percent noise floor), but OCR read a single CONFUSABLE-digit alternative that
+     * is ≤ qty (physics) AND lands STRICTLY closer to the material's per-row yield rate than the VLM
+     * read. This is exactly the "recoverable only from a better read" case [YIELD_REPAIRED]'s
+     * docstring names — OCR is that better read, here corroborated by physics + the rate before it
+     * overwrites. A correct yield sits ON the rate, so a confusable OCR misread of it is strictly
+     * FARTHER and is rejected: a correct cell can never be flipped (the safety crux).
+     */
+    YIELD_OCR_REPAIRED,
+
+    /**
      * A QUALITY cell was corrected by 8b/4b/OCR MAJORITY ([Validation.resolveQuality]): the
      * classical-OCR cross-reader ([OcrCrossCheck]) is a third, decorrelated vote on the QUALITY
      * column, which has no arithmetic anchor (the cross-model verify could only FLAG it). When the
@@ -362,6 +374,55 @@ object Validation {
         return result
     }
 
+    /**
+     * OCR-WITNESSED single-digit YIELD correction — the recovery [yieldRepair] abstains on.
+     * [yieldRepair] fires only on GROSS deviations (beyond the rate's few-percent noise floor); a
+     * within-noise last-digit flip (e.g. STILERON 2720 vs the rate-implied 2728) is invisible to
+     * arithmetic and "recoverable only from a better read". The classical-OCR cross-reader
+     * ([OcrCrossCheck]) IS that read. A refine-ON row's VLM yield is replaced by the OCR yield when
+     * ALL hold: the OCR value is a single CONFUSABLE-digit edit of the VLM value (same number bar one
+     * ambiguous glyph); it is ≤ qty (physics — output never exceeds input); and, using the per-material
+     * rate from ≥ 2 same-material ON siblings (leave-one-out), it lands within [YIELD_REPAIR_LANDING]
+     * of AND STRICTLY CLOSER to the rate-implied yield than the VLM value. The strict-closer test is
+     * the safety crux: a correct yield already sits ON the rate, so any confusable misread of it is
+     * strictly FARTHER and is rejected — only an off-the-rate VLM read is ever overwritten, never a
+     * correct one. Rows already corrected by the arithmetic [yieldRepair] ([alreadyFixed]) are skipped.
+     * Gated on rows that HAVE an OCR reading, so a build/run with no OCR models is byte-for-byte
+     * unchanged.
+     */
+    fun ocrYieldRepair(
+        goods: List<RefineryExtractGood>,
+        ocr: Map<Int, PanelOcr.RowReading>,
+        alreadyFixed: Set<Int> = emptySet(),
+    ): Map<Int, Long> {
+        val on = goods.filter { it.refine && (it.inputQuantity ?: 0L) > 0L && (it.outputQuantity ?: 0L) > 0L }
+        val result = mutableMapOf<Int, Long>()
+        for ((i, reading) in ocr) {
+            if (i in alreadyFixed) continue
+            val good = goods.getOrNull(i) ?: continue
+            if (!good.refine) continue
+            val qty = good.inputQuantity ?: continue
+            val vlmYield = good.outputQuantity ?: continue
+            if (qty <= 0L || vlmYield <= 0L) continue
+            val ocrYield = reading.yield_ ?: continue
+            if (ocrYield == vlmYield || ocrYield !in 1L..qty) continue          // physics: 1 ≤ yield ≤ qty
+            if (ocrYield !in confusableEdits(vlmYield)) continue                // one confusable-digit edit only
+            val siblingRates = on.filter {
+                it.rowIndex != good.rowIndex &&
+                    foldMaterial(it.rawMaterialName) == foldMaterial(good.rawMaterialName)
+            }.map { it.outputQuantity!!.toDouble() / it.inputQuantity!! }
+            if (siblingRates.size < 2) continue                                // need a trustworthy rate witness
+            val rate = median(siblingRates)
+            if (rate <= 0.0) continue
+            val implied = qty * rate
+            if (implied <= 0.0) continue
+            if (kotlin.math.abs(ocrYield - implied) / implied > YIELD_REPAIR_LANDING) continue   // OCR lands on the rate
+            if (kotlin.math.abs(ocrYield - implied) >= kotlin.math.abs(vlmYield - implied)) continue // STRICTLY closer
+            result[i] = ocrYield
+        }
+        return result
+    }
+
     /** The outcome of the QUALITY majority vote: auto-corrected values + unresolved-disagreement rows. */
     data class QualityResolution(val corrected: Map<Int, Int>, val contested: Set<Int>)
 
@@ -537,6 +598,25 @@ object Validation {
             for (i in goods.indices) {
                 yieldFix[goods[i].rowIndex]?.let { fixed ->
                     goods[i] = goods[i].copy(outputQuantity = fixed, confidence = CONFIDENCE_YIELD_REPAIRED)
+                }
+            }
+        }
+
+        // OCR-witnessed yield correction: the WITHIN-NOISE flips yieldRepair abstained on (e.g.
+        // STILERON 2720 -> rate-implied 2728), recovered from the classical-OCR read when its
+        // confusable single-digit alternative is ≤ qty AND lands STRICTLY closer to the material
+        // rate than the VLM value. Runs after yieldRepair (skips rows it already fixed); minOf so a
+        // row already capped lower (ratio-outlier 0.6, stitch-contested 0.75) is never RAISED — the
+        // warning still forces review. No-op when no OCR reading exists for the row.
+        val ocrYieldFix = ocrYieldRepair(goods, ocr, yieldFix.keys)
+        if (ocrYieldFix.isNotEmpty()) {
+            warnings += ExtractWarning.YIELD_OCR_REPAIRED
+            for (i in goods.indices) {
+                ocrYieldFix[goods[i].rowIndex]?.let { fixed ->
+                    goods[i] = goods[i].copy(
+                        outputQuantity = fixed,
+                        confidence = minOf(goods[i].confidence, CONFIDENCE_YIELD_REPAIRED),
+                    )
                 }
             }
         }

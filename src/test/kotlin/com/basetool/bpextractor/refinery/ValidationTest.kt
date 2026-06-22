@@ -476,4 +476,123 @@ class ValidationTest {
         assertFalse(ExtractWarning.OCR_CORRECTED in order.warnings)
         assertFalse(ExtractWarning.OCR_CONTESTED in order.warnings)
     }
+
+    // --- OCR-witnessed yield repair (ocrYieldRepair): the within-noise flips yieldRepair abstains on ---
+
+    private val stileronRows = listOf(
+        StitchedRow("STILERON (ORE)", "330", "6062", "2720", "ON", "a.png", quotedRead = true),
+        StitchedRow("STILERON (ORE)", "517", "3193", "1437", "ON", "a.png", quotedRead = true),
+        StitchedRow("STILERON (ORE)", "874", "426", "191", "ON", "a.png", quotedRead = true),
+        StitchedRow("STILERON (ORE)", "947", "386", "174", "ON", "a.png", quotedRead = true),
+    )
+
+    @Test
+    fun `a within-noise yield flip is corrected from the OCR read confirmed by the material rate`() {
+        // A15 STILERON: the 6062-qty row reads yield 2720; the siblings' rate (~0.450) implies ~2728,
+        // a within-noise gap yieldRepair abstains on. OCR read 2728 — a confusable 0->8 edit, <= qty,
+        // and STRICTLY closer to the rate — so it is adopted.
+        val ocr = mapOf(0 to PanelOcr.RowReading(quality = 330L, qty = 6062L, yield_ = 2728L))
+
+        val order = Validation.validate(stitched(stileronRows, toRefine = "10067"), ocr = ocr)
+
+        assertEquals(2728L, order.goods.single { it.inputQuantity == 6062L }.outputQuantity, "2720 -> 2728 via OCR + rate")
+        assertTrue(ExtractWarning.YIELD_OCR_REPAIRED in order.warnings)
+        assertEquals(Validation.CONFIDENCE_YIELD_REPAIRED, order.goods[0].confidence)
+        assertFalse(ExtractWarning.YIELD_REPAIRED in order.warnings, "the arithmetic path correctly abstained")
+    }
+
+    @Test
+    fun `an OCR yield farther from the rate than the VLM read is rejected`() {
+        // Mirror image: the VLM reads the correct 2728 (on the rate); OCR mis-reads 2720 (a confusable
+        // edit, but FARTHER from the rate). The strict-closer gate rejects it — a correct cell is never flipped.
+        val rows = stileronRows.toMutableList().also { it[0] = it[0].copy(yield_ = "2728") }
+        val ocr = mapOf(0 to PanelOcr.RowReading(quality = 330L, qty = 6062L, yield_ = 2720L))
+
+        val order = Validation.validate(stitched(rows, toRefine = "10067"), ocr = ocr)
+
+        assertEquals(2728L, order.goods[0].outputQuantity)
+        assertFalse(ExtractWarning.YIELD_OCR_REPAIRED in order.warnings)
+    }
+
+    @Test
+    fun `a non-confusable OCR yield difference is not adopted`() {
+        // OCR reads 2725 — not a single CONFUSABLE-digit edit of 2720 (5 is outside the 0/6/8/9 family),
+        // so it is not treated as the same number mis-read and the VLM value stands.
+        val ocr = mapOf(0 to PanelOcr.RowReading(quality = 330L, qty = 6062L, yield_ = 2725L))
+
+        val order = Validation.validate(stitched(stileronRows, toRefine = "10067"), ocr = ocr)
+
+        assertEquals(2720L, order.goods[0].outputQuantity)
+        assertFalse(ExtractWarning.YIELD_OCR_REPAIRED in order.warnings)
+    }
+
+    @Test
+    fun `an OCR yield correction needs two same-material siblings for the rate`() {
+        // Only one sibling -> no trustworthy rate witness -> abstain even though OCR read a confusable edit.
+        val rows = stileronRows.take(2)
+        val ocr = mapOf(0 to PanelOcr.RowReading(quality = 330L, qty = 6062L, yield_ = 2728L))
+
+        val order = Validation.validate(stitched(rows, toRefine = "10067"), ocr = ocr)
+
+        assertEquals(2720L, order.goods[0].outputQuantity)
+        assertFalse(ExtractWarning.YIELD_OCR_REPAIRED in order.warnings)
+    }
+
+    @Test
+    fun `an OCR yield that does not land on the material rate is rejected`() {
+        // Siblings imply a ~0.40 rate (6062*0.40 ~= 2425); OCR's 2728 is a confusable edit of 2720 but
+        // lands far from the rate-implied yield (> the landing band), so it is not trusted.
+        val rows = listOf(
+            StitchedRow("STILERON (ORE)", "330", "6062", "2720", "ON", "a.png", quotedRead = true),
+            StitchedRow("STILERON (ORE)", "517", "1000", "400", "ON", "a.png", quotedRead = true),
+            StitchedRow("STILERON (ORE)", "874", "500", "200", "ON", "a.png", quotedRead = true),
+        )
+        val ocr = mapOf(0 to PanelOcr.RowReading(quality = 330L, qty = 6062L, yield_ = 2728L))
+
+        val order = Validation.validate(stitched(rows, toRefine = "99999"), ocr = ocr)
+
+        assertEquals(2720L, order.goods[0].outputQuantity)
+        assertFalse(ExtractWarning.YIELD_OCR_REPAIRED in order.warnings)
+    }
+
+    @Test
+    fun `a gross yield already fixed arithmetically is not re-touched by the OCR repair`() {
+        // BORASE 385 is a GROSS mis-read yieldRepair fixes to 365; an OCR reading for the same row must
+        // not double-fire (alreadyFixed) — YIELD_REPAIRED owns it, not YIELD_OCR_REPAIRED.
+        val rows = listOf(
+            StitchedRow("BORASE (ORE)", "359", "751", "385", "ON", "a.png", quotedRead = true),
+            StitchedRow("BORASE (ORE)", "584", "26", "12", "ON", "a.png", quotedRead = true),
+            StitchedRow("BORASE (ORE)", "892", "591", "287", "ON", "a.png", quotedRead = true),
+        )
+        val ocr = mapOf(0 to PanelOcr.RowReading(quality = 359L, qty = 751L, yield_ = 365L))
+
+        val order = Validation.validate(stitched(rows, toRefine = "1368"), ocr = ocr)
+
+        assertEquals(365L, order.goods.single { it.inputQuantity == 751L }.outputQuantity)
+        assertTrue(ExtractWarning.YIELD_REPAIRED in order.warnings)
+        assertFalse(ExtractWarning.YIELD_OCR_REPAIRED in order.warnings)
+    }
+
+    @Test
+    fun `the OCR yield repair corrects the value but never raises a row already capped lower`() {
+        // A fixable row that is ALSO stitch-contested (capped 0.75): the yield IS corrected, but minOf
+        // keeps the confidence at its lower cap — the warning still forces review.
+        val rows = stileronRows.toMutableList().also { it[0] = it[0].copy(contested = true) }
+        val ocr = mapOf(0 to PanelOcr.RowReading(quality = 330L, qty = 6062L, yield_ = 2728L))
+
+        val order = Validation.validate(stitched(rows, toRefine = "10067"), ocr = ocr)
+
+        assertEquals(2728L, order.goods[0].outputQuantity, "value still corrected")
+        assertEquals(Validation.CONFIDENCE_STITCH_CONTESTED, order.goods[0].confidence, "confidence not raised above its cap")
+        assertTrue(ExtractWarning.YIELD_OCR_REPAIRED in order.warnings)
+    }
+
+    @Test
+    fun `with no OCR reading the within-noise yield flip stays as read`() {
+        // The no-OCR no-op: same STILERON rows, no ocr arg -> ocrYieldRepair is a no-op, 2720 stands.
+        val order = Validation.validate(stitched(stileronRows, toRefine = "10067"))
+
+        assertEquals(2720L, order.goods[0].outputQuantity)
+        assertFalse(ExtractWarning.YIELD_OCR_REPAIRED in order.warnings)
+    }
 }
