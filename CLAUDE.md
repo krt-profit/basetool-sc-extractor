@@ -211,11 +211,24 @@ Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows
   nothing on the system — keep building the MSI via the script, not
   `gradlew packageMsi`.
 - **Slim runtime:** the bundle is *not* all-modules. `modules("java.instrument",
-  "jdk.unsupported")` plus the plugin's auto-detected base set. If you add a dependency
-  that needs another JDK module, re-run `gradlew suggestRuntimeModules`, add it, rebuild,
-  **and re-launch the GUI** to confirm the slim runtime still boots.
+  "jdk.unsupported", "java.net.http", "jdk.management")` plus the plugin's auto-detected base
+  set. If you add a dependency that needs another JDK module, re-run
+  `gradlew suggestRuntimeModules`, add it, rebuild, **and re-launch the GUI** to confirm the
+  slim runtime still boots. (The bundled runtime ships no standalone `java.exe` — jpackage
+  strips launchers — so to test a dep on the slim module set non-interactively, run the full
+  JDK with `--limit-modules <the runtime/release MODULES list>`.)
 - `--enable-native-access=ALL-UNNAMED` (in `jvmArgs`) silences JDK 25's native-access
-  warnings from Skiko's `System.load()` — keep it.
+  warnings from `System.load()` — used by **both** Skiko's renderer **and** ONNX Runtime
+  (the refinery OCR cross-reader). Keep it.
+- **Bundled OCR models + ONNX Runtime:** the refinery extractor runs a local classical-OCR
+  cross-check (`TextDetector`/`DigitOcr`/`PanelOcr`, PP-OCRv3 via the
+  `com.microsoft.onnxruntime:onnxruntime` dep) as a decorrelated third reader for the numeric
+  cells the VLM mis-reads. The two PP-OCRv3 ONNX models (~12.5 MB, Apache-2.0) ship as
+  `src/main/resources/ocr/` classpath resources and are loaded by `OcrModels` lazily via
+  `createSession(bytes)` (env `OCR_MODELS_DIR` override for dev). `suggestRuntimeModules` is
+  UNCHANGED by onnxruntime (it needs no extra jlink module) and its native libs extract to
+  `%TEMP%`, NOT the install dir (guardrail 2 — verified under the bundled module set). Models
+  are committed to git; build-time fetch is an option if the repo should stay lean.
 - Gradle **configuration cache is off on purpose** (Compose jpackage tasks aren't
   cc-safe). Don't enable it. The `compose.material3` deprecation warning is benign and
   intentional (the explicit Material3 coordinate is only alpha).

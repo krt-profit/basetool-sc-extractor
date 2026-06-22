@@ -150,6 +150,41 @@ object Stitcher {
     /** True when the row carries a quoted yield value (not the `--` marker, not unreadable). */
     private fun hasQuotedYield(row: PanelRow): Boolean = row.yield_ != null && row.yield_ != "--"
 
+    /** The SC HUD font's round/loopy digit confusions — mirrors [Validation]'s CONFUSABLE_DIGITS. */
+    private val CONFUSABLE_HUD_DIGITS = setOf('0', '6', '8', '9')
+
+    /**
+     * Whether two boundary rows are the SAME physical seam row re-read across the scroll overlap,
+     * for the case overlap() cannot detect: a refine-OFF row (no positive yield to anchor on) whose
+     * quality AND/OR qty were mis-read. Requires the folded names to match, BOTH reads to be OFF
+     * (a positive yield is the yieldAnchor's job, and an ON row's qty feeds the checksum and must
+     * not be guessed at), and each numeric cell to be equal or a single confusable-digit edit
+     * apart — with at least one cell actually differing (an exact match is overlap()'s job).
+     */
+    private fun seamReconcilable(a: PanelRow, b: PanelRow): Boolean {
+        if (foldName(a.name) != foldName(b.name)) return false
+        if (hasQuotedYield(a) || hasQuotedYield(b)) return false
+        if (!numericSeamMatch(a.quality, b.quality) || !numericSeamMatch(a.qty, b.qty)) return false
+        return a.quality != b.quality || a.qty != b.qty
+    }
+
+    /** Two numeric cells align at a seam: both present and equal, or a single confusable-digit edit apart. */
+    private fun numericSeamMatch(a: String?, b: String?): Boolean =
+        a != null && b != null && (a == b || withinOneConfusableDigitEdit(a, b))
+
+    /** Same length, exactly one position differs, and BOTH differing digits are HUD-confusable. */
+    private fun withinOneConfusableDigitEdit(a: String, b: String): Boolean {
+        if (a.length != b.length) return false
+        var diff = -1
+        for (i in a.indices) {
+            if (a[i] != b[i]) {
+                if (diff >= 0) return false
+                diff = i
+            }
+        }
+        return diff >= 0 && a[diff] in CONFUSABLE_HUD_DIGITS && b[diff] in CONFUSABLE_HUD_DIGITS
+    }
+
     /** One assembled fragment: rows + (parallel) source-image names + quoted-/contested-state per row. */
     private data class Fragment(
         val rows: MutableList<PanelRow>,
@@ -218,7 +253,31 @@ object Stitcher {
                 }
                 if (bestK > 0) break
             }
-            if (bestK == 0) break
+            if (bestK == 0) {
+                // Seam reconciliation (last resort): consecutive scroll captures overlap by ~1
+                // row by construction, but a refine-OFF seam row (no positive-yield anchor) whose
+                // quality AND qty are both mis-read in ONE capture defeats overlap() entirely and
+                // would export twice (Auftrag 15 TARANITE: 310/290 in one capture, 318/298 in the
+                // next). Align the boundary pair (last row of A, first of B) on the folded name
+                // when each numeric cell is equal or a single CONFUSABLE-digit edit apart; merge
+                // with k=1 and let cellsContested mark it so the review looks. The OFF-row analogue
+                // of the positive-yield seam anchor in sameRow() — gated to the no-overlap case so
+                // it can never re-merge rows a real overlap already aligned.
+                var reconciled = false
+                seam@ for (a in fragments.indices) {
+                    for (b in fragments.indices) {
+                        if (a == b) continue
+                        if (seamReconcilable(fragments[a].rows.last(), fragments[b].rows.first())) {
+                            val seamMerged = merge(fragments[a], fragments[b], 1, loose = true)
+                            fragments = fragments.filterIndexed { i, _ -> i != a && i != b } + seamMerged
+                            reconciled = true
+                            break@seam
+                        }
+                    }
+                }
+                if (!reconciled) break
+                continue
+            }
             val merged = merge(fragments[bestA], fragments[bestB], bestK, bestLoose)
             fragments = fragments.filterIndexed { i, _ -> i != bestA && i != bestB } + merged
         }

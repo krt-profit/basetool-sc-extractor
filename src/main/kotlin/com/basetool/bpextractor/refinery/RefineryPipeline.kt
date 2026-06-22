@@ -81,6 +81,12 @@ class RefineryPipeline(
      * per run instead of one per image (the swap, not the read, is what costs time).
      */
     private val verifyModel: String? = null,
+    /**
+     * Classical-OCR cross-reader provider ([OcrCrossCheck], default the bundled [OcrModels]).
+     * Resolved lazily on the first run so a blueprint-only session never loads the models, and
+     * injectable as `{ null }` so unit tests stay fast and offline (no ONNX). Null ⇒ no OCR pass.
+     */
+    private val ocr: () -> PanelOcr? = { OcrModels.get() },
 ) {
 
     /**
@@ -97,6 +103,8 @@ class RefineryPipeline(
         val outcomes = mutableListOf<ImageOutcome>()
         // Prepared read images kept for the verify pass (name → base64 PNG); empty when off.
         val verifyQueue = mutableListOf<Pair<String, String>>()
+        // Prepared panels kept for the classical-OCR cross-check (name → normalized panel image).
+        val panels = mutableMapOf<String, BufferedImage>()
         var location: String? = null
         var locationRead = false
 
@@ -120,6 +128,7 @@ class RefineryPipeline(
 
             listener.onStage(index, name, PipelineStage.NORMALIZE)
             val prepared = Locate.prepare(input.image, box)
+            panels[name] = prepared.readImage
             listener.onLog("· Normalize — $name: ${prepared.readImage.width}×${prepared.readImage.height} (${prepared.cropMode})")
 
             listener.onStage(index, name, PipelineStage.READ)
@@ -170,7 +179,18 @@ class RefineryPipeline(
         if (crossCheck != null) {
             stitched = stitched.copy(rows = crossCheck.rows)
         }
-        val validated = Validation.validate(stitched, crossCheck)
+        // Classical-OCR cross-check (a decorrelated third vote on the QUALITY column): runs only
+        // when the bundled models are available, on the FINAL stitched rows, matched by the QTY
+        // anchor. Best-effort — any failure degrades to "no OCR" and the VLM result stands.
+        val ocrReadings = ocr()?.let { engine ->
+            runCatching { OcrCrossCheck.read(stitched.rows, panels, engine) }
+                .onFailure { listener.onLog("⚠ OCR — cross-check failed (${it.message}), keeping the VLM read") }
+                .getOrDefault(emptyMap())
+        } ?: emptyMap()
+        if (ocrReadings.isNotEmpty()) {
+            listener.onLog("· OCR — cross-checked ${ocrReadings.size} row(s) against the classical reader")
+        }
+        val validated = Validation.validate(stitched, crossCheck, ocrReadings)
         listener.onLog("✓ Stitch — ${validated.goods.size} row(s) from ${reads.size} read(s)")
         if (validated.warnings.isNotEmpty()) {
             listener.onLog("⚠ Validation — ${validated.warnings.joinToString(", ")}")

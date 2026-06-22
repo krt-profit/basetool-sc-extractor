@@ -36,6 +36,11 @@ object CrossModelVerify {
         val corrected: Set<Int>,
         /** False when the row sets did not align — no cell comparison was possible. */
         val comparable: Boolean,
+        /**
+         * The verify model's aligned rows (index-parallel to [rows]) — the second vote for the
+         * QUALITY majority in [Validation]; empty when the row sets did not align ([comparable]).
+         */
+        val secondaryRows: List<StitchedRow> = emptyList(),
     )
 
     /** Merge [primary] (authoritative) with the [secondary] verify read. */
@@ -90,7 +95,7 @@ object CrossModelVerify {
             }
             rows[i] = row
         }
-        return Outcome(rows, contested, corrected, comparable = true)
+        return Outcome(rows, contested, corrected, comparable = true, secondaryRows = secondary.rows)
     }
 
     private enum class Arbitration { PRIMARY, SECONDARY, UNDECIDED }

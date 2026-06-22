@@ -69,6 +69,41 @@ class ValidationTest {
     }
 
     @Test
+    fun `a grossly mis-read yield is deterministically repaired from the material rate`() {
+        // A14 BORASE: three ON rows of one material set the per-row rate (~0.486). The 751-qty row's
+        // yield is mis-read 385 (truth 365). The two siblings give the rate, 385->365 is the unique
+        // confusable single-digit edit landing on the implied yield (≤ qty), so the OUTPUT is fixed.
+        val rows = listOf(
+            StitchedRow("BORASE (ORE)", "359", "751", "385", "ON", "a.png", quotedRead = true),
+            StitchedRow("BORASE (ORE)", "584", "26", "12", "ON", "a.png", quotedRead = true),
+            StitchedRow("BORASE (ORE)", "892", "591", "287", "ON", "a.png", quotedRead = true),
+        )
+        val order = Validation.validate(stitched(rows, toRefine = "1368"))
+
+        val repaired = order.goods.single { it.inputQuantity == 751L }
+        assertEquals(365L, repaired.outputQuantity, "385 -> 365 via the material rate witness")
+        assertEquals(Validation.CONFIDENCE_YIELD_REPAIRED, repaired.confidence)
+        assertTrue(ExtractWarning.YIELD_REPAIRED in order.warnings)
+    }
+
+    @Test
+    fun `a within-noise yield flip is left as read, never repaired`() {
+        // A15 STILERON: the read yield 2720 is ~0.3% off the rate-implied 2728 — inside the rate's
+        // noise floor. Arithmetic cannot tell 2720 from 2728, so yieldRepair MUST abstain (no false
+        // fix): the recovery for such last-digit flips is a better read, not the rate.
+        val rows = listOf(
+            StitchedRow("STILERON (ORE)", "330", "6062", "2720", "ON", "a.png", quotedRead = true),
+            StitchedRow("STILERON (ORE)", "517", "3193", "1437", "ON", "a.png", quotedRead = true),
+            StitchedRow("STILERON (ORE)", "874", "426", "191", "ON", "a.png", quotedRead = true),
+            StitchedRow("STILERON (ORE)", "947", "386", "174", "ON", "a.png", quotedRead = true),
+        )
+        val order = Validation.validate(stitched(rows, toRefine = "10067"))
+
+        assertEquals(2720L, order.goods.single { it.inputQuantity == 6062L }.outputQuantity)
+        assertFalse(ExtractWarning.YIELD_REPAIRED in order.warnings)
+    }
+
+    @Test
     fun `an unreadable refine toggle defaults to ON at low confidence`() {
         val row = StitchedRow("LINDINIUM (ORE)", "618", "957", "448", "0N?", "a.png", quotedRead = true)
 
@@ -363,5 +398,82 @@ class ValidationTest {
         val order = Validation.validate(stitched(rows))
 
         assertEquals(listOf(0, 1), order.goods.map { it.rowIndex })
+    }
+
+    @Test
+    fun `the verify model and OCR outvote a primary quality mis-read`() {
+        // A14 RICCITE: the primary VLM read quality 985; the verify model and OCR both read 965 —
+        // a 2-of-3 majority on the column with no arithmetic anchor, so the export is corrected.
+        val primary = listOf(StitchedRow("RICCITE (ORE)", "985", "261", "117", "ON", "a.png", quotedRead = true))
+        val secondary = listOf(StitchedRow("RICCITE (ORE)", "965", "261", "117", "ON", "a.png", quotedRead = true))
+        val outcome = CrossModelVerify.Outcome(primary, emptySet(), emptySet(), comparable = true, secondaryRows = secondary)
+        val ocr = mapOf(0 to PanelOcr.RowReading(quality = 965L, qty = 261L, yield_ = 117L))
+
+        val order = Validation.validate(stitched(primary, toRefine = "99999"), outcome, ocr)
+
+        assertEquals(965, order.goods[0].quality, "985 -> 965 by 8b/4b/OCR majority")
+        assertTrue(ExtractWarning.OCR_CORRECTED in order.warnings)
+        assertEquals(Validation.CONFIDENCE_OCR_CORRECTED, order.goods[0].confidence)
+    }
+
+    @Test
+    fun `a lone OCR quality error is outvoted and never reaches the export`() {
+        // LARANITE: the primary and verify model both read 510 (correct); OCR mis-reads 518 (its
+        // documented confusion). 2-of-3 back 510, so OCR is outvoted — no change, no flag.
+        val primary = listOf(StitchedRow("LARANITE (RAW)", "510", "569", "274", "ON", "a.png", quotedRead = true))
+        val secondary = listOf(StitchedRow("LARANITE (RAW)", "510", "569", "274", "ON", "a.png", quotedRead = true))
+        val outcome = CrossModelVerify.Outcome(primary, emptySet(), emptySet(), comparable = true, secondaryRows = secondary)
+        val ocr = mapOf(0 to PanelOcr.RowReading(quality = 518L, qty = 569L, yield_ = 274L))
+
+        val order = Validation.validate(stitched(primary, toRefine = "99999"), outcome, ocr)
+
+        assertEquals(510, order.goods[0].quality)
+        assertFalse(ExtractWarning.OCR_CORRECTED in order.warnings)
+        assertFalse(ExtractWarning.OCR_CONTESTED in order.warnings)
+        assertEquals(Validation.CONFIDENCE_OK, order.goods[0].confidence)
+    }
+
+    @Test
+    fun `without a verify vote a primary-OCR quality split is flagged, not corrected`() {
+        // Verify model off (no secondary): only the primary (510) and OCR (518) vote and they
+        // differ — no majority, so the cell is flagged for review and the primary value stands.
+        val primary = listOf(StitchedRow("LARANITE (RAW)", "510", "296", "142", "ON", "a.png", quotedRead = true))
+        val ocr = mapOf(0 to PanelOcr.RowReading(quality = 518L, qty = 296L, yield_ = 142L))
+
+        val order = Validation.validate(stitched(primary, toRefine = "99999"), crossCheck = null, ocr = ocr)
+
+        assertEquals(510, order.goods[0].quality, "no majority -> the primary value is kept")
+        assertTrue(ExtractWarning.OCR_CONTESTED in order.warnings)
+        assertEquals(Validation.CONFIDENCE_OCR_CONTESTED, order.goods[0].confidence)
+    }
+
+    @Test
+    fun `a verify dissent the OCR vote does not join leaves the primary confirmed`() {
+        // Primary 858 and OCR 858 agree; the verify model alone read 850. 2-of-3 back 858 (the
+        // primary) — confirmed, no correction and no flag.
+        val primary = listOf(StitchedRow("TUNGSTEN (ORE)", "858", "850", "413", "ON", "a.png", quotedRead = true))
+        val secondary = listOf(StitchedRow("TUNGSTEN (ORE)", "850", "850", "413", "ON", "a.png", quotedRead = true))
+        val outcome = CrossModelVerify.Outcome(primary, emptySet(), emptySet(), comparable = true, secondaryRows = secondary)
+        val ocr = mapOf(0 to PanelOcr.RowReading(quality = 858L, qty = 850L, yield_ = 413L))
+
+        val order = Validation.validate(stitched(primary, toRefine = "99999"), outcome, ocr)
+
+        assertEquals(858, order.goods[0].quality)
+        assertFalse(ExtractWarning.OCR_CORRECTED in order.warnings)
+        assertFalse(ExtractWarning.OCR_CONTESTED in order.warnings)
+    }
+
+    @Test
+    fun `a row the VLM read with no quality is left untouched by the OCR vote`() {
+        // INERT MATERIALS carries no quality cell (primary quality null); even with an OCR quality
+        // reading the majority vote skips it — the tool never invents a quality the VLM didn't read.
+        val primary = listOf(StitchedRow("INERT MATERIALS", null, "759", null, "OFF", "a.png", quotedRead = true))
+        val ocr = mapOf(0 to PanelOcr.RowReading(quality = 500L, qty = 759L, yield_ = null))
+
+        val order = Validation.validate(stitched(primary, toRefine = "99999"), crossCheck = null, ocr = ocr)
+
+        assertEquals(null, order.goods[0].quality)
+        assertFalse(ExtractWarning.OCR_CORRECTED in order.warnings)
+        assertFalse(ExtractWarning.OCR_CONTESTED in order.warnings)
     }
 }

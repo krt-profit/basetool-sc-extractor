@@ -75,6 +75,7 @@ class RefineryPipelineTest {
             now = fixedNow,
             isActive = isActive,
             verifyModel = verifyModel,
+            ocr = { null }, // unit tests stay offline — no ONNX models loaded
         )
 
     /** A dark full frame (no colour anchors → verified fallback geometry, still a full frame). */
