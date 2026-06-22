@@ -41,6 +41,12 @@ object CrossModelVerify {
          * QUALITY majority in [Validation]; empty when the row sets did not align ([comparable]).
          */
         val secondaryRows: List<StitchedRow> = emptyList(),
+        /**
+         * The two models read DIFFERENT TO_REFINE header totals — one of them mis-read the
+         * load-bearing checksum anchor. [Validation] folds this into the OCR header cross-check and
+         * makes the qty checksum-repair abstain rather than repair against a suspect total.
+         */
+        val headerToRefineContested: Boolean = false,
     )
 
     /** Merge [primary] (authoritative) with the [secondary] verify read. */
@@ -95,7 +101,14 @@ object CrossModelVerify {
             }
             rows[i] = row
         }
-        return Outcome(rows, contested, corrected, comparable = true, secondaryRows = secondary.rows)
+        // The two models' TO_REFINE totals: a numeric disagreement means one mis-read the anchor.
+        val pT = PanelValues.toQuantity(primary.toRefine)
+        val sT = PanelValues.toQuantity(secondary.toRefine)
+        val headerContested = pT != null && sT != null && pT != sT
+        return Outcome(
+            rows, contested, corrected, comparable = true,
+            secondaryRows = secondary.rows, headerToRefineContested = headerContested,
+        )
     }
 
     private enum class Arbitration { PRIMARY, SECONDARY, UNDECIDED }

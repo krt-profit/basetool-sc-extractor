@@ -114,11 +114,24 @@ class PromptSmokeTest {
                     report.appendLine("  VERIFY ($verifyName) incomplete second read — skipped")
                 }
             }
-            // Classical-OCR cross-check (env OCR_MODELS_DIR or bundled), mirroring RefineryPipeline:
-            // a decorrelated third vote on the QUALITY column over the final stitched rows.
-            val ocrReadings = OcrModels.get()?.let { ocr -> OcrCrossCheck.read(stitched.rows, panels, ocr) } ?: emptyMap()
-            if (ocrReadings.isNotEmpty()) report.appendLine("  OCR cross-checked ${ocrReadings.size} row(s)")
-            val validated = Validation.validate(stitched, crossCheck, ocrReadings)
+            // Classical-OCR cross-check (env OCR_MODELS_DIR or bundled), mirroring RefineryPipeline.
+            val ocrResult = OcrModels.get()?.let { ocr ->
+                OcrCrossCheck.read(stitched.rows, panels, ocr, PanelValues.toQuantity(stitched.toRefine))
+            }
+            if (ocrResult != null) {
+                report.appendLine(
+                    "  OCR cross-checked ${ocrResult.readings.size} row(s)" +
+                        (if (ocrResult.toRefineContested) " [TO_REFINE contested]" else "") +
+                        (if (ocrResult.qtyContested.isNotEmpty()) " [qtyContested=${ocrResult.qtyContested}]" else ""),
+                )
+            }
+            val validated = Validation.validate(
+                stitched,
+                crossCheck,
+                ocr = ocrResult?.readings ?: emptyMap(),
+                toRefineContested = ocrResult?.toRefineContested ?: false,
+                qtyOcrContested = ocrResult?.qtyContested ?: emptySet(),
+            )
             report.appendLine(
                 "  VALIDATED quoted=${validated.quoted} toRefine=${validated.toRefineTotal} " +
                     "warnings=${validated.warnings}",

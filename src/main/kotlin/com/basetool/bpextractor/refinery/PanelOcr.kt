@@ -35,12 +35,52 @@ class PanelOcr private constructor(
     /** One table row's numeric columns as read by OCR; any column may be absent. */
     data class RowReading(val quality: Long?, val qty: Long?, val yield_: Long?)
 
+    /**
+     * Everything one panel yields in a SINGLE detect+recognize pass: the per-row [RowReading]s (as
+     * [readRows]), the QTY-column values INCLUDING lone cells [readRows] drops (an OFF row like INERT
+     * has a qty but no quality, so it forms no RowReading — yet its qty is a real qty-column value),
+     * and every numeric value anywhere on the panel (header totals, cost, balance, …) for the
+     * header-anchor cross-check. Run once per panel and reuse — the ONNX passes are the cost.
+     */
+    data class PanelNumbers(
+        val rows: List<RowReading>,
+        val qtyColumn: List<Long>,
+        val allNumbers: Set<Long>,
+    )
+
     /** Detect + recognize every numeric cell in the panel (unordered). */
     private fun numericCells(panel: BufferedImage): List<NumCell> =
         detector.detect(panel).mapNotNull { box ->
             val digits = reader.readNumber(crop(panel, box))
             if (digits.isEmpty()) null else NumCell(box, digits)
         }
+
+    /** Single-pass read of [rows] + the QTY-column values (incl. lone cells) + all numbers. */
+    fun readPanel(panel: BufferedImage): PanelNumbers {
+        val cells = numericCells(panel)
+        val allNumbers = cells.mapNotNull { it.digits.toLongOrNull() }.toSet()
+        val rows = clusterRows(cells)
+        val cols = dataColumns(rows) ?: return PanelNumbers(emptyList(), emptyList(), allNumbers)
+        val readings = mutableListOf<RowReading>()
+        for (row in rows) {
+            val assign = arrayOfNulls<Long>(3)
+            for (cell in row) {
+                val ci = (0..2).minByOrNull { abs(cell.cx - cols[it]) }!!
+                if (abs(cell.cx - cols[ci]) < COL_TOLERANCE && cell.digits.toLongOrNull() != null) {
+                    assign[ci] = cell.value
+                }
+            }
+            if (assign[0] != null && assign[1] != null) {
+                readings += RowReading(quality = assign[0], qty = assign[1], yield_ = assign[2])
+            }
+        }
+        // Every numeric cell (incl. lone ones like INERT's qty) whose nearest column is QTY (centre 1).
+        val qtyColumn = cells.filter { cell ->
+            cell.digits.toLongOrNull() != null &&
+                (0..2).minByOrNull { abs(cell.cx - cols[it]) } == 1 && abs(cell.cx - cols[1]) < COL_TOLERANCE
+        }.map { it.value }
+        return PanelNumbers(readings, qtyColumn, allNumbers)
+    }
 
     /**
      * Read the panel into rows of numeric cells (top→bottom rows, left→right cells) — the raw grid
@@ -58,24 +98,7 @@ class PanelOcr private constructor(
      * Returns one [RowReading] per data row, top→bottom; the caller matches them to the VLM rows by
      * the QTY anchor (OCR's most reliable column), so a missing/extra row never shifts the others.
      */
-    fun readRows(panel: BufferedImage): List<RowReading> {
-        val rows = clusterRows(numericCells(panel))
-        val cols = dataColumns(rows) ?: return emptyList()
-        val out = mutableListOf<RowReading>()
-        for (row in rows) {
-            val assign = arrayOfNulls<Long>(3)
-            for (cell in row) {
-                val ci = (0..2).minByOrNull { abs(cell.cx - cols[it]) }!!
-                if (abs(cell.cx - cols[ci]) < COL_TOLERANCE && cell.digits.toLongOrNull() != null) {
-                    assign[ci] = cell.value
-                }
-            }
-            if (assign[0] != null && assign[1] != null) {
-                out += RowReading(quality = assign[0], qty = assign[1], yield_ = assign[2])
-            }
-        }
-        return out
-    }
+    fun readRows(panel: BufferedImage): List<RowReading> = readPanel(panel).rows
 
     /**
      * The three data-column x-centres (sorted L→R) or null when the panel has too few cells. Cell
