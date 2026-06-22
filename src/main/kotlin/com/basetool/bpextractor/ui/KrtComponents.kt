@@ -43,13 +43,13 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.loadSvgPainter
-import androidx.compose.ui.res.useResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.Legal
+import com.basetool.bpextractor.resources.Res
+import com.basetool.bpextractor.resources.honeycomb_bg
+import org.jetbrains.compose.resources.painterResource
 
 /**
  * The signature container: hairline border + two diagonal orange corner brackets
@@ -393,10 +393,7 @@ fun StatusDot(color: Color) {
 
 /** Loads the brand honeycomb tile (orange hexagons at 0.1 opacity) as a painter. */
 @Composable
-fun rememberHoneycombPainter(): Painter {
-    val density = LocalDensity.current
-    return remember(density) { useResource("honeycomb-bg.svg") { loadSvgPainter(it, density) } }
-}
+fun rememberHoneycombPainter(): Painter = painterResource(Res.drawable.honeycomb_bg)
 
 /**
  * Tiles [painter] across the whole drawing area behind the content — the subtle HUD
@@ -423,7 +420,7 @@ fun Modifier.tiled(painter: Painter): Modifier = this.drawBehind {
  * distorted or shadowed) alongside the required trademark notice, as mandated by the
  * Star Citizen Fankit Guidelines (logo in a corner at ≥50% opacity + the trademark
  * notice in a legible size/color, visible regardless of scrolling). [logo] must be the
- * white-ink variant (`MadeByTheCommunity_Black.png`) so it reads on the dark HUD.
+ * white-ink variant (`drawable/made_by_the_community_black.png`) so it reads on the dark HUD.
  */
 @Composable
 fun CommunityDisclaimerFooter(logo: Painter, modifier: Modifier = Modifier) {
