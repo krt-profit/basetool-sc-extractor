@@ -60,6 +60,16 @@ object Locate {
     private const val SCALE = 4
 
     /**
+     * Frames wider than this aspect are treated as ultrawide ([isUltrawide]): the orange ship-hull
+     * fills the wide side margins, so the per-panel colour search can mis-box the work-order panel
+     * and the fixed full-frame header geometry misses the station name. It sits above 16:9 (≈ 1.78)
+     * and 16:10 (1.6) so ordinary captures are untouched, and below 21:9 (≈ 2.33) so every true
+     * ultrawide — up to the 32:9 frames this was verified on (≈ 3.56, the Auftrag 8/9/16 orders) —
+     * is covered. Drives the header strip ([prepare]) and the pipeline's terminal-extent rescue.
+     */
+    private const val ULTRAWIDE_ASPECT = 2.0
+
+    /**
      * A pre-cropped panel image is small and NARROW portrait (golden-set panel-only crops are
      * ~480–520×915–940, w/h ≈ 0.52–0.55). Squarer portrait captures of the whole terminal area
      * — header bar + sidebar + panel, the Auftrag 10/12 class at ~910–970×1050–1090
@@ -272,7 +282,19 @@ object Locate {
             box.width.coerceAtMost(img.width - box.x),
             box.height.coerceAtMost(img.height - box.y),
         )
-        val loc = if (img.height > img.width) {
+        val ultrawideExtent = if (isUltrawide(img)) terminalExtentX(img) else null
+        val loc = if (ultrawideExtent != null) {
+            // Ultrawide: the fixed full-frame header geometry lands on the hull, and [box] is the
+            // per-panel crop (its top is the panel, not the header). The station name sits at the
+            // top-left of the whole TERMINAL — found by its content extent — but below the frame top
+            // (status bar + bezel above it), so take a taller band (~22% height) than the portrait
+            // path's thin strip. 2/3 of the extent width drops the REFINEMENT CENTER / PROCESSING
+            // titles. Verified to read CHECKMATE / LEVSKI / CRU-L1 … on the Auftrag 8/9/16 captures.
+            val (ex0, ex1) = ultrawideExtent
+            val stripW = ((ex1 - ex0) * 2 / 3).coerceAtMost(img.width - ex0)
+            val stripH = (img.height * 0.22).toInt().coerceIn(1, img.height)
+            img.getSubimage(ex0, 0, stripW, stripH)
+        } else if (img.height > img.width) {
             // Portrait = a terminal-area crop (the game only renders landscape frames): the
             // fixed full-frame header geometry does not apply — the header bar with the
             // location name sits at the very top of the crop, the name on its left. The strip
@@ -297,6 +319,58 @@ object Locate {
         val readTarget = min(TARGET_LONG_EDGE, (max(panel.width, panel.height) * 1.4).toInt())
         return PreparedImage(normalize(panel, readTarget), locNorm, box, "vlm")
     }
+
+    /** A bright near-white / cyan UI glyph pixel — the terminal's text, never the orange hull. */
+    private fun isUiText(r: Int, g: Int, b: Int): Boolean = r > 170 && g > 170 && b > 150
+
+    /**
+     * The terminal's horizontal content extent `(x0, x1)` on an ultrawide frame, in native pixels,
+     * or null when no UI text stands out. The signal is the per-column count of bright UI-text
+     * pixels ([isUiText]) — hull-independent, unlike the maroon/orange anchors. The terminal is the
+     * WIDEST contiguous run of text-rich columns (small inter-column gaps bridged); a stray wall
+     * console or holo-display elsewhere on the frame forms its own, narrower run and is dropped.
+     */
+    internal fun terminalExtentX(img: BufferedImage): Pair<Int, Int>? {
+        val small = scaleDown(img, SCALE)
+        val w = small.width
+        val h = small.height
+        val col = IntArray(w)
+        for (x in 0 until w) {
+            var c = 0
+            for (y in 0 until h) {
+                val rgb = small.getRGB(x, y)
+                if (isUiText((rgb shr 16) and 0xFF, (rgb shr 8) and 0xFF, rgb and 0xFF)) c++
+            }
+            col[x] = c
+        }
+        val peak = col.maxOrNull() ?: 0
+        if (peak < 4) return null
+        val threshold = max(2, (peak * 0.04).toInt())
+        val mask = BooleanArray(w) { col[it] >= threshold }
+        // Bridge the gaps between the terminal's columns (sidebar | SETUP | PROCESSING) but not the
+        // far wider dark margin out to a wall console: ~1/16 of the frame width.
+        val best = runs(mask, max(8, w / 16)).maxByOrNull { it.second - it.first } ?: return null
+        val margin = max(8, (best.second - best.first) / 25)
+        val x0 = max(0, best.first - margin) * SCALE
+        val x1 = (min(w - 1, best.second + margin) + 1) * SCALE
+        return x0 to min(img.width, x1)
+    }
+
+    /** True for ultrawide / multi-monitor frames (aspect > [ULTRAWIDE_ASPECT]) — see that const. */
+    fun isUltrawide(img: BufferedImage): Boolean = img.width > img.height * ULTRAWIDE_ASPECT
+
+    /**
+     * The whole terminal as one full-height [PanelBox] (its [terminalExtentX] width, y `0..height`),
+     * or null when no UI text stands out. The pipeline's ultrawide rescue ([RefineryPipeline]) hands
+     * this to the VLM when the per-panel crop reads no numbers: the orange hull breaks the per-panel
+     * search on some 32:9 frames (Auftrag 16 boxed the STATION-PROFILE sidebar, clipping the number
+     * columns), but the model reads the SETUP panel out of the full terminal reliably — the same way
+     * the portrait terminal-area captures work. NOT used as the primary crop: where the per-panel
+     * search already succeeds (Auftrag 8/9), its tighter, higher-resolution crop reads the digits
+     * better, so the rescue only fires when the first read came back empty-handed.
+     */
+    fun terminalExtentBox(img: BufferedImage): PanelBox? =
+        terminalExtentX(img)?.let { (x0, x1) -> PanelBox(x0, 0, x1 - x0, img.height) }
 
     /** Gap-tolerant contiguous runs over a boolean row (gaps = strip text holes). */
     internal fun runs(matches: BooleanArray, maxGap: Int): List<Pair<Int, Int>> {

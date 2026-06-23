@@ -110,6 +110,73 @@ class LocateTest {
     }
 
     @Test
+    fun `isUltrawide flags 32-9 but not 16-9 or just-below-2`() {
+        assertTrue(Locate.isUltrawide(frame(5120, 1440)), "32:9 ≈ 3.56")
+        assertTrue(Locate.isUltrawide(frame(3440, 1440)), "21:9 ≈ 2.39")
+        assertFalse(Locate.isUltrawide(frame(3840, 2160)), "16:9 ≈ 1.78")
+        assertFalse(Locate.isUltrawide(frame(2800, 1440)), "≈ 1.94 sits just under the 2.0 cutoff")
+        assertFalse(Locate.isUltrawide(frame(909, 1101)), "a portrait terminal-area crop")
+    }
+
+    @Test
+    fun `the terminal-extent box spans the widest text band full height, ignoring a stray console`() {
+        // The ultrawide rescue crop: the whole terminal, isolated by its bright-UI-text columns.
+        // The orange hull (no bright text) and a stray narrow wall console must be excluded.
+        val img = frame(5120, 1440)
+        val g = img.createGraphics()
+        try {
+            g.color = Color(150, 80, 40) // orange hull wings — not bright UI text, must be ignored
+            g.fillRect(0, 0, 1200, 1440)
+            g.fillRect(3000, 0, 2120, 1440)
+            g.color = Color(230, 235, 240) // dense bright UI text across the terminal band
+            for (y in 200 until 1300 step 12) g.fillRect(1500, y, 1100, 4)
+            for (y in 300 until 900 step 12) g.fillRect(4800, y, 200, 4) // stray wall console (narrower)
+        } finally {
+            g.dispose()
+        }
+
+        val box = assertNotNull(Locate.terminalExtentBox(img))
+
+        assertEquals(0, box.y, "full frame height")
+        assertEquals(1440, box.height)
+        assertTrue(box.x in 1400..1520, "left ${box.x} hugs the terminal band")
+        assertTrue(box.x + box.width in 2560..2720, "right ${box.x + box.width} excludes the stray console at 4800+")
+    }
+
+    @Test
+    fun `the terminal extent picks the widest text band, not a stray bright region`() {
+        val img = frame(5120, 1440)
+        val g = img.createGraphics()
+        try {
+            g.color = Color(225, 230, 235)
+            for (y in 250 until 1250 step 10) g.fillRect(1600, y, 900, 3)
+            for (y in 400 until 800 step 10) g.fillRect(4700, y, 150, 3)
+        } finally {
+            g.dispose()
+        }
+
+        val extent = Locate.terminalExtentX(img)
+
+        assertNotNull(extent)
+        assertTrue(extent.first in 1500..1620, "x0=${extent.first}")
+        assertTrue(extent.second in 2480..2620, "x1=${extent.second}")
+    }
+
+    @Test
+    fun `locatePanels is unchanged on non-ultrawide frames`() {
+        // The per-panel colour search is the primary path for every capture; ultrawide handling now
+        // lives in the pipeline rescue + the header strip, NOT here, so this must still locate.
+        val img = frame(2800, 1440)
+        paintPanel(img, x = 900, y = 250, panelWidth = 720, panelHeight = 1000)
+
+        val box = Locate.locatePanelOrNull(img)
+
+        assertNotNull(box, "located via the colour anchors")
+        assertTrue(box.x in 800..960, "x=${box.x}")
+        assertTrue(box.height < img.height, "a per-panel box")
+    }
+
+    @Test
     fun `precropped detection matches the golden-set shapes`() {
         assertTrue(Locate.isPrecropped(500, 1500), "a ~500px portrait panel crop")
         assertTrue(Locate.isPrecropped(518, 934), "Auftrag 3: narrow portrait panel-only crop")

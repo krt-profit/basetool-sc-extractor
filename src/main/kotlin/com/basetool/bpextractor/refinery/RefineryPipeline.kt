@@ -127,16 +127,40 @@ class RefineryPipeline(
             )
 
             listener.onStage(index, name, PipelineStage.NORMALIZE)
-            val prepared = Locate.prepare(input.image, box)
-            panels[name] = prepared.readImage
+            var prepared = Locate.prepare(input.image, box)
             listener.onLog("· Normalize — $name: ${prepared.readImage.width}×${prepared.readImage.height} (${prepared.cropMode})")
 
             listener.onStage(index, name, PipelineStage.READ)
             // The location is read from the first capture that has a header strip. Model
             // lifetime is NOT managed per call: every read pins for 10m and the explicit
             // unload below releases as soon as the run is done with a model.
-            val panelB64 = toBase64Png(prepared.readImage)
-            val panel = reader.readPanel(panelB64)
+            var panelB64 = toBase64Png(prepared.readImage)
+            var panel = reader.readPanel(panelB64)
+            // Ultrawide rescue: on a 32:9 frame the orange hull can drive the per-panel search onto
+            // the STATION-PROFILE sidebar, boxing the work-order panel too narrowly so its number
+            // columns are clipped — the read returns material names but no quantities (Auftrag 16).
+            // Retry once with the whole terminal extent, which the model reads the SETUP panel out of
+            // reliably. The per-panel crop stays PRIMARY (where it works — Auftrag 8/9 — its tighter,
+            // higher-resolution crop reads the digits better), so the rescue only fires on an
+            // otherwise empty-handed read and only on ultrawide frames.
+            if (box != null && Locate.isUltrawide(input.image) && panel.lacksQuantities()) {
+                val extentBox = Locate.terminalExtentBox(input.image)
+                if (extentBox != null && extentBox != box) {
+                    val rescued = Locate.prepare(input.image, extentBox)
+                    val rescuedB64 = toBase64Png(rescued.readImage)
+                    val rescuedPanel = reader.readPanel(rescuedB64)
+                    if (!rescuedPanel.lacksQuantities()) {
+                        listener.onLog(
+                            "· Locate — $name: per-panel crop read no numbers (clipped), " +
+                                "rescued via the terminal extent ${extentBox.width}×${extentBox.height}",
+                        )
+                        prepared = rescued
+                        panelB64 = rescuedB64
+                        panel = rescuedPanel
+                    }
+                }
+            }
+            panels[name] = prepared.readImage
             if (verifyModel != null) {
                 verifyQueue += name to panelB64
             }
@@ -291,3 +315,10 @@ class RefineryPipeline(
         }
     }
 }
+
+/**
+ * The clipped-crop signature: no row carries a quantity (or the read failed entirely). A correctly
+ * framed SETUP panel always shows the QTY column, so this means the number columns were cut off —
+ * the trigger for the ultrawide terminal-extent rescue ([RefineryPipeline.extract]).
+ */
+private fun PanelRead?.lacksQuantities(): Boolean = this == null || rows.none { it.qty != null }

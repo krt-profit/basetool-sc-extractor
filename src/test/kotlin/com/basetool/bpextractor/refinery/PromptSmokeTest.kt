@@ -62,9 +62,23 @@ class PromptSmokeTest {
                 val img = ImageIO.read(file)
                 val precropped = Locate.isPrecropped(img.width, img.height)
                 val box = if (precropped) null else Locate.locatePanel(img)
-                val prepared = Locate.prepare(img, box)
+                var prepared = Locate.prepare(img, box)
+                var b64 = toBase64Png(prepared.readImage)
+                var panel = reader.readPanel(b64)
+                // Ultrawide rescue, mirroring RefineryPipeline: a sidebar-clipped per-panel crop
+                // reads names but no quantities (Auftrag 16) — retry once with the terminal extent.
+                if (box != null && Locate.isUltrawide(img) && (panel == null || panel!!.rows.none { it.qty != null })) {
+                    Locate.terminalExtentBox(img)?.takeIf { it != box }?.let { extentBox ->
+                        val rescued = Locate.prepare(img, extentBox)
+                        val rescuedB64 = toBase64Png(rescued.readImage)
+                        val rescuedPanel = reader.readPanel(rescuedB64)
+                        if (rescuedPanel != null && rescuedPanel.rows.any { it.qty != null }) {
+                            report.appendLine("  RESCUE ${file.name}: per-panel crop clipped, used terminal extent")
+                            prepared = rescued; b64 = rescuedB64; panel = rescuedPanel
+                        }
+                    }
+                }
                 panels[file.name] = prepared.readImage
-                val b64 = toBase64Png(prepared.readImage)
                 if (verifier != null) verifyQueue += file.name to b64
                 // Location semantics mirror RefineryPipeline: read ONCE, from the first capture
                 // that has a header strip (a null answer does not retry on later captures).
@@ -73,7 +87,6 @@ class PromptSmokeTest {
                     locationRead = true
                     report.appendLine("  LOCATION ${location ?: "not readable"} (from ${file.name})")
                 }
-                val panel = reader.readPanel(b64)
                 report.appendLine(
                     "--- ${file.name} (${img.width}×${img.height}, ${prepared.cropMode}) " +
                         "quoted=${panel?.quoted} inManifest=${panel?.inManifest} toRefine=${panel?.toRefine}",
