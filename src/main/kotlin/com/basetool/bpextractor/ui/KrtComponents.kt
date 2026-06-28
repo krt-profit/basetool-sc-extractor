@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.text.selection.DisableSelection
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -30,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -43,13 +45,22 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.Legal
 import com.basetool.bpextractor.resources.Res
+import com.basetool.bpextractor.resources.github
 import com.basetool.bpextractor.resources.honeycomb_bg
+import com.basetool.bpextractor.ui.i18n.LocalStrings
 import org.jetbrains.compose.resources.painterResource
+import java.awt.Desktop
+import java.net.URI
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 /**
  * The signature container: hairline border + two diagonal orange corner brackets
@@ -424,6 +435,7 @@ fun Modifier.tiled(painter: Painter): Modifier = this.drawBehind {
  */
 @Composable
 fun CommunityDisclaimerFooter(logo: Painter, modifier: Modifier = Modifier) {
+    val strings = LocalStrings.current
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -440,5 +452,68 @@ fun CommunityDisclaimerFooter(logo: Painter, modifier: Modifier = Modifier) {
             // Required notice: kept legible (Gray1 on Gray4) and ≥10pt (bodySmall = 13sp).
             Text(Legal.TRADEMARK_NOTICE, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1)
         }
+        // Right-aligned quick links: the manual (wiki) and the GitHub repo (logo, far right).
+        Spacer(Modifier.weight(1f))
+        FooterTextLink(strings.footerManual, WIKI_URL)
+        Spacer(Modifier.width(16.dp))
+        FooterGithubLink(REPO_URL)
     }
+}
+
+/** Public repo + wiki URLs for the footer quick links. */
+private const val REPO_URL = "https://github.com/krt-profit/basetool-sc-extractor"
+private const val WIKI_URL = "https://github.com/krt-profit/basetool-sc-extractor/wiki"
+
+/** Footer text link: gray label, hand cursor + orange underline on hover, opens [url] in the browser. */
+@Composable
+private fun FooterTextLink(text: String, url: String) {
+    val canBrowse = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE) }
+    val scope = rememberCoroutineScope()
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall.copy(
+            textDecoration = if (canBrowse && hovered) TextDecoration.Underline else TextDecoration.None,
+        ),
+        color = if (canBrowse && hovered) Krt.Orange else Krt.Gray1,
+        modifier = if (canBrowse) {
+            Modifier
+                .hoverable(interaction)
+                .pointerHoverIcon(PointerIcon.Hand)
+                .clickable(interactionSource = interaction, indication = null) {
+                    scope.launch(Dispatchers.IO) { runCatching { Desktop.getDesktop().browse(URI(url)) } }
+                }
+        } else {
+            Modifier
+        },
+    )
+}
+
+/** Footer GitHub mark: gray silhouette, hand cursor + orange tint on hover, opens [url] in the browser. */
+@Composable
+private fun FooterGithubLink(url: String) {
+    val canBrowse = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE) }
+    val scope = rememberCoroutineScope()
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    Icon(
+        painter = painterResource(Res.drawable.github),
+        contentDescription = "GitHub",
+        tint = if (canBrowse && hovered) Krt.Orange else Krt.Gray1,
+        modifier = Modifier
+            .size(20.dp)
+            .then(
+                if (canBrowse) {
+                    Modifier
+                        .hoverable(interaction)
+                        .pointerHoverIcon(PointerIcon.Hand)
+                        .clickable(interactionSource = interaction, indication = null) {
+                            scope.launch(Dispatchers.IO) { runCatching { Desktop.getDesktop().browse(URI(url)) } }
+                        }
+                } else {
+                    Modifier
+                },
+            ),
+    )
 }

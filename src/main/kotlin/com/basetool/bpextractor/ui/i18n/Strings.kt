@@ -73,6 +73,7 @@ interface Strings {
     val rfStepOverline: (Int) -> String
     val cancel: String
     val close: String
+    val footerManual: String
 
     // --- start screen (launcher) ---
     val startTitle: String
@@ -356,6 +357,7 @@ object StringsDe : Strings {
     override val rfStepOverline: (Int) -> String = { n -> "Refinery · Schritt $n / 5" }
     override val cancel = "Abbrechen"
     override val close = "Schließen"
+    override val footerManual = "Handbuch"
 
     override val startTitle = "Basetool SC Extractor"
     override val startSubtitle = "Liest Star-Citizen-Daten lokal aus und erzeugt JSON-Dateien für das Basetool — gesendet wird nur, wenn du es auslöst."
@@ -710,6 +712,7 @@ object StringsEn : Strings {
     override val rfStepOverline: (Int) -> String = { n -> "Refinery · step $n / 5" }
     override val cancel = "Cancel"
     override val close = "Close"
+    override val footerManual = "Manual"
 
     override val startTitle = "Basetool SC Extractor"
     override val startSubtitle = "Extracts Star Citizen data locally and produces JSON files for the basetool — sent only when you choose to."
