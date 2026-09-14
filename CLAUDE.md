@@ -190,6 +190,13 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   `auth/DeviceGrantClient` runs the RFC 8628 device grant against the **prod** Keycloak
   (hardcoded issuer; only the ingest base URL is config), `auth/CredentialStore` is the
   DPAPI-backed vault for the one "remember me" `StoredCredential`.
+  - **Identity lives on the app origin, and `PROD_ISSUER` is the only copy of that fact here.**
+    ADR-0166 moved Keycloak to `https://profit-base.online/auth/realms/iri` and retired
+    `keycloak.profit-base.online` outright; the constant still named the dead host and every send
+    failed with `token refresh failed: (unrecognized_name)` — a *fatal TLS alert*, because a
+    wildcard DNS record still resolves the name while the edge serves no vhost for it. Nothing on
+    either side can check this literal (ADR-0167's single-source gate stops inside the `basetool`
+    repo), so **an identity host move means cutting a release here, in the same change.**
   **DPoP (RFC 9449, `REQ-INGEST-012`)** binds those tokens to a client-held EC P-256 key
   (`auth/Dpop.kt`) so the refresh token sitting on disk is worthless if copied. Load-
   bearing details: the key is persisted *with* the refresh token in one record (a bound

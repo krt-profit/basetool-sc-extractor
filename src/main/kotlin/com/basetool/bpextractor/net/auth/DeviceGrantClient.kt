@@ -399,8 +399,20 @@ class DeviceGrantClient(
         }
 
     companion object {
-        /** Prod Keycloak realm issuer (hardcoded per #645; only the ingest base URL is config). */
-        const val PROD_ISSUER = "https://keycloak.profit-base.online/realms/iri"
+        /**
+         * Prod Keycloak realm issuer (hardcoded per #645; only the ingest base URL is config).
+         *
+         * <p>**Identity follows the web origin — it has no host of its own.** ADR-0166 (2026-09-13)
+         * moved Keycloak to `/auth` on `profit-base.online`, so the installable web app's sign-in
+         * stays inside its manifest `scope`, and retired `keycloak.profit-base.online` outright with
+         * no fallback. A build left on the old host does **not** get a readable error: the name still
+         * resolves (wildcard DNS) but the edge serves no vhost for it, so the TLS handshake ends in a
+         * fatal `unrecognized_name` and every send dies as
+         * {@code token refresh failed: (unrecognized_name)}. This literal is the only copy of the
+         * identity base in this repo and no server-side check can reach it — moving the identity host
+         * means cutting a release here, in the same change.
+         */
+        const val PROD_ISSUER = "https://profit-base.online/auth/realms/iri"
 
         /**
          * The public device-grant client provisioned in Keycloak (#641).
