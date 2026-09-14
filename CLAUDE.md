@@ -93,6 +93,18 @@ $env:PROMPT_SMOKE_EXPECTED = "<corpus>\golden-expected.json" # PRIVATE, lives ne
 .\gradlew.bat test --tests '*PromptSmokeTest*' --rerun-tasks   # env changes don't invalidate the task
 ```
 
+An **onnxruntime or OCR-model bump** is checked differently, and much more cheaply: `OcrDigestTest`
+runs the bundled classical-OCR reader over the whole corpus and prints a SHA-256 of every cell it
+recognised, with its box. ONNX Runtime's CPU inference is deterministic, so a clean bump is
+**bit-for-bit identical** — run it before and after and diff. No Ollama, under a minute, and any
+difference at all is real (1.22.0→1.27.0 and 1.29.0→1.30.0 both came back byte-identical).
+
+```powershell
+$env:OCR_DIGEST_DIR = "<the sample corpus>"
+$env:OCR_DIGEST_OUT = "<outside the repo>\ocr-digest-before.txt"   # then ...-after.txt
+.\gradlew.bat test --tests '*OcrDigestTest*' --rerun-tasks
+```
+
 Add `PROMPT_SMOKE_VERIFY_MODEL=qwen3-vl:4b-instruct` for the config the expected file was generated
 with. **Never** regenerate the whole file with `PROMPT_SMOKE_WRITE_EXPECTED=1` to make a diff go
 away — merge the orders you meant to add and leave the rest, and settle any disputed cell against
@@ -426,6 +438,9 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   read out of the sidebar (see the knowledge base: *The refinery got a new skin and every panel was
   cropped to the sidebar*).
 - **bundled modules or the runtime** → `suggestRuntimeModules`, rebuild, GUI-launch test.
+- **`onnxruntime` or the bundled `/ocr/*.onnx` models** → diff `OcrDigestTest` across the bump
+  (above), then `suggestRuntimeModules` + a GUI-launch test from the app image — the native libs
+  come out of the jar at runtime, so a packaging regression shows up at launch, not in the tests.
 - **the export shape** → bump `schemaVersion` for any breaking change. Additive optional
   (nullable) fields may stay within the current version (basetool ADR-0008 evolution
   rule — precedents: `capturedAt` on `sourceImages`, 2026-06-11; `additionalSourceFolders`
