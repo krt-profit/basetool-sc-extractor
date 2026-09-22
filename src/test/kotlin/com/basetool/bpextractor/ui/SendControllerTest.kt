@@ -240,9 +240,9 @@ class SendControllerTest {
         }
 
         assertEquals("DPoP AT", ingestAuth, "the send itself still works under DPoP")
-        // The new token dies with the process, and the stored one it was refreshed from has just
-        // been superseded (with rotation: invalidated) — neither is kept.
-        assertNull(store.stored, "no token that cannot be redeemed after exit is kept")
+        // The new token dies with the process, so it is not stored; the stored one is left as it
+        // was (rotation is off realm-wide, so it is still valid).
+        assertEquals("RT-STORED", store.stored, "the unredeemable-after-exit token is not stored")
         assertEquals(0, store.saveCount)
     }
 

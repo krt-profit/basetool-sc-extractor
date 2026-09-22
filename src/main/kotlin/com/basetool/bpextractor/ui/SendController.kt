@@ -221,29 +221,24 @@ class SendController(
      * Persists [grant] for the next silent send. A token bound to a persistent key is stored with
      * that key's name; an unbound token (Keycloak with DPoP off) is stored alone, as before DPoP. A
      * token bound to an in-memory [sessionKey] is **not** stored: it would be unredeemable after
-     * this process, and storing the key instead is exactly what this build stopped doing; the
-     * stored credential it was refreshed from is then dropped too, because the refresh has just
-     * superseded (with rotation: invalidated) it. A key the record does not end up naming is deleted
-     * again, so no orphan stays in the key storage.
+     * this process, and storing the key instead is exactly what this build stopped doing. Whatever
+     * was stored before is then left as it is — refresh-token rotation is off realm-wide, so it
+     * stays valid, and should that ever change, the next refresh fails with `invalid_grant` and
+     * drops it the normal way. A key no record ends up naming is deleted again, so no orphan stays
+     * in the key storage.
      */
     private fun remember(grant: Grant) {
         val token = grant.token
         val keyName = grant.key.keyName
-        if (token.refreshToken.isBlank()) {
-            // Nothing new to remember; a key minted for this grant alone is of no further use.
-            if (keyName != null && grant.stored?.dpopKeyName != keyName) keyStore.delete(keyName)
-            return
-        }
         val saved =
             when {
+                token.refreshToken.isBlank() -> false
                 keyName != null -> credentialStore.saveCredential(StoredCredential(token.refreshToken, keyName))
                 !token.isDpopBound() -> credentialStore.saveCredential(StoredCredential(token.refreshToken))
                 else -> false
             }
-        if (!saved) {
-            if (grant.stored != null) credentialStore.clear()
-            keyName?.let(keyStore::delete)
-        }
+        // The stored credential's own key stays: that credential is still in the vault and needs it.
+        if (!saved && keyName != null && grant.stored?.dpopKeyName != keyName) keyStore.delete(keyName)
     }
 
     /**
