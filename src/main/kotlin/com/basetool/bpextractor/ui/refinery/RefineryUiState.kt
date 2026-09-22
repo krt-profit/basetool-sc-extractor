@@ -34,14 +34,17 @@ import com.basetool.bpextractor.refinery.model.RefineryExtractOrder
 import com.basetool.bpextractor.ui.i18n.Strings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.awt.Toolkit
 import java.awt.datatransfer.Transferable
 import java.awt.image.BufferedImage
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import javax.imageio.ImageIO
+import javax.imageio.ImageReader
 
 /** The Ollama-runtime card states of design spec §5.1, one object per visual state. */
 sealed interface OllamaStatus {
@@ -96,7 +99,9 @@ data class RefineryImage(
 /**
  * All UI state of the refinery workflow (design spec §5) + the glue that drives the preflight
  * probes, the guided model pull, folder loading and the extraction pipeline. Heavy work always
- * runs on [Dispatchers.IO]; Compose snapshot state is safely written cross-thread.
+ * runs on [Dispatchers.IO]; Compose snapshot state is safely written cross-thread, straight from
+ * that IO coroutine — there is no UI dispatcher to hop to here, and hopping to another background
+ * pool bought nothing.
  */
 class RefineryUiState(
     /** Ollama client factory — injectable so UI logic could be exercised without a server. */
@@ -349,11 +354,9 @@ class RefineryUiState(
         images.clear()
         scope.launch(Dispatchers.IO) {
             try {
-                val loaded = imageFilesIn(File(path)).mapNotNull(::loadImage)
-                withContext(Dispatchers.Default) {
-                    images.clear()
-                    images.addAll(loaded)
-                }
+                val loaded = loadImages(imageFilesIn(File(path)))
+                images.clear()
+                images.addAll(loaded)
             } finally {
                 loadingImages = false
             }
@@ -379,11 +382,10 @@ class RefineryUiState(
                 val files = imageFilesIn(dir)
                 val onDisk = files.mapTo(HashSet()) { it.absolutePath }
                 val known = images.mapTo(HashSet()) { it.file.absolutePath }
-                val added = files
-                    .filter { it.absolutePath !in known && it.absolutePath !in dismissedPaths }
-                    .mapNotNull(::loadImage)
-                withContext(Dispatchers.Default) {
-                    if (path != loadedFolder) return@withContext
+                val added = loadImages(
+                    files.filter { it.absolutePath !in known && it.absolutePath !in dismissedPaths },
+                )
+                if (path == loadedFolder) {
                     images.removeAll {
                         it.file.absoluteFile.parentFile == dir.absoluteFile &&
                             it.file.absolutePath !in onDisk
@@ -464,12 +466,10 @@ class RefineryUiState(
                     ImageIntake.rawImageFrom(t)?.let { saved += ImageIntake.saveClipboardImage(it, dir) }
                 }
                 val known = images.mapTo(HashSet()) { it.file.absolutePath }
-                val loaded = saved.filter { it.absolutePath !in known }.distinct().mapNotNull(::loadImage)
-                withContext(Dispatchers.Default) {
-                    // A re-paste of a previously ✕-removed image is an explicit re-add.
-                    loaded.forEach { dismissedPaths -= it.file.absolutePath }
-                    images.addAll(loaded)
-                }
+                val loaded = loadImages(saved.filter { it.absolutePath !in known }.distinct())
+                // A re-paste of a previously ✕-removed image is an explicit re-add.
+                loaded.forEach { dismissedPaths -= it.file.absolutePath }
+                images.addAll(loaded)
             } finally {
                 loadingImages = false
             }
@@ -608,35 +608,17 @@ class RefineryUiState(
         dir.listFiles { f -> f.isFile && f.extension.lowercase() in ImageIntake.IMAGE_EXTENSIONS }
             ?.sortedBy { it.name.lowercase() } ?: emptyList()
 
-    /** Decode [file] into a grid tile (native size, crop tag, thumbnail), null when unreadable. */
-    private fun loadImage(file: File): RefineryImage? = runCatching {
-        val img = ImageIO.read(file) ?: return@runCatching null
-        RefineryImage(
-            file = file,
-            width = img.width,
-            height = img.height,
-            precropped = Locate.isPrecropped(img.width, img.height),
-            thumbnail = thumbnail(img),
-        )
-    }.getOrNull()
+    /**
+     * Turn [files] into grid tiles, decoding up to [DECODE_PARALLELISM] of them at once on
+     * [Dispatchers.IO]. Order follows [files]; unreadable files are dropped (and, for the folder
+     * watch, retried on the next tick).
+     */
+    private suspend fun loadImages(files: List<File>): List<RefineryImage> = coroutineScope {
+        files.map { file -> async(imageDecode) { loadImage(file) } }.awaitAll().filterNotNull()
+    }
 
     private fun readFull(file: File): BufferedImage =
         requireNotNull(ImageIO.read(file)) { "cannot decode ${file.name}" }
-
-    /** Downscale to a grid thumbnail (long edge [THUMB_LONG_EDGE]) and convert for Compose. */
-    private fun thumbnail(img: BufferedImage): ImageBitmap {
-        val factor = THUMB_LONG_EDGE.toDouble() / maxOf(img.width, img.height)
-        val w = maxOf(1, (img.width * factor).toInt())
-        val h = maxOf(1, (img.height * factor).toInt())
-        val out = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
-        val g = out.createGraphics()
-        try {
-            g.drawImage(img, 0, 0, w, h, null)
-        } finally {
-            g.dispose()
-        }
-        return out.toComposeImageBitmap()
-    }
 
     companion object {
         /** Sentinel in [extractError] marking a user cancel (rendered as a neutral note). */
@@ -645,7 +627,72 @@ class RefineryUiState(
         /** Exported confidence of a row the user corrected by hand in the review (§5.4). */
         const val CONFIDENCE_MANUAL = 1.0
 
-        private const val THUMB_LONG_EDGE = 240
+        /** Long edge of a grid thumbnail, in pixels. */
+        internal const val THUMB_LONG_EDGE = 240
+
+        /**
+         * How many screenshots [loadImages] decodes at once: enough to overlap disk reads and
+         * decoding on a folder of dozens of captures, few enough not to monopolise the IO pool
+         * the preflight probes and the extraction share.
+         */
+        private const val DECODE_PARALLELISM = 4
+
+        /** The bounded IO pool the grid decodes run on (see [DECODE_PARALLELISM]). */
+        private val imageDecode = Dispatchers.IO.limitedParallelism(DECODE_PARALLELISM)
+
+        /**
+         * Decode [file] into a grid tile (native size, crop tag, thumbnail), null when unreadable.
+         *
+         * The native size comes from the image **header** ([ImageReader.getWidth]), so the crop tag
+         * ([Locate.isPrecropped]) sees exactly the dimensions a full decode would report; the
+         * thumbnail is decoded with source subsampling ([javax.imageio.ImageReadParam.setSourceSubsampling]),
+         * so a 4K capture never materialises at full size just to become a 240 px tile. The full
+         * frame is decoded only by the extraction run ([readFull]).
+         */
+        internal fun loadImage(file: File): RefineryImage? = runCatching {
+            ImageIO.createImageInputStream(file)?.use { input ->
+                val reader = ImageIO.getImageReaders(input).asSequence().firstOrNull() ?: return@runCatching null
+                try {
+                    reader.setInput(input, true, true)
+                    val width = reader.getWidth(0)
+                    val height = reader.getHeight(0)
+                    val step = maxOf(1, maxOf(width, height) / THUMB_LONG_EDGE)
+                    val param = reader.defaultReadParam.apply { setSourceSubsampling(step, step, 0, 0) }
+                    val preview = reader.read(0, param)
+                    RefineryImage(
+                        file = file,
+                        width = width,
+                        height = height,
+                        precropped = Locate.isPrecropped(width, height),
+                        thumbnail = thumbnail(preview, width, height),
+                    )
+                } finally {
+                    reader.dispose()
+                }
+            }
+        }.getOrNull()
+
+        /** The grid-thumbnail size for a native [width] × [height]: long edge [THUMB_LONG_EDGE]. */
+        internal fun thumbnailSize(width: Int, height: Int): Pair<Int, Int> {
+            val factor = THUMB_LONG_EDGE.toDouble() / maxOf(width, height)
+            return maxOf(1, (width * factor).toInt()) to maxOf(1, (height * factor).toInt())
+        }
+
+        /**
+         * Scale [preview] (already subsampled) to [thumbnailSize] of the native [width] × [height]
+         * and convert it for Compose.
+         */
+        private fun thumbnail(preview: BufferedImage, width: Int, height: Int): ImageBitmap {
+            val (w, h) = thumbnailSize(width, height)
+            val out = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB)
+            val g = out.createGraphics()
+            try {
+                g.drawImage(preview, 0, 0, w, h, null)
+            } finally {
+                g.dispose()
+            }
+            return out.toComposeImageBitmap()
+        }
     }
 }
 
