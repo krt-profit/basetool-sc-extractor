@@ -5,8 +5,10 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 /**
- * Non-secret app configuration (epic krt-profit/basetool#639): the ingest base URL and whether the
- * user has accepted the one-time send consent. This is the app's **first** persisted state — it
+ * Non-secret app configuration (epic krt-profit/basetool#639): the ingest base URL, whether the
+ * user has accepted the one-time send consent, and the last channel folder. Written by two holders
+ * (the blueprint run and the send flow), so every write is load → `copy(…)` → save. Besides the
+ * credential vault this is the app's **only** persisted state — it
  * lives under {@code %APPDATA%\Basetool SC Extractor\config.json} (the Roaming per-user data dir),
  * deliberately **outside** the {@code %LOCALAPPDATA%\Basetool SC Extractor\} install dir so the
  * install dir stays stateless and the MSI uninstall remains restloss (CLAUDE.md guardrail 2). It
@@ -26,14 +28,15 @@ data class AppConfig(
     val lastChannelFolder: String? = null,
 ) {
     companion object {
-        /** Prod ingest gateway host (behind nginx-proxy-manager); override in config.json for dev. */
+        /** Prod ingest gateway host (behind the basetool's edge proxy); override in config.json for dev. */
         const val DEFAULT_INGEST_BASE_URL = "https://ingest.profit-base.online"
     }
 }
 
 /**
  * Loads and saves [AppConfig] as JSON under the per-user data dir. The directory is injectable so
- * tests run against a throwaway temp dir; production resolves {@code %LOCALAPPDATA%}.
+ * tests run against a throwaway temp dir; production resolves {@code %APPDATA%} (Roaming), never
+ * the {@code %LOCALAPPDATA%} install dir.
  */
 class AppConfigStore(private val dir: File = defaultDir()) {
 

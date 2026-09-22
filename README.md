@@ -51,7 +51,9 @@ shortcut).
 
 ### Installing
 
-1. Double-click `Basetool SC Extractor-<version>.msi`.
+1. Download `Basetool.SC.Extractor-<version>.msi` from the
+   [releases page](https://github.com/krt-profit/basetool-sc-extractor/releases) and
+   double-click it.
 2. Follow the installation wizard (you can pick an installation folder). **No
    administrator rights** are required — the installation is per user.
 3. Afterwards you get a Start-menu entry under **Basetool** and a desktop
@@ -59,6 +61,12 @@ shortcut).
 
 > A separate Java/JRE is **not** required — the runtime is bundled with the
 > installer.
+
+> **Sending to the Basetool needs version 2.9.1 or newer.** On 2026-09-14 the
+> Basetool's sign-in moved from its own host onto `profit-base.online/auth`, and
+> the address is built into the app. Older builds can still read and save JSON, but
+> every send fails with `token refresh failed: (unrecognized_name)`. After the
+> update you confirm the sign-in in the browser once more.
 
 ### Does Windows Defender warn you?
 
@@ -109,9 +117,13 @@ a newer version exists, a banner appears on the start screen offering
 1. The MSI installer is downloaded into a temporary folder (never into the
    installation folder) and verified by size + SHA-256 checksum.
 2. The installer starts and the app exits so the update can replace the program
-   folder.
+   folder; afterwards the app starts again by itself.
 3. **After the installation the update file is deleted again automatically** —
    even an aborted setup leaves nothing behind.
+
+If the app is installed on a non-system drive (`D:`, `E:`, …), Windows Installer
+may fail to set file permissions there (error 1926); the update then offers to
+**retry as administrator**, which succeeds.
 
 **Later** hides the offer for the current session. Only release metadata is
 fetched from GitHub; no usage data is sent. Without an internet connection
@@ -128,12 +140,14 @@ nothing happens — the check fails silently and the app starts normally.
    **archive folder** — a folder holding loose `*.log` files, without `Game.log`
    and without `logbackups` — those are read instead. That is meant for logs you
    put aside; Star Citizen itself eventually cleans up its `logbackups`.
-3. Pick the **output JSON (target)** — where the JSON file should be written.
+3. Optionally adjust the **output JSON (target)** — the path pre-filled when you
+   later choose to save the result as a file (default: `Documents\blueprints.json`).
 4. Click **Extract blueprints**.
 
 After the run the app shows a summary (detected players, blueprints by category,
-the most recently received blueprints) and writes the full list to the chosen JSON
-file.
+the most recently received blueprints). **Nothing is written automatically** — from
+the summary you either **Send to Basetool** or **Export as JSON**, which opens the
+save dialog at the output path from step 3.
 
 ### Using it — Refinery (screenshot extraction)
 
@@ -141,7 +155,8 @@ The refinery workflow reads the **SETUP view** of a refinery work order
 (REFINEMENT CENTER) from screenshots — materials, quality, amount, yield, refine
 toggles, location, method, cost and duration — and exports a
 `RefineryExtract.json` that pre-fills the creation form in the Basetool under
-*Refinery → Work orders → Import work order*. In addition, each screenshot's
+*Fleet & Logistics → Refinery → New Order → "Import from screenshot extract
+(JSON)"* (labels as in the Basetool's English UI). In addition, each screenshot's
 **capture time** is exported (from the timestamp in the file name, e.g.
 `Screenshot 2026-06-01 213823.png` or `ScreenShot-2026-06-06_15-50-53-C28.jpg`,
 otherwise from the file's modification date) — the Basetool takes the capture time
@@ -195,9 +210,14 @@ evaluation runs entirely locally via [Ollama](https://ollama.com):
   newest work order) is read.
 
 The extraction processes **one image at a time** (throttling), shows the stages
-*Locate → Normalize → Read* per image and ends in a review step: check every value
-that was read together with its derived confidence, then **Export as JSON**. It is
-only stored once you import it in the Basetool.
+*Locate → Normalize → Read* per image (plus *Verify* when a second model
+cross-checks the read — on the recommended tier, if `qwen3-vl:4b-instruct` is
+already installed) and ends in a review step: check every value that was read
+together with its derived confidence, then either **Send to Basetool** (afterwards
+**Open in basetool** takes you to the pre-filled form) or **Export as JSON** and
+import the file as described
+above. Either way the work order is only stored once you confirm it in the
+Basetool.
 
 ### Uninstalling
 
@@ -224,14 +244,16 @@ program folder is left behind otherwise.
 > `Documents\blueprints.json`) and are **deliberately not** deleted on uninstall —
 > that is your data, not a program leftover.
 
-**"Send to Basetool" and the remembered sign-in.** As soon as you use **"Send to
-Basetool"**, the app stores two user-specific things **outside** the program
-folder — so the program folder itself stays completely removable:
+**What the app does remember.** Two user-specific things live **outside** the
+program folder — so the program folder itself stays completely removable:
 
-- a **`config.json`** under `%APPDATA%\Basetool SC Extractor\` (no secret: only
-  your consent to send and the target URL). Roaming data, not a program leftover.
-- a **refresh token** in the **Windows Credential Manager** (DPAPI-protected, per
-  user) — so you do not have to confirm again on the next send. The same record
+- a **`config.json`** under `%APPDATA%\Basetool SC Extractor\`, written after the
+  first successful blueprint run or the first send (no secret: the channel folder
+  of the last successful blueprint run, your consent to send, and the Basetool's
+  ingest URL). Roaming data, not a program leftover.
+- once you use **"Send to Basetool"**, a **refresh token** in the **Windows
+  Credential Manager** (DPAPI-protected, per user) — so you do not have to confirm
+  again on the next send. The same record
   holds a **private key** (EC P-256) the token is bound to (DPoP, RFC 9449): a copy
   of the token alone is therefore **worthless**, because every request must
   additionally be signed with that key — which is exactly why the two live
@@ -319,8 +341,9 @@ handles the real-world quirks of these lines:
   **hyphens** (`ADP-mk4 Core Woodland`) are captured correctly. The name ends
   reliably at the `: " [<id>]` separator.
 - **The player name** comes from the login lines of the same file
-  (`User Login Success - Handle[…]` or the character-status line with `geid` and
-  `accountId`) — the `MissionId` on the blueprint line is always `0000…` and
+  (`User Login Success - Handle[…]`, the character-status line with `geid` and
+  `accountId`, or a `nickname="…"` handshake line; first match wins, and only the
+  handle is kept) — the `MissionId` on the blueprint line is always `0000…` and
   therefore useless.
 - **The build number** comes from the file name (`Game Build(11518367) …`). The
   live `Game.log` has none, so for that one file it is read from the
@@ -412,7 +435,7 @@ In [`build.gradle.kts`](build.gradle.kts) under `windows { … }`:
 ## Project structure
 
 ```
-basetool-bp-extractor/
+basetool-sc-extractor/
 ├── build.gradle.kts                  # build + Compose/MSI configuration
 ├── settings.gradle.kts
 ├── gradle.properties
@@ -458,12 +481,14 @@ basetool-bp-extractor/
 ├── src/main/resources/               # fonts (Lato), app.ico, prompt v1, OCR models (ocr/)
 ├── src/main/composeResources/drawable/ # honeycomb_bg.svg, basetool_extractor_icon.png, Made-by-the-Community logo
 ├── src/test/kotlin/…                 # unit tests
-├── src/test/resources/sample.log     # test fixture (edge cases)
+├── src/test/resources/sample.log     # test fixture (edge cases; synthetic)
+├── src/test/resources/sample-de.log  # the same for a German-localised client
 ├── .github/workflows/ci.yml          # test + app image; on a v* tag: MSI, attestation, VT scan, release
 ├── .github/scripts/virustotal-scan.ps1 # release scan + the notes section it renders
 ├── .github/CODEOWNERS                # review routing (@greluc; CI, packaging, net/, update/)
-├── docs/refinery-extractor/          # phase 0 findings (model bake-off etc.)
+├── docs/refinery-extractor/          # phase 0 findings + dated measurement addenda (bake-offs, skins)
 ├── docs/img/                         # README images (Made-by-the-Community logo)
+├── spike-phase0/                     # the Phase 0 evaluation harness (Python); inputs stay private
 └── game-log/                         # private sample logs (not in the repo)
 ```
 
