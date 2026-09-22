@@ -127,6 +127,15 @@ fun SendOverlay(
                             color = Krt.Gray1,
                         )
                     is SendState.Authenticating -> {
+                        if (state.keyUpgrade) {
+                            // The one-time re-login after the stored login was discarded for still
+                            // carrying an exportable DPoP key — say why before asking for the code.
+                            Text(
+                                strings.send.authKeyUpgrade,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Krt.White,
+                            )
+                        }
                         Text(
                             strings.send.authBody,
                             style = MaterialTheme.typography.bodyMedium,

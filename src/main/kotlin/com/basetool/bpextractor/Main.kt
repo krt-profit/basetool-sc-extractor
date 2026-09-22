@@ -908,7 +908,9 @@ private fun guiMain() = application {
                 update = UpdateUiState.Installing(info)
                 // Pass the active GUI language so the helper's elevated-retry dialog (shown only if
                 // the install fails, e.g. the non-system-drive error 1926) matches what the user saw.
-                withContext(Dispatchers.IO) { UpdateChecker.launchInstaller(msi, if (lang == Lang.EN) "en" else "de") }
+                withContext(Dispatchers.IO) {
+                    UpdateChecker.launchInstaller(msi, info.msiSha256, if (lang == Lang.EN) "en" else "de")
+                }
                 exitApplication()
             } catch (t: Throwable) {
                 update = UpdateUiState.Failed(info, t.message ?: t::class.simpleName ?: "I/O")

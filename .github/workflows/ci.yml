@@ -8,7 +8,7 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Least privilege by default; the release job opts into write below.
+# Least privilege by default; the three release jobs each opt into exactly what they need below.
 permissions:
   contents: read
 
@@ -21,21 +21,45 @@ defaults:
   run:
     shell: pwsh
 
+# Supply-chain rules for this file (SIB-SEC-02):
+#   * Every action is pinned to a full commit SHA, with the release it came from in the comment.
+#     A tag is mutable; a hijacked tag of any action below would otherwise run with this job's
+#     token, and in the release path before the MSI is attested. Dependabot moves the pins
+#     (.github/dependabot.yml), the workflow-lint job below rejects an unpinned one.
+#   * Every checkout sets `persist-credentials: false` - nothing here pushes with git.
+#   * No `${{ }}` expression is expanded inside a `run:` script; values reach scripts via `env:`.
+#   * The release is three jobs, so no job holds more than it uses: `build-msi` runs the build
+#     (Gradle, WiX from NuGet) with a read-only token; `attest` holds the OIDC/attestation rights
+#     and runs no build code at all; `publish` holds `contents: write` and runs no build code.
+
 jobs:
   check:
     name: Build & test
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 25
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: '25'
 
+      # A tampered gradle-wrapper.jar is the classic way to run arbitrary code in a build that
+      # otherwise looks untouched.
+      - name: Validate the Gradle wrapper
+        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
+      # zizmor's cache-poisoning flags this because the workflow also runs on tags. It does not
+      # apply here: nothing this job builds is published - the shipped MSI is rebuilt in build-msi
+      # with the cache disabled. Only `main` writes the cache, so a PR run cannot seed it.
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0 # zizmor: ignore[cache-poisoning]
+        with:
+          cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Run tests
         run: .\gradlew.bat --stacktrace test
@@ -45,93 +69,220 @@ jobs:
       - name: Assemble app image (packaging smoke test)
         run: .\gradlew.bat --stacktrace createDistributable
 
-  release:
-    name: Package MSI & publish release
-    needs: check
+  workflows:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Downloaded rather than run as an action, and verified against a pinned digest: a workflow
+      # linter that is itself an unpinned third-party action would be arguing with itself. Same
+      # version and digest as basetool-android's ci.yml; bump both by hand, together.
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+          ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+        run: |
+          set -euo pipefail
+          archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${archive}"
+          curl -fsSL "$url" -o /tmp/actionlint.tar.gz
+          echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
+          sudo install -m 0755 /tmp/actionlint /usr/local/bin/actionlint
+          actionlint -version
+
+      - name: Run actionlint
+        run: actionlint -color
+
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+
+      # Hash-pinned (`--require-hashes`), so pip verifies what it installs; the reasoning and the
+      # by-hand bump rule live in .github/requirements/zizmor.txt.
+      - name: Install zizmor
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check \
+            --require-hashes -r .github/requirements/zizmor.txt
+          zizmor --version
+
+      # Unpinned actions, template injection into run blocks, credential persistence, excessive
+      # permissions, cache poisoning. GH_TOKEN takes zizmor out of offline mode, which enables the
+      # `known-vulnerable-actions` audit.
+      - name: Run zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: zizmor --persona=regular --format=plain .github/workflows
+
+  build-msi:
+    name: Package MSI
+    needs: [check, workflows]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
+    timeout-minutes: 45
     permissions:
-      contents: write       # create the GitHub release and upload the MSI asset
-      id-token: write       # mint the OIDC token Sigstore signs the provenance with
-      attestations: write   # store the build-provenance attestation on the repository
+      contents: read
     steps:
-      - uses: actions/checkout@v7
+      # The tag reaches the script through `env`, never as an expanded expression, and must be
+      # exactly a release version before anything else runs.
+      - name: Validate the release tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if ($env:REF_NAME -cnotmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') {
+            throw "Refusing to release from tag '$env:REF_NAME': expected vMAJOR.MINOR.PATCH[-suffix]."
+          }
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 25
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
           java-version: '25'
 
+      - name: Validate the Gradle wrapper
+        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          # No cache at all for the build that ships: a poisoned cache entry would become a
+          # poisoned - and then attested - MSI.
+          cache-disabled: true
 
       # The release version comes from the tag (e.g. v1.2.0 -> 1.2.0), not from
-      # build.gradle.kts. APP_VERSION is read by the Gradle build.
-      - name: Derive version from tag
-        run: |
-          $v = "${{ github.ref_name }}" -replace '^v', ''
-          "APP_VERSION=$v" >> $env:GITHUB_ENV
-          Write-Host "Releasing version $v"
-
-      # Always via the script: it uses WiX 7 (installed, or bootstrapped as a local
-      # dotnet tool), accepts the WiX OSMF EULA (CI only), ensures the Util/UI wixext
-      # extensions, and copies the MSI to dist\.
+      # build.gradle.kts. APP_VERSION is read by the Gradle build. Always via the script: it uses
+      # WiX 7 (installed, or bootstrapped as a local dotnet tool), accepts the WiX OSMF EULA (CI
+      # only), ensures the Util/UI wixext extensions, and copies the MSI to dist\.
       - name: Build MSI installer
-        run: .\package-msi.ps1
-
-      # SLSA build provenance, signed via Sigstore with a short-lived OIDC certificate:
-      # it binds the MSI's digest to this repository, this workflow file and the tagged
-      # commit, so anyone can prove the download came out of this build and not off
-      # someone's desk (`gh attestation verify`). Runs on the file in dist\ before it is
-      # published, and it attests the artifact only - nothing is uploaded.
-      - name: Attest build provenance for the MSI
-        uses: actions/attest@v4
-        with:
-          subject-path: dist/*.msi
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          $env:APP_VERSION = $env:REF_NAME -replace '^v', ''
+          Write-Host "Releasing version $env:APP_VERSION"
+          .\package-msi.ps1
 
       - name: Upload MSI as build artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: msi-installer
           path: dist/*.msi
           if-no-files-found: error
 
+  attest:
+    name: Attest build provenance
+    needs: build-msi
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write       # mint the OIDC token Sigstore signs the provenance with
+      attestations: write   # store the build-provenance attestation on the repository
+    steps:
+      # download-artifact v8 fails on a digest mismatch, so what is attested is byte-for-byte what
+      # build-msi uploaded.
+      - name: Download the MSI
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: msi-installer
+          path: dist
+
+      # SLSA build provenance, signed via Sigstore with a short-lived OIDC certificate: it binds
+      # the MSI's digest to this repository, this workflow file and the tagged commit, so anyone
+      # can prove the download came out of this build and not off someone's desk
+      # (`gh attestation verify`). It attests the artifact only - nothing is uploaded.
+      - name: Attest build provenance for the MSI
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/*.msi
+
+  publish:
+    name: Publish release
+    needs: [build-msi, attest]
+    runs-on: windows-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write       # create the GitHub release and upload the MSI asset
+    steps:
+      - name: Validate the release tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          if ($env:REF_NAME -cnotmatch '^v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') {
+            throw "Refusing to release from tag '$env:REF_NAME': expected vMAJOR.MINOR.PATCH[-suffix]."
+          }
+
+      # Only for .github/scripts/virustotal-scan.ps1; nothing from this checkout is built.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Download the MSI
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: msi-installer
+          path: dist
+
       # Uploads the MSI to VirusTotal (free Public API - see the script header for why
       # that licence fits this repo) and renders the release-notes section linking the
       # report. Deliberately non-gating: the MSI is unsigned, so Defender's ML classifier
       # flags it as a Wacatac false positive, and failing on a detection would block every
-      # release. `continue-on-error` plus the script's own exit-0 policy make the scan a
-      # courtesy that can never hold up a publish.
+      # release. `continue-on-error`, the step timeout and the script's own exit-0 policy make
+      # the scan a courtesy that can never hold up a publish.
       - name: Scan the MSI on VirusTotal
         id: virustotal
         continue-on-error: true
+        timeout-minutes: 25
         env:
           VIRUSTOTAL_API_KEY: ${{ secrets.VIRUSTOTAL_API_KEY }}
         run: |
           $msi = Get-ChildItem dist\*.msi | Select-Object -First 1
           .\.github\scripts\virustotal-scan.ps1 -Path $msi.FullName
 
+      # `gh release create` instead of a third-party release action: one less action holding
+      # `contents: write`. The notes file goes first and GitHub's generated changelog is appended
+      # below it; the VirusTotal part is empty when the scan was unavailable. `--verify-tag`
+      # refuses to create a tag that does not already exist. Tags like v1.2.0-rc1 are published as
+      # pre-releases (and the app's update check ignores those).
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v3
-        with:
-          files: dist/*.msi
-          # `body` goes first, GitHub's generated changelog is appended below it. The
-          # VirusTotal part is empty when the scan was unavailable, which just leaves the
-          # provenance section and the generated notes.
-          body: |
-            ${{ steps.virustotal.outputs.release_note }}
-
-            ## Build provenance
-
-            This MSI ships with a signed [build provenance attestation](https://github.com/krt-profit/basetool-sc-extractor/attestations)
-            (SLSA, Sigstore) tying it to the commit and workflow that built it. Verify the
-            file you downloaded with the [GitHub CLI](https://cli.github.com/):
-
-            ```
-            gh attestation verify <your-file>.msi --repo krt-profit/basetool-sc-extractor
-            ```
-          generate_release_notes: true
-          fail_on_unmatched_files: true
-          # Tags like v1.2.0-rc1 are published as pre-releases.
-          prerelease: ${{ contains(github.ref_name, '-') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+          VIRUSTOTAL_NOTE: ${{ steps.virustotal.outputs.release_note }}
+        run: |
+          $msi = @(Get-ChildItem dist\*.msi)
+          if ($msi.Count -ne 1) { throw "expected exactly one MSI in dist\, found $($msi.Count)" }
+          $provenance = @(
+            '## Build provenance',
+            '',
+            'This MSI ships with a signed [build provenance attestation](https://github.com/krt-profit/basetool-sc-extractor/attestations)',
+            '(SLSA, Sigstore) tying it to the commit and workflow that built it. Verify the',
+            'file you downloaded with the [GitHub CLI](https://cli.github.com/):',
+            '',
+            '```',
+            'gh attestation verify <your-file>.msi --repo krt-profit/basetool-sc-extractor',
+            '```'
+          ) -join "`n"
+          $notes = if ($env:VIRUSTOTAL_NOTE) { "$env:VIRUSTOTAL_NOTE`n`n$provenance" } else { $provenance }
+          Set-Content -LiteralPath release-notes.md -Value $notes -Encoding utf8NoBOM
+          $releaseArgs = @(
+            'release', 'create', $env:REF_NAME, $msi[0].FullName,
+            '--verify-tag', '--title', $env:REF_NAME,
+            '--notes-file', 'release-notes.md', '--generate-notes'
+          )
+          if ($env:REF_NAME.Contains('-')) { $releaseArgs += '--prerelease' }
+          gh @releaseArgs
+          if ($LASTEXITCODE -ne 0) { throw "gh release create failed with exit code $LASTEXITCODE" }

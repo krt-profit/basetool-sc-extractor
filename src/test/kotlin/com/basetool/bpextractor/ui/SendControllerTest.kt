@@ -6,16 +6,21 @@ import com.basetool.bpextractor.net.auth.DeviceGrantClient
 import com.basetool.bpextractor.net.auth.DpopKey
 import com.basetool.bpextractor.net.auth.DpopProofs
 import com.basetool.bpextractor.net.auth.FakeCredentialStore
+import com.basetool.bpextractor.net.auth.FakeDpopKeyStore
 import com.basetool.bpextractor.net.auth.StoredCredential
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.nio.file.Files
+import java.security.KeyPairGenerator
+import java.security.spec.ECGenParameterSpec
+import java.util.Base64
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -41,12 +46,26 @@ class SendControllerTest {
     /** Per-test override for the gateway answer — the contexts are registered once, in [setUp]. */
     private var ingestHandler: ((HttpExchange, String) -> Unit)? = null
 
+    /** Per-test override for the device-authorization answer (default: fail fast, no poll). */
+    private var deviceHandler: ((HttpExchange) -> Unit)? = null
+
+    /** The persistent-key storage stand-in — in memory, no CNG (the non-Windows test seam). */
+    private val keys = FakeDpopKeyStore()
+
+    /** The send state at the moment the browser was opened (the Authenticating step). */
+    private var stateAtBrowse: SendState? = null
+
     @BeforeTest
     fun setUp() {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/protocol/openid-connect/auth/device") { ex ->
             deviceCalls.incrementAndGet()
-            respond(ex, 400, """{"error":"unauthorized_client"}""") // fallback path: fail fast, no poll
+            val override = deviceHandler
+            if (override != null) {
+                override(ex)
+            } else {
+                respond(ex, 400, """{"error":"unauthorized_client"}""") // fallback path: fail fast, no poll
+            }
         }
         server.createContext("/v1/refinery-extract") { ex ->
             ingest(ex, """{"handoffId":"H1","kind":"REFINERY","frontendUrl":"https://app/x?handoff=H1"}""")
@@ -86,13 +105,21 @@ class SendControllerTest {
         return store
     }
 
-    private fun controller(store: FakeCredentialStore) =
-        SendController(
-            configStore = consentedConfig(),
-            deviceGrant = DeviceGrantClient(issuer = base),
-            credentialStore = store,
-            browse = { browseCount++ },
-        )
+    private fun controller(store: FakeCredentialStore, keyStore: FakeDpopKeyStore = keys): SendController {
+        lateinit var controller: SendController
+        controller =
+            SendController(
+                configStore = consentedConfig(),
+                deviceGrant = DeviceGrantClient(issuer = base),
+                credentialStore = store,
+                keyStore = keyStore,
+                browse = {
+                    browseCount++
+                    stateAtBrowse = controller.state
+                },
+            )
+        return controller
+    }
 
     @Test
     fun `a stored token sends silently and re-persists the rotated token`() {
@@ -130,6 +157,41 @@ class SendControllerTest {
         assertNull(store.stored, "the dead token must be dropped")
         assertEquals(1, deviceCalls.get(), "it must fall back to a device grant")
         assertTrue(controller.state is SendState.Error, "the stubbed device grant fails, so we end in Error")
+        assertTrue(keys.keys.isEmpty(), "no persistent key may be left behind by a failed login")
+    }
+
+    @Test
+    fun `a dead token bound to a persistent key takes that key with it`() {
+        server.createContext("/protocol/openid-connect/token") { ex ->
+            respond(ex, 400, """{"error":"invalid_grant"}""")
+        }
+        val key = assertNotNull(keys.create())
+        val store = FakeCredentialStore(StoredCredential.encode(StoredCredential("RT-DEAD", key.keyName)))
+
+        runBlocking { controller(store).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
+
+        assertNull(store.stored)
+        assertTrue(key.keyName in keys.deleted, "the dead credential's key must be deleted too")
+        assertTrue(keys.keys.isEmpty())
+    }
+
+    @Test
+    fun `a credential whose key is gone is dropped instead of redeemed`() {
+        // A cleared TPM or a profile copied onto another machine: the name no longer opens, so the
+        // bound token can never be redeemed — no refresh is even attempted.
+        val tokenCalls = AtomicInteger(0)
+        server.createContext("/protocol/openid-connect/token") { ex ->
+            tokenCalls.incrementAndGet()
+            respond(ex, 400, """{"error":"invalid_grant"}""")
+        }
+        val store =
+            FakeCredentialStore(StoredCredential.encode(StoredCredential("RT-ORPHAN", "Basetool SC Extractor DPoP gone")))
+
+        runBlocking { controller(store).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
+
+        assertNull(store.stored)
+        assertEquals(0, tokenCalls.get(), "an unredeemable token is not sent anywhere")
+        assertEquals(1, deviceCalls.get(), "the member signs in afresh")
     }
 
     // --- DPoP (RFC 9449, REQ-INGEST-012) -------------------------------------------------------
@@ -150,11 +212,38 @@ class SendControllerTest {
         assertEquals("DPoP AT", ingestAuth, "a bound token goes out under the DPoP scheme")
         assertNotNull(ingestProof, "and carries the proof the gateway validates")
 
-        // The refresh token and the key that redeems it have to survive together, or the credential
-        // is unusable on the next start (a bound refresh token needs its own key).
+        // The refresh token and the NAME of the key that redeems it are stored together; the key
+        // itself stays in the key storage (a bound refresh token needs its own key).
         val stored = assertNotNull(StoredCredential.decode(assertNotNull(store.stored)))
         assertEquals("RT-ROTATED", stored.refreshToken)
-        assertNotNull(DpopKey.fromEncoded(assertNotNull(stored.dpopKey)))
+        val key = assertNotNull(keys.open(assertNotNull(stored.dpopKeyName)))
+        assertEquals(
+            key.thumbprint,
+            DpopProofs.thumbprint(assertNotNull(ingestProof)),
+            "the gateway proof is signed by the stored key",
+        )
+        assertEquals(1, keys.keys.size, "exactly one persistent key")
+    }
+
+    @Test
+    fun `a bound token with no persistent key available is used but not remembered`() {
+        // No key storage (another OS, a broken CNG): the session key signs this send, but a token
+        // bound to a key that dies with the process must not be persisted — and neither may the key.
+        server.createContext("/protocol/openid-connect/token") { ex ->
+            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-ROTATED","token_type":"DPoP","expires_in":300}""")
+        }
+        val store = FakeCredentialStore("RT-STORED")
+
+        runBlocking {
+            controller(store, FakeDpopKeyStore(available = false))
+                .request(this, SendKind.REFINERY, """{"x":1}""", "de")
+        }
+
+        assertEquals("DPoP AT", ingestAuth, "the send itself still works under DPoP")
+        // The new token dies with the process, and the stored one it was refreshed from has just
+        // been superseded (with rotation: invalidated) — neither is kept.
+        assertNull(store.stored, "no token that cannot be redeemed after exit is kept")
+        assertEquals(0, store.saveCount)
     }
 
     @Test
@@ -192,7 +281,7 @@ class SendControllerTest {
         assertEquals(0, deviceCalls.get(), "and must not force an interactive login")
         val stored = assertNotNull(StoredCredential.decode(assertNotNull(store.stored)))
         assertEquals("RT-BOUND", stored.refreshToken)
-        assertNotNull(stored.dpopKey, "the record is rewritten in the keyed shape")
+        assertNotNull(keys.open(assertNotNull(stored.dpopKeyName, "the record is rewritten in the keyed shape")))
     }
 
     @Test
@@ -205,15 +294,91 @@ class SendControllerTest {
         val store = FakeCredentialStore("RT-STORED")
 
         runBlocking { controller(store).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
-        val firstKey = assertNotNull(StoredCredential.decode(assertNotNull(store.stored))?.dpopKey)
+        val firstKey = assertNotNull(StoredCredential.decode(assertNotNull(store.stored))?.dpopKeyName)
         runBlocking { controller(store).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
-        val secondKey = assertNotNull(StoredCredential.decode(assertNotNull(store.stored))?.dpopKey)
+        val secondKey = assertNotNull(StoredCredential.decode(assertNotNull(store.stored))?.dpopKeyName)
 
-        assertEquals(
-            DpopKey.fromEncoded(firstKey)?.thumbprint,
-            DpopKey.fromEncoded(secondKey)?.thumbprint,
-            "a persisted key must be reused, never regenerated",
-        )
+        assertEquals(firstKey, secondKey, "a persisted key must be reused, never regenerated")
+        assertEquals(setOf(firstKey), keys.keys.keys, "and no second key is created along the way")
+    }
+
+    // --- migration off the exportable key (SIB-SEC-04) --------------------------------------------
+
+    @Test
+    fun `a record with an exported key is revoked, deleted, and the member signs in once more`() {
+        // Records written before the non-exportable key carry the private key next to the token, so
+        // a copy of the record was the login. The token is bound to that exported key and cannot
+        // move onto a non-exportable one: it is revoked (with a proof from the old key, so a copy
+        // dies too), the record is deleted, and the member goes through one device grant — told why.
+        val legacyPair =
+            KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()
+        val legacyExport =
+            Base64.getEncoder().encodeToString(legacyPair.private.encoded) + "." +
+                Base64.getEncoder().encodeToString(legacyPair.public.encoded)
+        val store = FakeCredentialStore("""{"refreshToken":"RT-OLD","dpopKey":"$legacyExport"}""")
+        var revokedBody = ""
+        var revokeProof: String? = null
+        server.createContext("/protocol/openid-connect/revoke") { ex ->
+            revokedBody = ex.requestBody.readBytes().decodeToString()
+            revokeProof = ex.requestHeaders.getFirst("DPoP")
+            ex.sendResponseHeaders(200, -1)
+            ex.close()
+        }
+        val refreshed = mutableListOf<String>()
+        server.createContext("/protocol/openid-connect/token") { ex ->
+            refreshed += ex.requestBody.readBytes().decodeToString()
+            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-NEW","token_type":"DPoP","expires_in":300}""")
+        }
+        deviceHandler = { ex ->
+            respond(
+                ex,
+                200,
+                """{"device_code":"DC","user_code":"ABCD-EFGH","verification_uri":"https://sso.example/device",""" +
+                    """"expires_in":60,"interval":1}""",
+            )
+        }
+        val controller = controller(store)
+
+        runBlocking { controller.request(this, SendKind.REFINERY, """{"x":1}""", "de") }
+
+        // The old token was revoked, with a proof from the old (exported) key.
+        assertTrue(revokedBody.contains("token=RT-OLD"), "the legacy token must be revoked")
+        val legacyThumbprint = assertNotNull(DpopKey.fromLegacyExport(legacyExport)).thumbprint
+        assertEquals(legacyThumbprint, DpopProofs.thumbprint(assertNotNull(revokeProof)))
+        // It was never redeemed — only the device-code grant hit the token endpoint.
+        assertTrue(refreshed.none { it.contains("RT-OLD") }, "the legacy token must not be refreshed")
+        assertEquals(1, deviceCalls.get(), "the member signs in once via the device grant")
+        // And the overlay said why.
+        val shown = stateAtBrowse
+        assertTrue(shown is SendState.Authenticating && shown.keyUpgrade, "was $shown")
+        assertTrue(controller.state is SendState.Done, "was ${controller.state}")
+        // The new record names a non-exportable key and holds no key material.
+        val blob = assertNotNull(store.stored)
+        assertFalse(blob.contains(legacyExport.substringBefore('.')))
+        assertFalse(blob.contains("\"dpopKey\""))
+        val stored = assertNotNull(StoredCredential.decode(blob))
+        assertEquals("RT-NEW", stored.refreshToken)
+        assertNotNull(keys.open(assertNotNull(stored.dpopKeyName)))
+    }
+
+    @Test
+    fun `an ordinary interactive login does not claim to be the key upgrade`() {
+        server.createContext("/protocol/openid-connect/token") { ex ->
+            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT","token_type":"DPoP","expires_in":300}""")
+        }
+        deviceHandler = { ex ->
+            respond(
+                ex,
+                200,
+                """{"device_code":"DC","user_code":"ABCD-EFGH","verification_uri":"https://sso.example/device",""" +
+                    """"expires_in":60,"interval":1}""",
+            )
+        }
+
+        runBlocking { controller(FakeCredentialStore()).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
+
+        val shown = stateAtBrowse
+        assertTrue(shown is SendState.Authenticating && !shown.keyUpgrade, "was $shown")
     }
 
     @Test
@@ -231,6 +396,7 @@ class SendControllerTest {
         runBlocking { controller.request(this, SendKind.REFINERY, """{"x":1}""", "de") }
 
         assertEquals("RT-STILL-VALID", store.stored, "a proof error must not destroy the credential")
+        assertTrue(keys.keys.isEmpty(), "the key minted for the refresh attempt is not left behind")
         assertEquals(0, deviceCalls.get(), "and must not start a doomed interactive grant")
         assertEquals(0, browseCount)
         val state = controller.state

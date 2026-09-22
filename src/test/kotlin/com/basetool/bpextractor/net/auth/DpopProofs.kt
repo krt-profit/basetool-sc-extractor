@@ -43,6 +43,24 @@ object DpopProofs {
                 MessageDigest.getInstance("SHA-256").digest(accessToken.toByteArray(Charsets.US_ASCII)),
             )
 
+    /**
+     * The RFC 7638 thumbprint of the key that signed [proof], recomputed from its `jwk` header the
+     * way the server derives `cnf.jkt` — so a test can tell *which* key a proof came from.
+     *
+     * @param proof the compact proof
+     * @return base64url of the SHA-256 over the canonical `{crv,kty,x,y}` JWK
+     */
+    fun thumbprint(proof: String): String {
+        val jwk = header(proof)["jwk"]!!.jsonObject
+        val canonical =
+            listOf("crv", "kty", "x", "y").joinToString(",", "{", "}") { name ->
+                "\"$name\":\"${jwk[name]!!.jsonPrimitive.content}\""
+            }
+        return Base64.getUrlEncoder()
+            .withoutPadding()
+            .encodeToString(MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray(Charsets.UTF_8)))
+    }
+
     private fun part(proof: String, index: Int): JsonObject =
         Json.parseToJsonElement(
             Base64.getUrlDecoder().decode(proof.split('.')[index]).decodeToString(),

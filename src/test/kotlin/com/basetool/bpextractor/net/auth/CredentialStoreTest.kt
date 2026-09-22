@@ -1,6 +1,9 @@
 package com.basetool.bpextractor.net.auth
 
 import java.util.UUID
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -36,20 +39,43 @@ class CredentialStoreTest {
     }
 
     @Test
-    fun `a credential round-trips the refresh token together with its DPoP key`() {
-        // The two must stay one record: a sender-constrained refresh token is unredeemable without
-        // the key it was issued to (REQ-INGEST-012), so they can never be allowed to drift apart.
+    fun `a credential round-trips the refresh token together with its DPoP key name`() {
+        // The record names the key the token is bound to (REQ-INGEST-012); opening that name in the
+        // key store must give back the very key, or the token is unredeemable.
         val store = FakeCredentialStore()
-        val key = DpopKey.generate()
+        val keys = FakeDpopKeyStore()
+        val key = assertNotNull(keys.create())
 
-        store.saveCredential(StoredCredential("RT-1", key.encoded()))
+        store.saveCredential(StoredCredential("RT-1", key.keyName))
         val loaded = assertNotNull(store.loadCredential())
 
         assertEquals("RT-1", loaded.refreshToken)
         assertEquals(
             key.thumbprint,
-            assertNotNull(DpopKey.fromEncoded(assertNotNull(loaded.dpopKey))).thumbprint,
+            assertNotNull(keys.open(assertNotNull(loaded.dpopKeyName))).thumbprint,
             "the key that comes back has to be the same key",
+        )
+    }
+
+    @Test
+    fun `the stored credential holds no private key material`() {
+        // SIB-SEC-04: a copied Credential Manager record must be worthless. It carries the token
+        // and the key's NAME — nothing a JDK or CNG key could be rebuilt from.
+        val keys = FakeDpopKeyStore()
+        val key = assertNotNull(keys.create())
+        val blob = StoredCredential.encode(StoredCredential("RT-1", key.keyName))
+
+        val json = Json.parseToJsonElement(blob).jsonObject
+        assertEquals(setOf("refreshToken", "dpopKeyName"), json.keys)
+        assertEquals(key.keyName, json["dpopKeyName"]?.jsonPrimitive?.content)
+        assertTrue(assertNotNull(key.keyName).startsWith(CngDpopKeyStore.KEY_NAME_PREFIX))
+        // The model itself has no slot for key material either.
+        assertEquals(
+            setOf("refreshToken", "dpopKeyName"),
+            StoredCredential::class.java.declaredFields
+                .filterNot { java.lang.reflect.Modifier.isStatic(it.modifiers) }
+                .map { it.name }
+                .toSet(),
         )
     }
 
@@ -62,7 +88,24 @@ class CredentialStoreTest {
         val loaded = assertNotNull(store.loadCredential())
 
         assertEquals("eyJhbGciOiJIUzI1NiJ9.legacy-refresh-token", loaded.refreshToken)
-        assertNull(loaded.dpopKey)
+        assertNull(loaded.dpopKeyName)
+    }
+
+    @Test
+    fun `a record with an exported key inside is recognised as legacy and never read as usable`() {
+        // What the builds before the non-exportable key wrote: the exported key pair next to the
+        // token. It must not come back as a usable credential — only as the legacy record the send
+        // flow revokes and destroys.
+        val store = FakeCredentialStore("""{"refreshToken":"RT-OLD","dpopKey":"cHJpdmF0ZQ.cHVibGlj"}""")
+
+        assertNull(store.loadCredential())
+        val record = store.loadRecord()
+        assertTrue(record is CredentialRecord.LegacyExportedKey, "was $record")
+        assertEquals("RT-OLD", record.refreshToken)
+        assertEquals("cHJpdmF0ZQ.cHVibGlj", record.exportedKey)
+        // Its toString must not print the token or the key.
+        assertFalse(record.toString().contains("RT-OLD"))
+        assertFalse(record.toString().contains("cHJpdmF0ZQ"))
     }
 
     @Test

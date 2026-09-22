@@ -2,10 +2,12 @@ package com.basetool.bpextractor.update
 
 import java.io.File
 import java.nio.file.Files
+import java.security.MessageDigest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -143,6 +145,44 @@ class UpdateCheckerTest {
     }
 
     @Test
+    fun `a release whose msi carries no usable digest is not offered`() {
+        // Fail closed (SIB-SEC-05): without a digest neither the download nor the installer helper
+        // could verify the file, so there is no offer at all rather than an unverified install.
+        val release = assertNotNull(UpdateChecker.parseLatestRelease(releaseJson))
+        val noDigest = release.assets.map { it.copy(digest = null) }
+        assertNull(UpdateChecker.selectUpdate(release.copy(assets = noDigest), "1.0.0"))
+        val malformed = release.assets.map { it.copy(digest = "sha256:tooshort") }
+        assertNull(UpdateChecker.selectUpdate(release.copy(assets = malformed), "1.0.0"))
+        val otherAlgorithm = release.assets.map { it.copy(digest = "sha512:${"a".repeat(128)}") }
+        assertNull(UpdateChecker.selectUpdate(release.copy(assets = otherAlgorithm), "1.0.0"))
+    }
+
+    @Test
+    fun `an msi hosted anywhere but this repo's release downloads is not offered`() {
+        val release = assertNotNull(UpdateChecker.parseLatestRelease(releaseJson))
+        val file = "/releases/download/v9.9.9/Basetool.SC.Extractor-9.9.9.msi"
+        listOf(
+            "https://evil.example/krt-profit/basetool-sc-extractor$file",
+            "https://github.com/someone-else/basetool-sc-extractor$file",
+            "https://github.com.evil.example/krt-profit/basetool-sc-extractor$file",
+            "https://objects.githubusercontent.com/github-production-release-asset/x.msi",
+            "https://github.com/krt-profit/basetool-sc-extractor/releases/download/../../../evil/x.msi",
+            "https://github.com/krt-profit/basetool-sc-extractor/releases/download/%2e%2e/%2e%2e/evil/x.msi",
+        ).forEach { url ->
+            val foreign = release.assets.map { if (it.name.endsWith(".msi")) it.copy(downloadUrl = url) else it }
+            assertNull(UpdateChecker.selectUpdate(release.copy(assets = foreign), "1.0.0"), url)
+        }
+    }
+
+    @Test
+    fun `trusted download urls are exactly this repo's release assets`() {
+        assertTrue(UpdateChecker.isTrustedDownloadUrl("${UpdateChecker.RELEASE_DOWNLOAD_PREFIX}v2.9.1/Basetool.SC.Extractor-2.9.1.msi"))
+        assertFalse(UpdateChecker.isTrustedDownloadUrl("http://github.com/${UpdateChecker.REPO}/releases/download/v1/x.msi"))
+        assertFalse(UpdateChecker.isTrustedDownloadUrl("https://github.com/${UpdateChecker.REPO}/releases/tag/v1"))
+        assertFalse(UpdateChecker.isTrustedDownloadUrl(""))
+    }
+
+    @Test
     fun `only well-formed sha256 digests are kept`() {
         val hex = "e3299dd3a45ab325824c1a8fbb6b5eb099cbec977249b57cb1a8a282f24fc3a3"
         assertEquals(hex, UpdateChecker.sha256FromDigest("sha256:$hex"))
@@ -160,21 +200,24 @@ class UpdateCheckerTest {
         val script = File("""C:\Users\Tim O'Brien\AppData\Local\Temp\basetool-sc-extractor-update\install-update.ps1""")
         val msi = File("""C:\Users\Tim O'Brien\AppData\Local\Temp\basetool-sc-extractor-update\basetool-sc-extractor-9.9.9.msi""")
         val app = File("""C:\Users\Tim O'Brien\AppData\Local\Basetool SC Extractor\Basetool SC Extractor.exe""")
-        val command = UpdateChecker.installerCommand(script, msi, "de", app.absolutePath)
+        val sha = "e3299dd3a45ab325824c1a8fbb6b5eb099cbec977249b57cb1a8a282f24fc3a3"
+        val command = UpdateChecker.installerCommand(script, msi, sha, "de", app.absolutePath)
         assertTrue(command.first().endsWith("powershell.exe"))
         assertTrue(command.containsAll(listOf("-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden")))
-        // -File takes the script, then three plain positional arguments — MSI path, UI language,
-        // app-launcher path. Paths with spaces/apostrophes need no embedded quoting anywhere.
+        // -File takes the script, then four plain positional arguments — MSI path, expected
+        // SHA-256, UI language, app-launcher path. Paths with spaces/apostrophes need no embedded
+        // quoting anywhere.
         assertEquals(script.absolutePath, command[command.indexOf("-File") + 1])
-        assertEquals(msi.absolutePath, command[command.size - 3])
+        assertEquals(msi.absolutePath, command[command.size - 4])
+        assertEquals(sha, command[command.size - 3])
         assertEquals("de", command[command.size - 2])
         assertEquals(app.absolutePath, command.last())
         assertTrue(command.none { it.contains('"') })
         // The language is passed through; anything but "en" falls back to German.
-        assertEquals("en", UpdateChecker.installerCommand(script, msi, "en", "").let { it[it.size - 2] })
-        assertEquals("de", UpdateChecker.installerCommand(script, msi, "fr", "").let { it[it.size - 2] })
+        assertEquals("en", UpdateChecker.installerCommand(script, msi, sha, "en", "").let { it[it.size - 2] })
+        assertEquals("de", UpdateChecker.installerCommand(script, msi, sha, "fr", "").let { it[it.size - 2] })
         // No launcher (dev run) → an empty trailing argument, so the helper skips the relaunch.
-        assertEquals("", UpdateChecker.installerCommand(script, msi, "de", "").last())
+        assertEquals("", UpdateChecker.installerCommand(script, msi, sha, "de", "").last())
     }
 
     @Test
@@ -224,32 +267,152 @@ class UpdateCheckerTest {
         assertTrue(script.contains("Test-Path -LiteralPath \$AppPath"))
     }
 
+    @Test
+    fun `installer script re-hashes the msi before every msiexec run, the elevated retry included`() {
+        val script = UpdateChecker.INSTALLER_SCRIPT
+        assertTrue(script.contains("Get-FileHash -LiteralPath \$MsiPath -Algorithm SHA256"))
+        // The digest is the second positional parameter, right after the MSI path.
+        assertTrue(script.startsWith("param([string]\$MsiPath, [string]\$Sha256,"))
+        // Both msiexec launches live inside Invoke-MsiInstall, whose first statement is the check.
+        val body = script.substringAfter("function Invoke-MsiInstall").substringBefore("\n}")
+        val check = body.indexOf("Test-MsiDigest")
+        assertTrue(check >= 0)
+        assertTrue(check < body.indexOf("-Verb RunAs"))
+        assertTrue(check < body.indexOf("msiexec.exe"))
+        assertEquals(2, Regex("Start-Process -FilePath 'msiexec.exe'").findAll(script).count())
+        assertEquals(2, Regex("Start-Process -FilePath 'msiexec.exe'").findAll(body).count())
+        // The elevated retry goes through the same function, so it is re-checked too.
+        assertTrue(script.contains("Invoke-MsiInstall -Elevated"))
+        // A digest mismatch skips the retry prompt as well.
+        assertTrue(script.contains("\$code -ne \$digestMismatch"))
+    }
+
+    /**
+     * Runs the helper's own `Test-MsiDigest` and `Invoke-MsiInstall` in Windows PowerShell, lifted
+     * out of [UpdateChecker.INSTALLER_SCRIPT] through the PowerShell parser, with `Start-Process`
+     * shadowed by a stub — so no msiexec and no UAC prompt can ever start, even if the check were
+     * broken. Skipped where there is no Windows PowerShell (the helper only ever runs on Windows).
+     */
+    @Test
+    fun `the helper refuses to launch msiexec for a file whose hash does not match`() {
+        val powershell = File(System.getenv("SystemRoot") ?: """C:\Windows""", """System32\WindowsPowerShell\v1.0\powershell.exe""")
+        if (!powershell.isFile) return
+        val dir = Files.createTempDirectory("update-helper-test").toFile()
+        try {
+            val msi = File(dir, "fake.msi").apply { writeText("not really an msi") }
+            val good = MessageDigest.getInstance("SHA-256").digest(msi.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            val helper = File(dir, "install-update.ps1").apply { writeText(UpdateChecker.INSTALLER_SCRIPT) }
+            val driver = File(dir, "driver.ps1").apply { writeText(HELPER_DRIVER) }
+            fun run(sha: String): String {
+                val process = ProcessBuilder(
+                    powershell.absolutePath, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                    "-File", driver.absolutePath, helper.absolutePath, msi.absolutePath, sha,
+                ).redirectErrorStream(true).start()
+                val out = process.inputStream.bufferedReader().readText().trim()
+                process.waitFor()
+                // Echoed so a CI failure shows what PowerShell actually said, not just the line.
+                println("installer-helper driver [digest ${sha.take(8)}…]: $out")
+                return out
+            }
+            // Matching digest: the (stubbed) msiexec runs, plainly and elevated.
+            assertEquals("plain=0 started=1 elevated=0 started=2", run(good))
+            assertEquals("plain=0 started=1 elevated=0 started=2", run(good.uppercase()))
+            // Wrong, empty or malformed digest: nothing is launched, either way.
+            assertEquals("plain=-1 started=0 elevated=-1 started=0", run("0".repeat(64)))
+            assertEquals("plain=-1 started=0 elevated=-1 started=0", run(""))
+            assertEquals("plain=-1 started=0 elevated=-1 started=0", run("not-a-digest"))
+            // The file changed after the app's own verification: refused as well.
+            msi.appendText("tampered")
+            assertEquals("plain=-1 started=0 elevated=-1 started=0", run(good))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
     // --- temp dir handling -------------------------------------------------------------------
 
     @Test
-    fun `update dir lives under the user temp dir, never the install dir`() {
-        val tmp = File(System.getProperty("java.io.tmpdir")).absoluteFile
-        assertEquals(tmp, UpdateChecker.updateDir().absoluteFile.parentFile)
+    fun `each update folder is a fresh unpredictable folder under the user temp dir`() {
+        val root = Files.createTempDirectory("update-root").toFile()
+        try {
+            val a = UpdateChecker.newUpdateDir(root)
+            val b = UpdateChecker.newUpdateDir(root)
+            assertEquals(root.absoluteFile, a.absoluteFile.parentFile)
+            assertTrue(a.isDirectory && b.isDirectory)
+            assertTrue(a.name.startsWith(UpdateChecker.UPDATE_DIR_PREFIX))
+            assertNotEquals(a, b)
+            assertNotEquals(UpdateChecker.UPDATE_DIR_PREFIX, a.name)
+            // The default root is the user's temp dir — never the install dir.
+            val real = UpdateChecker.newUpdateDir()
+            try {
+                assertEquals(File(System.getProperty("java.io.tmpdir")).absoluteFile, real.absoluteFile.parentFile)
+            } finally {
+                real.deleteRecursively()
+            }
+        } finally {
+            root.deleteRecursively()
+        }
     }
 
     @Test
-    fun `cleanupLeftovers removes a stale update folder and tolerates a missing one`() {
-        val dir = Files.createTempDirectory("update-test").toFile()
-        File(dir, "basetool-sc-extractor-9.9.9.msi").writeText("stale")
-        File(dir, "install-update.ps1").writeText("stale")
-        UpdateChecker.cleanupLeftovers(dir)
-        assertFalse(dir.exists())
-        UpdateChecker.cleanupLeftovers(dir) // already gone — must not throw
+    fun `cleanupLeftovers removes stale update folders, legacy one included, and nothing else`() {
+        val root = Files.createTempDirectory("update-test").toFile()
+        try {
+            val stale = UpdateChecker.newUpdateDir(root)
+            File(stale, "basetool-sc-extractor-9.9.9.msi").writeText("stale")
+            File(stale, "install-update.ps1").writeText("stale")
+            val legacy = File(root, UpdateChecker.UPDATE_DIR_PREFIX).apply { mkdirs() }
+            File(legacy, "basetool-sc-extractor-9.9.8.msi").writeText("stale")
+            val unrelated = File(root, "something-else").apply { mkdirs() }
+            UpdateChecker.cleanupLeftovers(root)
+            assertFalse(stale.exists())
+            assertFalse(legacy.exists())
+            assertTrue(unrelated.exists())
+            UpdateChecker.cleanupLeftovers(root) // nothing left — must not throw
+            UpdateChecker.cleanupLeftovers(File(root, "missing")) // no root — must not throw
+        } finally {
+            root.deleteRecursively()
+        }
     }
 
     @Test
-    fun `download refuses non-https sources`() {
+    fun `download refuses sources outside this repo's releases and missing digests`() {
         val info = UpdateInfo(
             version = "9.9.9",
             tagName = "v9.9.9",
             msiUrl = "http://github.com/insecure.msi",
             msiSizeBytes = 1,
+            msiSha256 = "e3299dd3a45ab325824c1a8fbb6b5eb099cbec977249b57cb1a8a282f24fc3a3",
         )
         assertFailsWith<IllegalArgumentException> { UpdateChecker.downloadMsi(info) }
+        assertFailsWith<IllegalArgumentException> { UpdateChecker.downloadMsi(info.copy(msiUrl = "https://evil.example/x.msi")) }
+        val noDigest = info.copy(msiUrl = "${UpdateChecker.RELEASE_DOWNLOAD_PREFIX}v9.9.9/x.msi", msiSha256 = "")
+        assertFailsWith<IllegalArgumentException> { UpdateChecker.downloadMsi(noDigest) }
+    }
+
+    private companion object {
+        /**
+         * Test driver: parses the helper, defines only its two functions (never its top level,
+         * which would install), shadows `Start-Process` with a counting stub and reports what
+         * `Invoke-MsiInstall` returned and how often it tried to start msiexec.
+         */
+        val HELPER_DRIVER = """
+            param([string]${'$'}HelperPath, [string]${'$'}MsiPath, [string]${'$'}Sha256)
+            ${'$'}errs = ${'$'}null
+            ${'$'}ast = [System.Management.Automation.Language.Parser]::ParseFile(${'$'}HelperPath, [ref]${'$'}null, [ref]${'$'}errs)
+            if (${'$'}errs) { 'PARSE-ERROR: ' + ((${'$'}errs | ForEach-Object { ${'$'}_.Message }) -join '; '); exit 1 }
+            foreach (${'$'}name in @('Test-MsiDigest', 'Invoke-MsiInstall')) {
+                ${'$'}fn = ${'$'}ast.Find({ param(${'$'}n) ${'$'}n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and ${'$'}n.Name -eq ${'$'}name }, ${'$'}true)
+                Invoke-Expression ${'$'}fn.Extent.Text
+            }
+            ${'$'}digestMismatch = -1
+            ${'$'}script:started = 0
+            function Start-Process { ${'$'}script:started++; [pscustomobject]@{ ExitCode = 0 } }
+            ${'$'}plain = Invoke-MsiInstall
+            ${'$'}afterPlain = ${'$'}script:started
+            ${'$'}elevated = Invoke-MsiInstall -Elevated
+            "plain=${'$'}plain started=${'$'}afterPlain elevated=${'$'}elevated started=${'$'}(${'$'}script:started)"
+        """.trimIndent()
     }
 }

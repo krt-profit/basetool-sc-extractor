@@ -21,6 +21,12 @@ class SendStrings(
     val authBody: String,
     val authCode: (String) -> String,
     val authOpenBrowser: String,
+    /**
+     * Shown under the code on the one-time re-login after an update discarded a stored login that
+     * still carried an exportable DPoP key (`CredentialRecord.LegacyExportedKey`): tells the member
+     * why they are asked to sign in again although "remember me" was on.
+     */
+    val authKeyUpgrade: String,
     val waiting: String,
     val inProgress: String,
     val resultTitle: String,
@@ -737,6 +743,11 @@ object StringsDe : Strings {
                     "unten gezeigten Code, um den Versand freizugeben.",
             authCode = { code -> "Code: $code" },
             authOpenBrowser = "Browser erneut öffnen",
+            authKeyUpgrade =
+                "Einmalige Neuanmeldung nach dem Update: Deine gespeicherte Anmeldung wird ab jetzt " +
+                    "mit einem Schlüssel geschützt, den Windows nicht herausgibt — eine kopierte " +
+                    "Anmeldung ist damit auf keinem anderen Rechner nutzbar. Die bisherige Anmeldung " +
+                    "wurde dafür abgemeldet und gelöscht.",
             waiting = "Warte auf Freigabe…",
             inProgress = "Sende an Basetool…",
             resultTitle = "Gesendet",
@@ -1138,6 +1149,10 @@ object StringsEn : Strings {
                     "authorize the send.",
             authCode = { code -> "Code: $code" },
             authOpenBrowser = "Open browser again",
+            authKeyUpgrade =
+                "One-time sign-in after the update: your saved sign-in is now protected by a key " +
+                    "Windows will not hand out, so a copied sign-in is useless on any other computer. " +
+                    "Your previous sign-in was signed out and deleted for this.",
             waiting = "Waiting for approval…",
             inProgress = "Sending to basetool…",
             resultTitle = "Sent",

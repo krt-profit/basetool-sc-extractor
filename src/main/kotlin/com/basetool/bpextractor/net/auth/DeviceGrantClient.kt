@@ -1,5 +1,6 @@
 package com.basetool.bpextractor.net.auth
 
+import com.basetool.bpextractor.net.TransportPolicy
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -128,8 +129,8 @@ class DeviceGrantClient(
     private val clock = ServerClock()
 
     init {
-        require(issuer.startsWith("https://") || issuer.startsWith("http://localhost")) {
-            "refusing a non-https issuer: $issuer"
+        require(TransportPolicy.isAllowedServerUrl(issuer)) {
+            "refusing a non-https issuer (localhost excepted for dev): $issuer"
         }
     }
 
@@ -232,7 +233,7 @@ class DeviceGrantClient(
      * revoked, reuse-detected) it throws so the caller falls back to an interactive device grant.
      *
      * <p>A DPoP-bound refresh token can only be redeemed with a proof from the **same** key, which is
-     * why [StoredCredential] keeps the two together; pass the key that came out of the vault.
+     * why [StoredCredential] names that key; pass the key opened by that name from the [DpopKeyStore].
      *
      * @param refreshToken the persisted refresh token
      * @param dpopKey the key the stored token is bound to, or {@code null} for an unbound token

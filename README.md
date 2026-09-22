@@ -114,10 +114,12 @@ On start the app quietly checks
 a newer version exists, a banner appears on the start screen offering
 **Download & install**:
 
-1. The MSI installer is downloaded into a temporary folder (never into the
+1. The MSI installer is downloaded into a fresh temporary folder (never into the
    installation folder) and verified by size + SHA-256 checksum.
 2. The installer starts and the app exits so the update can replace the program
-   folder; afterwards the app starts again by itself.
+   folder; afterwards the app starts again by itself. Right before Windows Installer
+   opens the file — and again before a retry as administrator — its SHA-256 is checked
+   once more, so only the exact file the release published is ever installed.
 3. **After the installation the update file is deleted again automatically** —
    even an aborted setup leaves nothing behind.
 
@@ -127,7 +129,9 @@ may fail to set file permissions there (error 1926); the update then offers to
 
 **Later** hides the offer for the current session. Only release metadata is
 fetched from GitHub; no usage data is sent. Without an internet connection
-nothing happens — the check fails silently and the app starts normally.
+nothing happens — the check fails silently and the app starts normally. An update is
+offered only when the installer comes from this repository's own release downloads
+and GitHub publishes its SHA-256 checksum; otherwise the app simply offers nothing.
 
 ### Using it — Blueprints
 
@@ -253,14 +257,18 @@ program folder — so the program folder itself stays completely removable:
   ingest URL). Roaming data, not a program leftover.
 - once you use **"Send to Basetool"**, a **refresh token** in the **Windows
   Credential Manager** (DPAPI-protected, per user) — so you do not have to confirm
-  again on the next send. The same record
-  holds a **private key** (EC P-256) the token is bound to (DPoP, RFC 9449): a copy
-  of the token alone is therefore **worthless**, because every request must
-  additionally be signed with that key — which is exactly why the two live
-  together in one record. This entry is **not** removed on **uninstall**; delete it
-  via **Start → "Disconnect from Basetool"** (which revokes the token server-side
-  and deletes both locally) or in the Windows Credential Manager under the entry
-  "Basetool SC Extractor".
+  again on the next send. The token is bound (DPoP, RFC 9449) to a **private key**
+  (EC P-256) that Windows keeps in its own key storage — in the **TPM** when the PC
+  has one — and **will not hand out**: the app signs with it but can never read it.
+  The Credential Manager entry holds only the token and the key's name, so a
+  **copy of that entry is worthless** on any other computer. Neither the entry nor
+  the key is removed on **uninstall**; delete both via **Start → "Disconnect from
+  Basetool"** (which revokes the token server-side first).
+
+  > Versions up to 2.9.1 stored that key **inside** the Credential Manager entry,
+  > which made a copy of the entry as good as the original. The first send after
+  > updating therefore asks you to **sign in once more** in the browser; the old
+  > sign-in is revoked and deleted.
 
 ---
 
@@ -449,7 +457,7 @@ basetool-sc-extractor/
 │   ├── ScLocalization.kt             # reads the game's own global.ini (blueprint label)
 │   ├── config/AppConfig.kt           # %APPDATA% config.json (ingest URL, consent, last folder)
 │   ├── net/BasetoolIngestClient.kt   # POST /v1/{blueprint-preview,refinery-extract}
-│   ├── net/auth/                     # device grant (RFC 8628), DPoP (RFC 9449), DPAPI vault
+│   ├── net/auth/                     # device grant (RFC 8628), DPoP (RFC 9449) with a non-exportable CNG key, DPAPI vault
 │   ├── update/UpdateChecker.kt       # GitHub release check, verified download, installer handoff
 │   ├── refinery/                     # refinery pipeline (pure, no UI)
 │   │   ├── Locate.kt                 #   panel detection + normalisation (CV)
@@ -483,7 +491,9 @@ basetool-sc-extractor/
 ├── src/test/kotlin/…                 # unit tests
 ├── src/test/resources/sample.log     # test fixture (edge cases; synthetic)
 ├── src/test/resources/sample-de.log  # the same for a German-localised client
-├── .github/workflows/ci.yml          # test + app image; on a v* tag: MSI, attestation, VT scan, release
+├── .github/workflows/ci.yml          # test + app image + workflow lint; on a v* tag: MSI, attestation, VT scan, release
+├── .github/dependabot.yml            # weekly Gradle + (SHA-pinned) action updates
+├── .github/requirements/zizmor.txt   # hash-pinned zizmor for the workflow lint
 ├── .github/scripts/virustotal-scan.ps1 # release scan + the notes section it renders
 ├── .github/CODEOWNERS                # review routing (@greluc; CI, packaging, net/, update/)
 ├── docs/refinery-extractor/          # phase 0 findings + dated measurement addenda (bake-offs, skins)

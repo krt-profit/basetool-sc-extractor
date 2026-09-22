@@ -24,24 +24,81 @@ import java.util.Base64
 import java.util.UUID
 
 /**
- * A DPoP proof-of-possession key pair (RFC 9449) — EC **P-256 / ES256**, the one curve the basetool
+ * The one operation a DPoP key has to offer: an ES256 signature (ECDSA on P-256 over SHA-256, raw
+ * 64-byte R‖S as JWS wants it) with a private key this interface never hands out. Two
+ * implementations: [JdkDpopSigner], an in-memory JDK key that lives and dies with the process, and
+ * `CngDpopKeyStore`'s signer, a **non-exportable** key Windows keeps in its key storage (TPM when
+ * available) and signs with in place.
+ */
+internal interface DpopSigner {
+
+    /** The P-256 public half — the proof's `jwk` and the input of the RFC 7638 thumbprint. */
+    val publicKey: ECPublicKey
+
+    /**
+     * Signs [input] with ES256.
+     *
+     * @param input the JWS signing input (`base64url(header).base64url(claims)` as ASCII)
+     * @return the 64-byte R‖S signature
+     */
+    fun signEs256(input: ByteArray): ByteArray
+}
+
+/**
+ * A P-256 key pair held in JVM memory only. Used for the **session** key — when no persistent key
+ * could be created (another OS, a Windows without a usable key storage provider), and by tests. It
+ * is never serialized: nothing in this app can write its private half anywhere.
+ */
+internal class JdkDpopSigner(private val keyPair: KeyPair) : DpopSigner {
+
+    override val publicKey: ECPublicKey = keyPair.public as ECPublicKey
+
+    override fun signEs256(input: ByteArray): ByteArray =
+        Signature.getInstance(ES256).run {
+            initSign(keyPair.private)
+            update(input)
+            sign()
+        }
+
+    companion object {
+        /** JWS `ES256` = ECDSA on P-256 with SHA-256; P1363 output is the raw R‖S JWS wants. */
+        private const val ES256 = "SHA256withECDSAinP1363Format"
+
+        /** NIST P-256 / `secp256r1` — the curve `REQ-INGEST-012` is tested against. */
+        private const val CURVE = "secp256r1"
+
+        /** A fresh in-memory P-256 key pair. */
+        fun generate(): JdkDpopSigner {
+            val generator = KeyPairGenerator.getInstance("EC")
+            generator.initialize(ECGenParameterSpec(CURVE))
+            return JdkDpopSigner(generator.generateKeyPair())
+        }
+    }
+}
+
+/**
+ * A DPoP proof-of-possession key (RFC 9449) — EC **P-256 / ES256**, the one curve the basetool
  * ingest gateway is tested against (`REQ-INGEST-012`, `DpopResourceServerTest` in the basetool repo).
  *
  * <p>The point of binding is **token theft**, not impersonation: the "remember me" refresh token
  * lives on disk in Windows Credential Manager ([WinCredentialStore]), and sender-constraining makes
- * a copied token worthless to anyone who does not also hold this private key. The key therefore has
- * to outlive the process exactly as long as the refresh token does — see [encoded] and
- * [StoredCredential], which persist the two together as one record.
+ * a copied token worthless to anyone who cannot also sign with this key. That only holds while the
+ * private key cannot be copied along with the token — so a key that has to outlive the process is
+ * a **non-exportable CNG key** (`CngDpopKeyStore`: the TPM when the machine has one, else the
+ * software key storage provider with export disabled), and the credential record carries nothing
+ * but its [keyName]. Earlier builds stored the exported key *inside* the same record, which made a
+ * copied record exactly as good as the original; [fromLegacyExport] exists only to revoke such a
+ * record once before it is destroyed.
  *
- * <p>Pure JDK crypto on purpose: no JOSE library is pulled in, so the slim jpackage runtime is
- * unchanged. {@code SunEC} lives in {@code java.base} on JDK 25 (verified — no extra jlink module),
- * and {@code SHA256withECDSAinP1363Format} yields the raw 64-byte R‖S signature JWS ES256 wants
- * without any DER unwrapping.
+ * <p>Proof construction is pure JDK code: no JOSE library is pulled in, so the slim jpackage
+ * runtime is unchanged ({@code SunEC} lives in {@code java.base} on JDK 25).
  *
- * <p>**Never log an instance or [encoded].** The class deliberately keeps the JDK's identity
- * {@code toString}, so a stray interpolation cannot spill key material.
+ * <p>**Never log an instance.** The class deliberately keeps the JDK's identity {@code toString}.
+ *
+ * @param keyName the persisted key's name in its key storage provider, or `null` for a key that
+ *   exists in this process only ([generate])
  */
-class DpopKey private constructor(private val keyPair: KeyPair) {
+class DpopKey internal constructor(private val signer: DpopSigner, val keyName: String? = null) {
 
     /**
      * The public key as the RFC 7638 *canonical* JWK: exactly the required members, lexicographically
@@ -49,10 +106,13 @@ class DpopKey private constructor(private val keyPair: KeyPair) {
      * header's {@code jwk} and the thumbprint input keeps the two provably consistent — the server
      * recomputes {@code cnf.jkt} from what we send here.
      */
-    val publicJwk: JsonObject = jwkOf(keyPair.public as ECPublicKey)
+    val publicJwk: JsonObject = jwkOf(signer.publicKey)
 
     /** The RFC 7638 JWK SHA-256 thumbprint — what Keycloak stamps into the token's `cnf.jkt`. */
     val thumbprint: String = base64Url(sha256(canonicalJson(publicJwk)))
+
+    /** Whether this key survives the process (a named CNG key) rather than living in memory only. */
+    val persistent: Boolean get() = keyName != null
 
     /**
      * Builds and signs one DPoP proof JWT for a single request (RFC 9449 §4.2).
@@ -90,57 +150,32 @@ class DpopKey private constructor(private val keyPair: KeyPair) {
                 if (accessToken != null) put("ath", base64Url(sha256(accessToken.toByteArray(Charsets.US_ASCII))))
             }
         val signingInput = "${base64Url(canonicalJson(header))}.${base64Url(canonicalJson(claims))}"
-        val signature =
-            Signature.getInstance(ES256).run {
-                initSign(keyPair.private)
-                update(signingInput.toByteArray(Charsets.US_ASCII))
-                sign()
-            }
+        val signature = signer.signEs256(signingInput.toByteArray(Charsets.US_ASCII))
         return "$signingInput.${base64Url(signature)}"
     }
 
-    /**
-     * Serializes the key pair for [CredentialStore] persistence: the PKCS#8 private and X.509 public
-     * encodings joined by `.` (neither alphabet contains a dot). Both halves are kept because the JDK
-     * offers no way to re-derive an EC public key from a private one.
-     *
-     * @return the opaque encoded key pair — **secret**, never log or export it anywhere else
-     */
-    fun encoded(): String =
-        "${Base64.getEncoder().encodeToString(keyPair.private.encoded)}." +
-            Base64.getEncoder().encodeToString(keyPair.public.encoded)
-
     companion object {
-        /** JWS `ES256` = ECDSA on P-256 with SHA-256; P1363 output is the raw R‖S JWS wants. */
-        private const val ES256 = "SHA256withECDSAinP1363Format"
-
-        /** NIST P-256 / `secp256r1` — the curve `REQ-INGEST-012` is tested against. */
-        private const val CURVE = "secp256r1"
-
         private val COMPACT = Json
 
         /**
-         * Generates a fresh P-256 key pair — one per "remember me" credential, or one per session
-         * when nothing is persisted.
+         * Generates a fresh **in-memory** P-256 key for this process only. Persistent keys come
+         * from a [DpopKeyStore] instead; this is the fallback when none can be created.
          *
-         * @return the new key
+         * @return the new key, with no [keyName]
          */
-        fun generate(): DpopKey {
-            val generator = KeyPairGenerator.getInstance("EC")
-            generator.initialize(ECGenParameterSpec(CURVE))
-            return DpopKey(generator.generateKeyPair())
-        }
+        fun generate(): DpopKey = DpopKey(JdkDpopSigner.generate())
 
         /**
-         * Restores a key previously produced by [encoded]. **Fail-safe**, like [CredentialStore]
-         * itself: anything unreadable (truncated blob, foreign curve, a record written by another
-         * build) yields `null` so the caller simply starts over with a fresh key and an interactive
-         * login, rather than the send flow dying on a corrupt vault entry.
+         * Reads the exported key pair an **earlier build** stored inside the credential record (the
+         * PKCS#8 private and X.509 public encodings, base64, joined by `.`). Used for one thing only:
+         * revoking that record's refresh token before the record is destroyed during the migration
+         * to non-exportable keys, so a copy taken earlier dies with it. Nothing writes this format
+         * any more. **Fail-safe**: anything unreadable yields `null`.
          *
-         * @param encoded the string [encoded] produced
-         * @return the restored key, or `null` when it cannot be read back
+         * @param encoded the `dpopKey` value of a legacy record
+         * @return an in-memory key, or `null` when it cannot be read back
          */
-        fun fromEncoded(encoded: String): DpopKey? =
+        internal fun fromLegacyExport(encoded: String): DpopKey? =
             try {
                 val (privatePart, publicPart) = encoded.split('.', limit = 2).let { it[0] to it[1] }
                 val factory = KeyFactory.getInstance("EC")
@@ -149,7 +184,7 @@ class DpopKey private constructor(private val keyPair: KeyPair) {
                 val public =
                     factory.generatePublic(X509EncodedKeySpec(Base64.getDecoder().decode(publicPart)))
                 require(public is ECPublicKey && public.params.curve.field.fieldSize == 256)
-                DpopKey(KeyPair(public, private))
+                DpopKey(JdkDpopSigner(KeyPair(public, private)))
             } catch (_: Exception) {
                 null
             }
