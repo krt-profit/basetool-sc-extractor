@@ -7,10 +7,13 @@ import com.basetool.bpextractor.config.AppConfigStore
 import com.basetool.bpextractor.net.BasetoolIngestClient
 import com.basetool.bpextractor.net.IngestException
 import com.basetool.bpextractor.net.IngestProblem
+import com.basetool.bpextractor.net.auth.CngDpopKeyStore
+import com.basetool.bpextractor.net.auth.CredentialRecord
 import com.basetool.bpextractor.net.auth.CredentialStore
 import com.basetool.bpextractor.net.auth.DeviceGrantClient
 import com.basetool.bpextractor.net.auth.DeviceGrantException
 import com.basetool.bpextractor.net.auth.DpopKey
+import com.basetool.bpextractor.net.auth.DpopKeyStore
 import com.basetool.bpextractor.net.auth.DpopNonce
 import com.basetool.bpextractor.net.auth.StoredCredential
 import com.basetool.bpextractor.net.auth.TokenResponse
@@ -30,8 +33,21 @@ sealed interface SendState {
     /** First-time consent before any data leaves the machine. */
     data object Consent : SendState
 
-    /** Browser opened; waiting for the user to approve the shown code. */
-    data class Authenticating(val userCode: String, val browserUrl: String) : SendState
+    /**
+     * Browser opened; waiting for the user to approve the shown code.
+     *
+     * @param userCode the code the user confirms in the browser
+     * @param browserUrl the verification URL that was opened
+     * @param keyUpgrade `true` when this sign-in is the one-time re-login after the stored login was
+     *   discarded because it still carried an exportable DPoP key (see
+     *   [com.basetool.bpextractor.net.auth.CredentialRecord.LegacyExportedKey]) — the overlay then
+     *   says why the member has to sign in again
+     */
+    data class Authenticating(
+        val userCode: String,
+        val browserUrl: String,
+        val keyUpgrade: Boolean = false,
+    ) : SendState
 
     /** Token obtained; uploading the export to the gateway. */
     data object Sending : SendState
@@ -80,6 +96,7 @@ class SendController(
     private val deviceGrant: DeviceGrantClient = DeviceGrantClient(),
     private val credentialStore: CredentialStore = WinCredentialStore(),
     private val ingestClientFor: (String) -> BasetoolIngestClient = { BasetoolIngestClient(it) },
+    private val keyStore: DpopKeyStore = CngDpopKeyStore(),
     private val browse: (String) -> Unit = { url ->
         runCatching {
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
@@ -96,7 +113,9 @@ class SendController(
     private var pendingLang: String = "de"
     private var pendingKind: SendKind = SendKind.REFINERY
 
-    /** The ephemeral DPoP key for this process — see [sessionKey]. Never logged, never exported. */
+    /**
+     * The in-memory fallback DPoP key for this process — see [newKey]. Never logged, never persisted.
+     */
     private var sessionKey: DpopKey? = null
 
     /**
@@ -144,15 +163,8 @@ class SendController(
                 val baseUrl = withContext(Dispatchers.IO) { configStore.load().ingestBaseUrl }
                 val grant = withContext(Dispatchers.IO) { obtainToken() }
                 // Persist (the possibly rotated) refresh token for the next silent send (#648) —
-                // together with the DPoP key it is bound to, because a sender-constrained token
-                // cannot be redeemed without it (REQ-INGEST-012).
-                withContext(Dispatchers.IO) {
-                    if (grant.token.refreshToken.isNotBlank()) {
-                        credentialStore.saveCredential(
-                            StoredCredential(grant.token.refreshToken, grant.key.encoded()),
-                        )
-                    }
-                }
+                // with the NAME of the non-exportable DPoP key it is bound to (REQ-INGEST-012).
+                withContext(Dispatchers.IO) { remember(grant) }
                 state = SendState.Sending
                 // The token goes out under the DPoP scheme with a proof, because the gateway now
                 // VALIDATES that proof itself instead of relaying the token onward (ADR-0129).
@@ -196,49 +208,141 @@ class SendController(
         }
     }
 
-    /** A token together with the DPoP key its proofs are (and its refresh token stays) signed by. */
-    private data class Grant(val token: TokenResponse, val key: DpopKey)
+    /**
+     * A token together with the DPoP key its proofs are (and its refresh token stays) signed by.
+     *
+     * @param token the token answer
+     * @param key the key the token is bound to
+     * @param stored the credential this grant was redeemed from, or `null` for a fresh login
+     */
+    private data class Grant(val token: TokenResponse, val key: DpopKey, val stored: StoredCredential? = null)
+
+    /**
+     * Persists [grant] for the next silent send. A token bound to a persistent key is stored with
+     * that key's name; an unbound token (Keycloak with DPoP off) is stored alone, as before DPoP. A
+     * token bound to an in-memory [sessionKey] is **not** stored: it would be unredeemable after
+     * this process, and storing the key instead is exactly what this build stopped doing; the
+     * stored credential it was refreshed from is then dropped too, because the refresh has just
+     * superseded (with rotation: invalidated) it. A key the record does not end up naming is deleted
+     * again, so no orphan stays in the key storage.
+     */
+    private fun remember(grant: Grant) {
+        val token = grant.token
+        val keyName = grant.key.keyName
+        if (token.refreshToken.isBlank()) {
+            // Nothing new to remember; a key minted for this grant alone is of no further use.
+            if (keyName != null && grant.stored?.dpopKeyName != keyName) keyStore.delete(keyName)
+            return
+        }
+        val saved =
+            when {
+                keyName != null -> credentialStore.saveCredential(StoredCredential(token.refreshToken, keyName))
+                !token.isDpopBound() -> credentialStore.saveCredential(StoredCredential(token.refreshToken))
+                else -> false
+            }
+        if (!saved) {
+            if (grant.stored != null) credentialStore.clear()
+            keyName?.let(keyStore::delete)
+        }
+    }
 
     /**
      * Obtains an access token: the "remember me" silent refresh first (no browser, no overlay
-     * step), falling back to an interactive device grant when there is no stored credential or the
-     * refresh is rejected (expired / revoked / reuse-detected). Runs on the calling IO context.
+     * step), falling back to an interactive device grant when there is no usable stored credential
+     * or the refresh is rejected (expired / revoked / reuse-detected). Runs on the calling IO context.
      *
-     * <p>The DPoP key comes from the vault when one was persisted — a bound refresh token is only
-     * redeemable with the key it was issued to — and is otherwise the session key, which also covers
-     * the upgrade case (a bare refresh token written by a pre-DPoP build) and the machine where the
-     * vault is unavailable and nothing survives the process anyway.
+     * <p>The DPoP key of a stored credential is **opened by name** from the [keyStore] — a bound
+     * refresh token is only redeemable with the key it was issued to, and that key never leaves the
+     * key storage. A key that no longer exists (a cleared TPM, a profile copied to another machine)
+     * makes the credential worthless, so it is dropped. A pre-DPoP bare refresh token is bound to a
+     * fresh key on its first refresh. A record that still carries an **exported** key is revoked
+     * and destroyed, and the member signs in once more ([SendState.Authenticating.keyUpgrade]).
      *
      * @return the token answer plus its key; the token's {@code refreshToken} is the one to persist
      * @throws DeviceGrantException when the interactive grant ultimately fails
      */
     private fun obtainToken(): Grant {
-        credentialStore.loadCredential()?.let { stored ->
-            val key = stored.dpopKey?.let { DpopKey.fromEncoded(it) } ?: sessionKey()
-            try {
-                return Grant(deviceGrant.refreshAccessToken(stored.refreshToken, key), key)
-            } catch (e: DeviceGrantException) {
-                // Delete the credential ONLY when the server said the grant itself is dead. Since
-                // DPoP the same exception also covers proof rejections — Keycloak checks the proof
-                // before the grant and calls every proof defect `invalid_request`, which a clock
-                // more than 15s fast is enough to trigger — and those say nothing about the refresh
-                // token. Clearing on one would log the user out over an unrelated fault, and the
-                // interactive grant it fell back to would fail on the very same proof anyway.
-                if (e.oauthError !in DeviceGrantException.TOKEN_REJECTED) throw e
-                credentialStore.clear() // the stored credential is dead — drop it and log in afresh
+        var keyUpgrade = false
+        when (val record = credentialStore.loadRecord()) {
+            is CredentialRecord.LegacyExportedKey -> {
+                retire(record)
+                keyUpgrade = true
             }
+            is CredentialRecord.Current -> refresh(record.credential)?.let { return it }
+            null -> Unit
         }
-        val key = sessionKey()
         val device = deviceGrant.requestDeviceCode()
-        state = SendState.Authenticating(device.userCode, device.browserUrl())
-        browse(device.browserUrl())
-        return Grant(deviceGrant.pollForToken(device, dpopKey = key), key)
+        val key = newKey()
+        try {
+            state = SendState.Authenticating(device.userCode, device.browserUrl(), keyUpgrade)
+            browse(device.browserUrl())
+            return Grant(deviceGrant.pollForToken(device, dpopKey = key), key)
+        } catch (t: Throwable) {
+            discard(key)
+            throw t
+        }
     }
 
     /**
-     * The key used when nothing is persisted: generated once and reused for the rest of the process,
-     * so a refresh issued during this session can still be redeemed later in it. Reached only from
-     * the single in-flight send flow.
+     * The silent path for a usable stored credential.
+     *
+     * @return the grant, or `null` when the credential turned out dead and was dropped — the caller
+     *   then continues with an interactive login
+     * @throws DeviceGrantException when the refresh failed for a reason that says nothing about the
+     *   credential (a proof or transport problem) — it is kept, and the send fails
      */
-    private fun sessionKey(): DpopKey = sessionKey ?: DpopKey.generate().also { sessionKey = it }
+    private fun refresh(stored: StoredCredential): Grant? {
+        val keyName = stored.dpopKeyName
+        val key = if (keyName == null) newKey() else keyStore.open(keyName)
+        if (key == null) {
+            forget(stored) // its key is gone, so the bound token can never be redeemed again
+            return null
+        }
+        try {
+            return Grant(deviceGrant.refreshAccessToken(stored.refreshToken, key), key, stored)
+        } catch (e: DeviceGrantException) {
+            // Delete the credential ONLY when the server said the grant itself is dead. Since
+            // DPoP the same exception also covers proof rejections — Keycloak checks the proof
+            // before the grant and calls every proof defect `invalid_request`, which a clock
+            // more than 15s fast is enough to trigger — and those say nothing about the refresh
+            // token. Clearing on one would log the user out over an unrelated fault, and the
+            // interactive grant it fell back to would fail on the very same proof anyway.
+            if (keyName == null) discard(key) // the fresh key minted for a bare token was not used
+            if (e.oauthError !in DeviceGrantException.TOKEN_REJECTED) throw e
+            forget(stored) // the stored credential is dead — drop it (and its key) and log in afresh
+            return null
+        }
+    }
+
+    /**
+     * Destroys a record that still carries an exported DPoP key: revokes its refresh token with
+     * that key first (best effort), so a copy of the record taken earlier dies with it, then
+     * deletes it.
+     */
+    private fun retire(record: CredentialRecord.LegacyExportedKey) {
+        DpopKey.fromLegacyExport(record.exportedKey)?.let { legacyKey ->
+            deviceGrant.revoke(record.refreshToken, legacyKey)
+        }
+        credentialStore.clear()
+    }
+
+    /** Drops a stored credential together with its persistent key. */
+    private fun forget(stored: StoredCredential) {
+        credentialStore.clear()
+        stored.dpopKeyName?.let(keyStore::delete)
+    }
+
+    /** Deletes [key] from the key storage when it is a persistent one nobody will use. */
+    private fun discard(key: DpopKey) {
+        key.keyName?.let(keyStore::delete)
+    }
+
+    /**
+     * A key for a new binding: a fresh **persistent, non-exportable** key from the [keyStore] when
+     * one can be created, else the in-memory session key — generated once and reused for the rest
+     * of the process. A token bound to the session key works for this send but is not remembered
+     * (see [remember]).
+     */
+    private fun newKey(): DpopKey =
+        keyStore.create() ?: sessionKey ?: DpopKey.generate().also { sessionKey = it }
 }

@@ -11,52 +11,104 @@ import java.lang.foreign.ValueLayout
 import java.nio.charset.StandardCharsets
 
 /**
- * The persisted "remember me" credential: the refresh token **and** the DPoP key it is bound to
- * (RFC 9449, `REQ-INGEST-012`). The two travel as one record on purpose — a sender-constrained
- * refresh token cannot be redeemed without its private key, and a key without its token is dead
- * weight, so storing them apart would only create ways for them to drift out of step. One record
- * also means "Vom Basetool trennen" ([CredentialStore.clear]) still disposes of everything at once.
+ * The persisted "remember me" credential: the refresh token and the **name** of the DPoP key it is
+ * bound to (RFC 9449, `REQ-INGEST-012`). The key itself is not in here and cannot be: it is a
+ * non-exportable key inside Windows' key storage ([CngDpopKeyStore]), so a copy of this record —
+ * the Credential Manager entry lifted off the disk — carries a sender-constrained refresh token
+ * nobody else can redeem. One record still means "Vom Basetool trennen" ([CredentialStore.clear],
+ * plus [DpopKeyStore.delete]) disposes of the login at once.
+ *
+ * <p>Earlier builds put the exported private key into this record (a `dpopKey` field), so a copied
+ * record *was* the login. Such a record is read as [CredentialRecord.LegacyExportedKey] and only
+ * ever destroyed.
  *
  * @param refreshToken the Keycloak refresh token
- * @param dpopKey the [DpopKey.encoded] key pair the token is bound to, or `null` for a token
- *   obtained without DPoP (a record written by an older build, or a Keycloak that did not bind)
+ * @param dpopKeyName the [DpopKey.keyName] the token is bound to, or `null` for a token obtained
+ *   without DPoP (a record written before DPoP, or a Keycloak that did not bind)
  */
 @Serializable
-data class StoredCredential(val refreshToken: String, val dpopKey: String? = null) {
+data class StoredCredential(val refreshToken: String, val dpopKeyName: String? = null) {
 
     companion object {
         private val JSON = Json { ignoreUnknownKeys = true }
 
         /**
-         * Serializes the record for [CredentialStore.save].
+         * Serializes the record for [CredentialStore.save]. The shape has exactly two fields —
+         * `refreshToken` and `dpopKeyName` — and no field that could hold key material.
          *
          * @param credential the record to encode
-         * @return the opaque blob to hand to the vault — **secret**, never log it
+         * @return the opaque blob to hand to the vault — **secret** (it holds the token), never log it
          */
         fun encode(credential: StoredCredential): String =
             JSON.encodeToString(serializer(), credential)
 
         /**
-         * Reads a blob back. A blob that is not a JSON object is a **legacy** entry — builds before
-         * DPoP stored the bare refresh token — and is read as exactly that, with no key; the next
-         * successful login rewrites it in the current shape. A corrupt JSON record yields `null`
-         * (fail-safe, like the store itself), so the caller falls back to an interactive login
-         * instead of redeeming garbage.
+         * Reads a blob back. A blob that is not a JSON object is a **pre-DPoP** entry (the bare
+         * refresh token) and is read as exactly that, with no key; the next successful login
+         * rewrites it in the current shape. A record that still carries an exported `dpopKey` is
+         * [CredentialRecord.LegacyExportedKey]. A corrupt record yields `null` (fail-safe, like the
+         * store itself), so the caller falls back to an interactive login instead of redeeming
+         * garbage.
          *
          * @param blob whatever [CredentialStore.load] returned
-         * @return the record, or `null` when the blob is unusable
+         * @return what the vault entry holds, or `null` when it is unusable
+         */
+        fun decodeRecord(blob: String): CredentialRecord? {
+            if (!blob.startsWith("{")) return CredentialRecord.Current(StoredCredential(blob))
+            val raw = try {
+                JSON.decodeFromString(RawRecord.serializer(), blob)
+            } catch (_: Exception) {
+                return null
+            }
+            if (raw.refreshToken.isBlank()) return null
+            if (raw.dpopKey != null) return CredentialRecord.LegacyExportedKey(raw.refreshToken, raw.dpopKey)
+            return CredentialRecord.Current(StoredCredential(raw.refreshToken, raw.dpopKeyName))
+        }
+
+        /**
+         * The current-shape credential in [blob], or `null` for anything else (a legacy
+         * exported-key record included — that one is never usable as it stands).
+         *
+         * @param blob whatever [CredentialStore.load] returned
+         * @return the credential, or `null`
          */
         fun decode(blob: String): StoredCredential? =
-            if (!blob.startsWith("{")) {
-                StoredCredential(blob)
-            } else {
-                try {
-                    JSON.decodeFromString(serializer(), blob).takeIf { it.refreshToken.isNotBlank() }
-                } catch (_: Exception) {
-                    null
-                }
-            }
+            (decodeRecord(blob) as? CredentialRecord.Current)?.credential
     }
+}
+
+/**
+ * Every shape a vault entry has ever had, decoded leniently. Only [StoredCredential.decodeRecord]
+ * sees it; nothing is ever *written* in this shape.
+ */
+@Serializable
+private data class RawRecord(
+    val refreshToken: String = "",
+    val dpopKeyName: String? = null,
+    /** The exported PKCS#8+X.509 key pair earlier builds stored — read only to revoke and destroy. */
+    val dpopKey: String? = null,
+)
+
+/** What the single vault entry turned out to hold. */
+sealed interface CredentialRecord {
+
+    /**
+     * A usable credential: the current shape, or a pre-DPoP bare refresh token.
+     *
+     * @param credential the credential
+     */
+    data class Current(val credential: StoredCredential) : CredentialRecord
+
+    /**
+     * A record written by a build that stored the DPoP private key **inside** the record, exported
+     * (before 2026-09-22). It is discarded — its refresh token is bound to that exported key and
+     * cannot move onto a non-exportable one — and the member signs in once more. Not a data class,
+     * so no generated `toString` can print the token or the key.
+     *
+     * @param refreshToken the refresh token, kept only to revoke it
+     * @param exportedKey the exported key pair, kept only to sign that revocation
+     */
+    class LegacyExportedKey(val refreshToken: String, val exportedKey: String) : CredentialRecord
 }
 
 /**
@@ -102,7 +154,7 @@ interface CredentialStore {
     fun exists(): Boolean = load() != null
 
     /**
-     * Persists the refresh token together with the DPoP key it is bound to.
+     * Persists the refresh token together with the name of the DPoP key it is bound to.
      *
      * @param credential the record to store
      * @return {@code true} on success, {@code false} if the store is unavailable or the write failed
@@ -111,11 +163,20 @@ interface CredentialStore {
         save(StoredCredential.encode(credential))
 
     /**
-     * Reads the stored credential, transparently upgrading a legacy bare-refresh-token entry.
+     * Reads the stored credential, transparently upgrading a pre-DPoP bare-refresh-token entry. A
+     * legacy record with an exported key inside is **not** returned here — see [loadRecord].
      *
      * @return the record, or {@code null} when nothing usable is stored
      */
     fun loadCredential(): StoredCredential? = load()?.let { StoredCredential.decode(it) }
+
+    /**
+     * Reads what the vault entry holds, legacy shapes included, so a caller can migrate a
+     * [CredentialRecord.LegacyExportedKey] instead of silently ignoring it.
+     *
+     * @return the record, or {@code null} when nothing (usable) is stored
+     */
+    fun loadRecord(): CredentialRecord? = load()?.let { StoredCredential.decodeRecord(it) }
 }
 
 /**

@@ -189,19 +189,33 @@ private (guardrail 1a) and live outside the repo; ask for their path.
 - **`update/UpdateChecker.kt`** — the GUI's startup update check against this repo's
   GitHub releases (`releases/latest`). Pure/testable parts:
   version compare, release-JSON parsing, MSI-asset selection, installer-command
-  construction. Thin I/O: silent fetch (any failure ⇒ no offer), download into a fixed
-  folder under `%TEMP%` — never the install dir (guardrail 2) and deliberately NOT the
-  `ImageIntake` session temp dir, whose shutdown hook would delete the MSI out from
-  under the installer — with size + SHA-256 verification, then a detached hidden
+  construction. Thin I/O: silent fetch (any failure ⇒ no offer), download into a **fresh,
+  randomly named** folder under `%TEMP%` (`newUpdateDir()`, `Files.createTempDirectory` with
+  the `basetool-sc-extractor-update-` prefix) — never the install dir (guardrail 2) and
+  deliberately NOT the `ImageIntake` session temp dir, whose shutdown hook would delete the MSI
+  out from under the installer — with size + SHA-256 verification, then a detached hidden
   PowerShell helper (`INSTALLER_SCRIPT`) runs `msiexec /i` after the app exits and
-  deletes the MSI, itself and the folder again; `cleanupLeftovers()` sweeps that folder
-  on every GUI start as the crash fallback. Only release metadata is fetched; nothing
-  is uploaded.
+  deletes the MSI, itself and the folder again; `cleanupLeftovers()` sweeps every folder with
+  that prefix on every GUI start as the crash fallback. Only release metadata is fetched;
+  nothing is uploaded.
+  - **The updater fails closed (SIB-SEC-05, 2026-09-22).** No offer unless the MSI asset's URL
+    starts with `RELEASE_DOWNLOAD_PREFIX` (this repo's `releases/download/`, parsed — no
+    user-info, port or `..`) **and** the API answer carries a well-formed `sha256:` `digest`.
+    The helper gets that digest as its second positional argument and re-hashes the MSI
+    (`Get-FileHash`) **immediately before every `msiexec`**, the elevated retry included; a
+    mismatch skips the install and the retry prompt. `UpdateCheckerTest` runs the helper's
+    own functions in real Windows PowerShell with `Start-Process` stubbed, so that property
+    is tested, not just grepped. Never loosen either check to make an odd release work —
+    fix the release.
 - **`net/`** — the only outbound path besides the update check. `BasetoolIngestClient`
   POSTs an export to the gateway and surfaces the RFC 7807 `detail` (+ `fieldErrors`);
   `auth/DeviceGrantClient` runs the RFC 8628 device grant against the **prod** Keycloak
   (hardcoded issuer; only the ingest base URL is config), `auth/CredentialStore` is the
-  DPAPI-backed vault for the one "remember me" `StoredCredential`.
+  DPAPI-backed vault for the one "remember me" `StoredCredential`. Both clients accept a
+  server URL only through `net/TransportPolicy` — **parsed** with `java.net.URI`: `https`, or
+  plain `http` to exactly `localhost` / `127.0.0.1`, and never with user-info. A prefix check
+  (`startsWith("http://localhost")`) let `http://localhost.attacker.tld` and
+  `http://127.0.0.1@attacker.tld/` through (SIB-SEC-09); don't reintroduce one.
   - **Identity lives on the app origin, and `PROD_ISSUER` is the only copy of that fact here.**
     ADR-0166 moved Keycloak to `https://profit-base.online/auth/realms/iri` and retired
     `keycloak.profit-base.online` outright; the constant still named the dead host and every send
@@ -212,15 +226,33 @@ private (guardrail 1a) and live outside the repo; ask for their path.
     The fix shipped as **v2.9.1** (2026-09-14), which is therefore the oldest build that can
     still send; older ones only read and save JSON.
   **DPoP (RFC 9449, `REQ-INGEST-012`)** binds those tokens to a client-held EC P-256 key
-  (`auth/Dpop.kt`) so the refresh token sitting on disk is worthless if copied. Load-
-  bearing details: the key is persisted *with* the refresh token in one record (a bound
-  token is unredeemable without it, and a legacy bare-token blob still decodes); the
-  proof is **always offered** at the token endpoint but the `DPoP` scheme is used at the
-  gateway **only when the answer's `token_type` says the server actually bound the
-  token**, which is what keeps a released build working against a Keycloak or gateway
-  that has DPoP off (presenting an *unbound* token under the DPoP scheme is a hard 401).
-  Pure JDK crypto on purpose — `SunEC` is in `java.base` on JDK 25, so no JOSE dependency
-  and no extra jlink module. Never log a key, a proof or a token.
+  (`auth/Dpop.kt`), and the key that outlives the process is a **non-exportable Windows CNG
+  key** (`auth/CngDpopKeyStore`, FFM against `ncrypt.dll`): the TPM (Microsoft Platform Crypto
+  Provider) when there is one, else the Software Key Storage Provider with export policy 0.
+  Proofs are signed with `NCryptSignHash`; the private half never enters the JVM. The
+  Credential Manager record holds **only the refresh token and the key's name**
+  (`StoredCredential(refreshToken, dpopKeyName)`), so a copied record is useless on any other
+  machine.
+  - **Corrected 2026-09-22 (SIB-SEC-04).** This file used to say "the refresh token sitting on
+    disk is worthless if copied" while `CredentialStore` stored the refresh token **and** the
+    exported PKCS#8 key in the *same* blob — so a copied record was the whole login, and DPoP
+    only protected against the token leaking *alone*. That record shape is now read only as
+    `CredentialRecord.LegacyExportedKey`: on the next send (or disconnect) its token is revoked
+    with a proof from the old key, the record is deleted, and the member signs in once more
+    (the overlay says why: `SendState.Authenticating.keyUpgrade`). What remains true of the
+    software fallback: code already running as this user on this machine can still *ask*
+    Windows to sign; only the TPM path resists an administrator.
+  - **Keys never leak.** Every key a login does not end up naming is deleted again (failed
+    grant, dead token, key replaced, disconnect). Without a usable key storage the send falls
+    back to an in-memory session key, and a token bound to it is **not** remembered.
+    `NCryptDeleteKey` takes no `NCRYPT_SILENT_FLAG` — the TPM provider refuses it there and
+    the key silently stayed behind until `CngDpopKeyStoreTest` caught it.
+  - The proof is **always offered** at the token endpoint but the `DPoP` scheme is used at the
+    gateway **only when the answer's `token_type` says the server actually bound the
+    token**, which is what keeps a released build working against a Keycloak or gateway
+    that has DPoP off (presenting an *unbound* token under the DPoP scheme is a hard 401).
+    Proof construction is pure JDK code — no JOSE dependency, no extra jlink module (FFM is
+    `java.base` too). Never log a key, a proof or a token.
   - **Clock drift is a real failure mode** — Keycloak accepts `iat` only in −25s…+15s and
     checks the proof *before* the grant, so a desktop clock ~15s fast breaks login
     outright, where the timestamp-free bearer builds were immune. `ServerClock` measures
@@ -253,6 +285,9 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   images step is on screen the picked folder is polled once per second
   (`rescanFolder`): a pure add/remove diff, so checkbox choices and ✕-removed tiles
   survive every tick;
+  grid tiles are decoded from the image **header** (native size → `Locate.isPrecropped`) plus a
+  source-subsampled thumbnail, up to 4 at once on `Dispatchers.IO` — a 4K capture is never
+  decoded at full size just to become a 240 px tile; only the extraction run does that;
   `ImageIntake.kt` is the pure intake logic for clipboard pastes — the window-level
   Strg+V handler lives in `Main.kt` — and external drag & drop: images persist into
   the picked folder or, without one, into the session temp dir from guardrail 2),
@@ -416,6 +451,11 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   are committed to git; build-time fetch is an option if the repo should stay lean.
 - Gradle **configuration cache is off on purpose** (Compose jpackage tasks aren't
   cc-safe). Don't enable it.
+- **Repositories are `mavenCentral()` + `google()` only** (plus the Plugin Portal for plugins).
+  The JetBrains Space `compose/dev` repository was removed on 2026-09-22 (SIB-MOD-02): stable
+  Compose resolves from Maven Central, and `dependencies --configuration runtimeClasspath` and
+  `buildEnvironment` were byte-identical before and after. Only add a dev repository scoped
+  with `content { includeGroupByRegex(...) }`, and only for a pre-release you actually need.
 - **Two Compose artifacts are pinned to explicit coordinates**, because their `compose.*` DSL
   accessors are deprecated: `org.jetbrains.compose.material3:material3` (stable since the
   alpha-only days the deprecated `compose.material3` accessor was kept for) and
@@ -457,14 +497,24 @@ private (guardrail 1a) and live outside the repo; ask for their path.
 
 ## Releases (CI)
 
-GitHub Actions — [`.github/workflows/ci.yml`](.github/workflows/ci.yml), on
-`windows-latest`:
+GitHub Actions — [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 
-- **Push to `main` / PRs / manual dispatch:** runs `test` + `createDistributable` (a
-  packaging smoke test — no MSI/WiX).
-- **Push a `v*` tag (e.g. `v1.2.0`):** after checks pass, builds the MSI via
-  `package-msi.ps1` and publishes a GitHub Release with the `.msi` attached. Suffixed
-  tags (`v1.2.0-rc1`) publish as pre-releases.
+- **Push to `main` / PRs / manual dispatch:** `check` (windows) runs `test` +
+  `createDistributable` (a packaging smoke test — no MSI/WiX); `workflows` (ubuntu) runs
+  actionlint and zizmor over `.github/workflows`, both checksum-/hash-pinned (actionlint's
+  SHA-256 in `ci.yml`, zizmor's in `.github/requirements/zizmor.txt` — bumped by hand).
+- **Push a `v*` tag (e.g. `v1.2.0`):** after both pass, three jobs — `build-msi` (MSI via
+  `package-msi.ps1`, `contents: read`, Gradle cache **disabled**), `attest` (no build code,
+  `id-token` + `attestations: write`) and `publish` (VirusTotal + `gh release create`,
+  `contents: write`). Suffixed tags (`v1.2.0-rc1`) publish as pre-releases.
+- **Supply-chain rules (SIB-SEC-02 / SIB-CI-03, 2026-09-22):** every `uses:` is pinned to a
+  full commit SHA with a `# vX.Y.Z` comment; `.github/dependabot.yml` moves those pins and the
+  Gradle build weekly; every checkout has `persist-credentials: false`; the tag reaches
+  scripts only via `env: REF_NAME` and is validated against
+  `^v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$` first; every job has `timeout-minutes`. There is no
+  third-party release action any more (`softprops/action-gh-release` is gone). The one zizmor
+  ignore (`cache-poisoning` on the `check` job's cache) is justified in place: nothing that job
+  builds is published.
 
 **The release version is the tag, not a constant in the build.** The workflow strips the
 leading `v` and exports `APP_VERSION`, which `build.gradle.kts` reads (`System.getenv` →
@@ -477,17 +527,19 @@ git tag v1.2.0 ; git push origin v1.2.0
 
 CI builds the MSI through `package-msi.ps1`, so the WiX setup (pinned WiX 7 — installed
 or bootstrapped as a local dotnet tool, OSMF-EULA auto-acceptance on CI, Util/UI
-extensions) is honored on the runner too. The release job is the only one granted
+extensions) is honored on the runner too. The `publish` job is the only one granted
 `contents: write`.
 
-**Every release gets a signed build-provenance attestation** (`actions/attest@v4`, SLSA
-via Sigstore) over the MSI in `dist\`, so a download can be traced back to the commit and
+**Every release gets a signed build-provenance attestation** (`actions/attest`, SLSA
+via Sigstore) over the MSI, so a download can be traced back to the commit and
 workflow run that built it (`gh attestation verify <file>.msi --repo krt-profit/basetool-sc-extractor`).
-It needs `id-token: write` + `attestations: write` on the release job — job-level
-`permissions:` **replaces** the workflow default, so all three (incl. `contents: write`)
-must stay listed together. It attests the artifact only; nothing is uploaded anywhere, and
-public repos get this on every GitHub plan. The step sits between the MSI build and the
-publish, and the release notes tell users how to verify.
+It runs in its own `attest` job on the artifact `build-msi` uploaded (download-artifact v8
+fails on a digest mismatch), with `id-token: write` + `attestations: write` and nothing else
+— job-level `permissions:` **replaces** the workflow default. It attests the artifact only;
+nothing is uploaded anywhere, and public repos get this on every GitHub plan. `publish` runs
+only after it, and the release notes tell users how to verify. Provenance proves where the
+MSI was built, not that everything that ran in `build-msi` was honest — that is what the SHA
+pins are for.
 
 **Every release is scanned on VirusTotal** (`.github/scripts/virustotal-scan.ps1`) and the
 release notes link the report plus the MSI's SHA-256 — the answer to the recurring

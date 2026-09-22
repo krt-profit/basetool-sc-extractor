@@ -100,6 +100,14 @@ class DeviceGrantClientTest {
     }
 
     @Test
+    fun rejectsForeignIssuersDisguisedAsLocalhost() {
+        // SIB-SEC-09: the old `startsWith("http://localhost")` admitted both of these.
+        assertFailsWith<IllegalArgumentException> { DeviceGrantClient(issuer = "http://localhost.attacker.tld/realms/x") }
+        assertFailsWith<IllegalArgumentException> { DeviceGrantClient(issuer = "http://127.0.0.1@attacker.tld/") }
+        assertFailsWith<IllegalArgumentException> { DeviceGrantClient(issuer = "http://localhost@attacker.tld/realms/x") }
+    }
+
+    @Test
     fun refreshExchangesStoredTokenForRotatedOne() {
         server.createContext("/protocol/openid-connect/token") { ex ->
             respond(ex, 200, """{"access_token":"AT2","refresh_token":"RT2","token_type":"Bearer","expires_in":300}""")

@@ -221,36 +221,55 @@ class DpopTest {
         assertEquals("https://ingest.example", DpopKey.htu(URI.create("https://ingest.example")))
     }
 
-    // --- persistence ----------------------------------------------------------------------------
+    // --- no exportable key material (SIB-SEC-04) --------------------------------------------------
 
     @Test
-    fun anEncodedKeyRoundTripsAndStillSignsUnderTheSameThumbprint() {
-        // The refresh token outlives the process, so the key it is bound to has to as well.
-        val restored = assertNotNull(DpopKey.fromEncoded(key.encoded()))
-        val proof = restored.proof("POST", "https://ingest.example/v1/x")
-        val (headerPart, claimsPart, signaturePart) = proof.split('.')
-
-        assertEquals(key.thumbprint, restored.thumbprint, "a restored key must stay the same key")
-        val verifier =
-            Signature.getInstance("SHA256withECDSAinP1363Format").apply {
-                initVerify(publicKeyFromHeader(proof))
-                update("$headerPart.$claimsPart".toByteArray(Charsets.US_ASCII))
-            }
-        assertTrue(verifier.verify(decode(signaturePart)))
-        assertContentEquals(
-            key.publicJwk.toString().toByteArray(),
-            restored.publicJwk.toString().toByteArray(),
-        )
+    fun aDpopKeyOffersNoWayToGetItsPrivateHalfOut() {
+        // The whole point of the non-exportable key: nothing in the key's public surface returns key
+        // material or a serialized form of it. Earlier builds had `encoded()`, which is how the key
+        // ended up in the same Credential Manager record as the token it protects.
+        val keyTypes = setOf(java.security.PrivateKey::class.java, java.security.KeyPair::class.java)
+        val methods = DpopKey::class.java.methods
+        assertFalse(methods.any { it.name == "encoded" || it.name == "getEncoded" })
+        assertFalse(methods.any { it.returnType in keyTypes })
+        assertFalse(methods.any { m -> m.returnType == ByteArray::class.java && m.parameterCount == 0 })
+        // A generated key is an in-memory session key: it has no name and is not persistent.
+        assertNull(key.keyName)
+        assertFalse(key.persistent)
     }
 
     @Test
-    fun anUnreadableEncodedKeyYieldsNullRatherThanThrowing() {
-        // Fail-safe like the credential store itself: the caller then starts over with a fresh key
-        // and an interactive login instead of the send flow dying on a corrupt vault entry.
-        assertNull(DpopKey.fromEncoded(""))
-        assertNull(DpopKey.fromEncoded("not-base64"))
-        assertNull(DpopKey.fromEncoded("bm90LWEta2V5.bm90LWEta2V5"))
-        assertNull(DpopKey.fromEncoded(key.encoded().substringBefore('.')))
+    fun aLegacyExportedKeyIsStillReadableForTheOneRevocationItIsKeptFor() {
+        // Records written by earlier builds carry the exported pair; the migration revokes their
+        // refresh token with a proof from exactly that key before destroying the record.
+        val pair =
+            java.security.KeyPairGenerator.getInstance("EC")
+                .apply { initialize(ECGenParameterSpec("secp256r1")) }
+                .generateKeyPair()
+        val legacy =
+            Base64.getEncoder().encodeToString(pair.private.encoded) + "." +
+                Base64.getEncoder().encodeToString(pair.public.encoded)
+        val restored = assertNotNull(DpopKey.fromLegacyExport(legacy))
+        val proof = restored.proof("POST", "https://sso.example/protocol/openid-connect/revoke")
+        val (headerPart, claimsPart, signaturePart) = proof.split('.')
+
+        val verifier =
+            Signature.getInstance("SHA256withECDSAinP1363Format").apply {
+                initVerify(pair.public)
+                update("$headerPart.$claimsPart".toByteArray(Charsets.US_ASCII))
+            }
+        assertTrue(verifier.verify(decode(signaturePart)), "signed by the legacy key itself")
+        assertContentEquals(pair.public.encoded, publicKeyFromHeader(proof).encoded)
+        assertNull(restored.keyName, "a legacy key is never re-persisted under a name")
+    }
+
+    @Test
+    fun anUnreadableLegacyKeyYieldsNullRatherThanThrowing() {
+        // Fail-safe: the migration then just deletes the record without the revocation.
+        assertNull(DpopKey.fromLegacyExport(""))
+        assertNull(DpopKey.fromLegacyExport("not-base64"))
+        assertNull(DpopKey.fromLegacyExport("bm90LWEta2V5.bm90LWEta2V5"))
+        assertNull(DpopKey.fromLegacyExport("bm90LWEta2V5"))
     }
 
     // --- the server clock -------------------------------------------------------------------------

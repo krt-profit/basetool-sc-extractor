@@ -3,9 +3,12 @@ package com.basetool.bpextractor.ui
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.basetool.bpextractor.net.auth.CngDpopKeyStore
+import com.basetool.bpextractor.net.auth.CredentialRecord
 import com.basetool.bpextractor.net.auth.CredentialStore
 import com.basetool.bpextractor.net.auth.DeviceGrantClient
 import com.basetool.bpextractor.net.auth.DpopKey
+import com.basetool.bpextractor.net.auth.DpopKeyStore
 import com.basetool.bpextractor.net.auth.WinCredentialStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,13 +18,15 @@ import kotlinx.coroutines.withContext
 /**
  * Drives the "remember me" account surface (epic krt-profit/basetool#639, sub-issue #648): reflects
  * whether a basetool refresh token is stored and runs the "Vom Basetool trennen" disconnect —
- * revoke the token at Keycloak (best-effort), then delete it from Windows Credential Manager. A
- * Compose state holder; the revoke/delete runs off the UI thread. Collaborators are injected so the
- * surface is exercisable without a real Keycloak or credential vault.
+ * revoke the token at Keycloak (best-effort), then delete it from Windows Credential Manager and
+ * its non-exportable DPoP key from the key storage. A Compose state holder; the revoke/delete runs
+ * off the UI thread. Collaborators are injected so the surface is exercisable without a real
+ * Keycloak, credential vault or key storage.
  */
 class AccountController(
     private val credentialStore: CredentialStore = WinCredentialStore(),
     private val deviceGrant: DeviceGrantClient = DeviceGrantClient(),
+    private val keyStore: DpopKeyStore = CngDpopKeyStore(),
 ) {
 
     /** Whether a stored token exists (the connected/disconnected indicator). */
@@ -52,8 +57,9 @@ class AccountController(
     }
 
     /**
-     * Confirms the disconnect: revokes the stored refresh token at Keycloak (best-effort) and
-     * deletes it locally, then updates [connected]. Runs the I/O off the UI thread.
+     * Confirms the disconnect: revokes the stored refresh token at Keycloak (best-effort), deletes
+     * it locally together with its DPoP key, then updates [connected]. Runs the I/O off the UI
+     * thread.
      *
      * @param scope the UI coroutine scope to run the disconnect on
      */
@@ -63,11 +69,20 @@ class AccountController(
         scope.launch {
             withContext(Dispatchers.IO) {
                 // A DPoP-bound refresh token is only revocable with a proof from the key it was
-                // issued to, which is why the two are stored as one record (REQ-INGEST-012).
-                credentialStore.loadCredential()?.let { stored ->
-                    deviceGrant.revoke(stored.refreshToken, stored.dpopKey?.let(DpopKey::fromEncoded))
+                // issued to, which is why the record names that key (REQ-INGEST-012).
+                when (val record = credentialStore.loadRecord()) {
+                    is CredentialRecord.Current -> {
+                        val keyName = record.credential.dpopKeyName
+                        deviceGrant.revoke(record.credential.refreshToken, keyName?.let(keyStore::open))
+                        credentialStore.clear()
+                        keyName?.let(keyStore::delete)
+                    }
+                    is CredentialRecord.LegacyExportedKey -> {
+                        deviceGrant.revoke(record.refreshToken, DpopKey.fromLegacyExport(record.exportedKey))
+                        credentialStore.clear()
+                    }
+                    null -> credentialStore.clear()
                 }
-                credentialStore.clear()
             }
             connected = credentialStore.exists()
             working = false
