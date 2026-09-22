@@ -119,6 +119,24 @@ class BasetoolIngestClientTest {
         assertFailsWith<IllegalArgumentException> { BasetoolIngestClient("http://evil.example") }
     }
 
+    @Test
+    fun rejectsForeignHostsDisguisedAsLocalhost() {
+        // A prefix check let both of these through, sending token and export in cleartext to a
+        // foreign host (SIB-SEC-09): a host that merely starts with "localhost", and user-info
+        // "127.0.0.1@" in front of the real host.
+        assertFailsWith<IllegalArgumentException> { BasetoolIngestClient("http://localhost.attacker.tld") }
+        assertFailsWith<IllegalArgumentException> { BasetoolIngestClient("http://127.0.0.1@attacker.tld/") }
+        assertFailsWith<IllegalArgumentException> { BasetoolIngestClient("http://localhost@attacker.tld/") }
+        assertFailsWith<IllegalArgumentException> { BasetoolIngestClient("http://127.0.0.1.attacker.tld/") }
+    }
+
+    @Test
+    fun acceptsHttpsAndLoopbackHttp() {
+        BasetoolIngestClient("https://basetool.example/ingest")
+        BasetoolIngestClient("http://localhost:8443")
+        BasetoolIngestClient("http://127.0.0.1:8443/ingest")
+    }
+
     // --- DPoP (RFC 9449, REQ-INGEST-012) -------------------------------------------------------
 
     @Test

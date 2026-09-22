@@ -100,11 +100,7 @@ class BasetoolIngestClient(
     private val clock = ServerClock()
 
     init {
-        require(
-            baseUrl.startsWith("https://") ||
-                baseUrl.startsWith("http://localhost") ||
-                baseUrl.startsWith("http://127.0.0.1")
-        ) {
+        require(TransportPolicy.isAllowedServerUrl(baseUrl)) {
             "refusing a non-https ingest base URL (localhost excepted for dev): $baseUrl"
         }
     }
