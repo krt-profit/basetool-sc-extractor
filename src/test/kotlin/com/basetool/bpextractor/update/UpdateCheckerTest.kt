@@ -311,6 +311,8 @@ class UpdateCheckerTest {
                 ).redirectErrorStream(true).start()
                 val out = process.inputStream.bufferedReader().readText().trim()
                 process.waitFor()
+                // Echoed so a CI failure shows what PowerShell actually said, not just the line.
+                println("installer-helper driver [digest ${sha.take(8)}…]: $out")
                 return out
             }
             // Matching digest: the (stubbed) msiexec runs, plainly and elevated.
