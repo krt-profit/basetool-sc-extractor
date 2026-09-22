@@ -19,7 +19,6 @@ version = (System.getenv("APP_VERSION") ?: findProperty("appVersion") as String?
 repositories {
     mavenCentral()
     google()
-    maven("https://maven.pkg.jetbrains.space/public/p/compose/dev")
 }
 
 dependencies {
