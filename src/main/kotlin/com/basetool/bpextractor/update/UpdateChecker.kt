@@ -10,6 +10,7 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.file.Files
 import java.security.MessageDigest
 import java.time.Duration
 
@@ -19,7 +20,10 @@ data class GitHubAsset(
     val name: String = "",
     @SerialName("browser_download_url") val downloadUrl: String = "",
     val size: Long = 0,
-    /** GitHub-computed checksum (`sha256:<hex>`), verified after the download when present. */
+    /**
+     * GitHub-computed checksum (`sha256:<hex>`). Required for an offer ([UpdateChecker.selectUpdate]
+     * fails closed without it) and verified after the download and before every install attempt.
+     */
     val digest: String? = null,
 )
 
@@ -39,8 +43,11 @@ data class UpdateInfo(
     val tagName: String,
     val msiUrl: String,
     val msiSizeBytes: Long,
-    /** Expected SHA-256 of the MSI (lowercase hex) when the API provided a digest. */
-    val msiSha256: String? = null,
+    /**
+     * Expected SHA-256 of the MSI (lowercase hex), from the API's asset `digest`. Never absent: a
+     * release whose MSI carries no well-formed digest is not offered at all (fail closed).
+     */
+    val msiSha256: String,
 )
 
 /** Major/minor/patch plus an optional pre-release suffix (`2.4.0-rc1`). */
@@ -50,10 +57,16 @@ internal data class ParsedVersion(val major: Int, val minor: Int, val patch: Int
  * The GUI's update check against the public GitHub releases of this repo: on app start the latest
  * release is fetched (silently skipped on any failure — the check must never block or break the
  * app); when it is newer than the running version, the start screen offers to download the MSI and
- * install it. The download goes to a fixed folder under the user's temp dir — NEVER the install
- * dir (CLAUDE.md guardrail 2) — and a detached PowerShell helper runs `msiexec /i` after the app
- * exits, then deletes the MSI, the helper script and the folder again. [cleanupLeftovers] sweeps
- * that folder on every start as a belt-and-braces guard against a crashed or killed helper.
+ * install it. The download goes to a fresh, randomly named folder under the user's temp dir
+ * ([newUpdateDir]) — NEVER the install dir (CLAUDE.md guardrail 2) — and a detached PowerShell
+ * helper re-verifies the MSI's SHA-256 and runs `msiexec /i` after the app exits, then deletes the
+ * MSI, the helper script and the folder again. [cleanupLeftovers] sweeps those folders on every
+ * start as a belt-and-braces guard against a crashed or killed helper.
+ *
+ * The update path **fails closed**: an offer needs an MSI asset whose URL lies under this repo's
+ * own release-download path ([RELEASE_DOWNLOAD_PREFIX]) and whose API answer carries a well-formed
+ * `sha256:` digest. The digest is checked after the download and again by the helper immediately
+ * before every `msiexec` run, so the file the installer opens is the file the release published.
  *
  * Only release *metadata* is fetched from GitHub; no usage data is sent (the request carries
  * nothing but the standard headers).
@@ -62,6 +75,15 @@ object UpdateChecker {
 
     /** The public repo whose releases are checked. */
     const val REPO = "krt-profit/basetool-sc-extractor"
+
+    /**
+     * The only URL prefix an MSI may be downloaded from: this repo's own release assets. GitHub
+     * redirects from there to its object CDN, which the HTTP client follows (https only).
+     */
+    const val RELEASE_DOWNLOAD_PREFIX = "https://github.com/$REPO/releases/download/"
+
+    /** Name prefix of the per-download temp folders — what [cleanupLeftovers] sweeps. */
+    internal const val UPDATE_DIR_PREFIX = "basetool-sc-extractor-update"
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -107,20 +129,42 @@ object UpdateChecker {
 
     /**
      * Decide whether [release] is an offerable update over [currentVersion]: a published (not
-     * draft/pre-release) version that compares newer and actually carries an MSI asset over https.
+     * draft/pre-release) version that compares newer and actually carries an MSI asset under
+     * [RELEASE_DOWNLOAD_PREFIX] with a well-formed SHA-256 digest. A missing or malformed digest
+     * means no offer: without it neither the download nor the installer helper could verify the
+     * file, and an unverifiable installer is never run.
      */
     fun selectUpdate(release: GitHubRelease?, currentVersion: String): UpdateInfo? {
         if (release == null || release.draft || release.prerelease) return null
         if (!isNewerVersion(release.tagName, currentVersion)) return null
         val msi = release.assets.firstOrNull { it.name.endsWith(".msi", ignoreCase = true) } ?: return null
-        if (!msi.downloadUrl.startsWith("https://")) return null
+        if (!isTrustedDownloadUrl(msi.downloadUrl)) return null
+        val sha256 = sha256FromDigest(msi.digest) ?: return null
         return UpdateInfo(
             version = release.tagName.trim().removePrefix("v"),
             tagName = release.tagName,
             msiUrl = msi.downloadUrl,
             msiSizeBytes = msi.size,
-            msiSha256 = sha256FromDigest(msi.digest),
+            msiSha256 = sha256,
         )
+    }
+
+    /**
+     * True when [url] is a release asset of this repo: it starts with [RELEASE_DOWNLOAD_PREFIX]
+     * and, parsed, is exactly `https://github.com/...` — no user-info, no explicit port, and no
+     * `.`/`..` path segment (raw or percent-encoded) that could walk out of the release path.
+     */
+    internal fun isTrustedDownloadUrl(url: String): Boolean {
+        if (!url.startsWith(RELEASE_DOWNLOAD_PREFIX)) return false
+        val uri = try {
+            URI(url)
+        } catch (_: Exception) {
+            return false
+        }
+        if (uri.scheme != "https" || uri.host != "github.com") return false
+        if (uri.rawUserInfo != null || uri.port != -1) return false
+        val path = uri.path ?: return false
+        return path.split('/').none { it == "." || it == ".." }
     }
 
     /**
@@ -151,43 +195,70 @@ object UpdateChecker {
     internal fun sha256FromDigest(digest: String?): String? {
         if (digest == null || !digest.startsWith("sha256:")) return null
         val hex = digest.removePrefix("sha256:").lowercase()
-        return hex.takeIf { it.length == 64 && it.all { c -> c in '0'..'9' || c in 'a'..'f' } }
+        return hex.takeIf(::isSha256Hex)
     }
 
-    /**
-     * The fixed download folder under the user's temp dir. Deliberately NOT the session temp dir
-     * from `ImageIntake.tempFolder()`: that one is removed by a shutdown hook on exit — which
-     * would race the installer helper that still needs the MSI after the app has quit.
-     */
-    fun updateDir(): File = File(System.getProperty("java.io.tmpdir"), "basetool-sc-extractor-update")
+    /** True for exactly 64 lowercase hex characters — the only digest form the updater acts on. */
+    internal fun isSha256Hex(value: String): Boolean =
+        value.length == 64 && value.all { c -> c in '0'..'9' || c in 'a'..'f' }
+
+    /** The user's temp root, under which every update folder is created and swept. */
+    private fun tempRoot(): File = File(System.getProperty("java.io.tmpdir"))
 
     /**
-     * Best-effort sweep of [dir] on app start: removes MSIs/scripts a crashed or killed helper
-     * left behind. Files still locked by a running helper just stay — never an error.
+     * A fresh download folder under the user's temp dir, created by [Files.createTempDirectory]
+     * with an unpredictable name — so nothing can pre-create or plant files in it ahead of the
+     * download, which a fixed, guessable path allowed. Deliberately NOT the session temp dir from
+     * `ImageIntake.tempFolder()`: that one is removed by a shutdown hook on exit — which would race
+     * the installer helper that still needs the MSI after the app has quit.
      */
-    fun cleanupLeftovers(dir: File = updateDir()) {
+    fun newUpdateDir(root: File = tempRoot()): File =
+        Files.createTempDirectory(root.toPath(), "$UPDATE_DIR_PREFIX-").toFile()
+
+    /**
+     * Best-effort sweep on app start: removes every update folder (name starting with
+     * [UPDATE_DIR_PREFIX] — which also matches the fixed folder older builds used) that a crashed
+     * or killed helper left behind in [root]. Files still locked by a running helper just stay —
+     * never an error.
+     */
+    fun cleanupLeftovers(root: File = tempRoot()) {
         try {
-            if (dir.exists()) dir.deleteRecursively()
+            root.listFiles { f -> f.isDirectory && f.name.startsWith(UPDATE_DIR_PREFIX) }
+                ?.forEach { it.deleteRecursively() }
         } catch (_: Exception) {
             // Best effort only — leftovers in the temp dir must never break the app.
         }
     }
 
     /**
-     * Download the MSI of [info] into [targetDir], reporting (bytesDone, bytesTotal) along the
-     * way. Verifies the byte count and — when the API provided one — the SHA-256 before returning;
-     * a partial or corrupt file is deleted and the failure thrown to the caller (the banner shows
-     * it with a retry).
+     * Download the MSI of [info] into [targetDir] (a fresh [newUpdateDir] when null), reporting
+     * (bytesDone, bytesTotal) along the way. Refuses any URL outside [RELEASE_DOWNLOAD_PREFIX] and
+     * verifies the byte count and the SHA-256 before returning; a partial or corrupt file is
+     * deleted (with the folder, when this call created it) and the failure thrown to the caller
+     * (the banner shows it with a retry).
      */
     fun downloadMsi(
         info: UpdateInfo,
-        targetDir: File = updateDir(),
+        targetDir: File? = null,
         onProgress: (Long, Long) -> Unit = { _, _ -> },
     ): File {
-        require(info.msiUrl.startsWith("https://")) { "refusing non-https download: ${info.msiUrl}" }
-        if (!targetDir.isDirectory && !targetDir.mkdirs()) {
-            throw IOException("cannot create download folder: ${targetDir.absolutePath}")
+        require(isTrustedDownloadUrl(info.msiUrl)) { "refusing a download outside this repo's releases: ${info.msiUrl}" }
+        require(isSha256Hex(info.msiSha256)) { "refusing a download without a valid SHA-256" }
+        val ownDir = targetDir == null
+        val dir = targetDir ?: newUpdateDir()
+        if (!dir.isDirectory && !dir.mkdirs()) {
+            throw IOException("cannot create download folder: ${dir.absolutePath}")
         }
+        try {
+            return downloadInto(info, dir, onProgress)
+        } catch (t: Throwable) {
+            if (ownDir) dir.deleteRecursively()
+            throw t
+        }
+    }
+
+    /** The streaming download + size/SHA-256 verification behind [downloadMsi]. */
+    private fun downloadInto(info: UpdateInfo, targetDir: File, onProgress: (Long, Long) -> Unit): File {
         val safeVersion = info.version.filter { it.isLetterOrDigit() || it in "._-" }.ifEmpty { "latest" }
         val target = File(targetDir, "basetool-sc-extractor-$safeVersion.msi")
         val request = HttpRequest.newBuilder(URI.create(info.msiUrl))
@@ -221,11 +292,9 @@ object UpdateChecker {
             if (info.msiSizeBytes > 0 && target.length() != info.msiSizeBytes) {
                 throw IOException("download incomplete: ${target.length()} of ${info.msiSizeBytes} bytes")
             }
-            if (info.msiSha256 != null) {
-                val actual = sha256.digest().joinToString("") { "%02x".format(it) }
-                if (actual != info.msiSha256) {
-                    throw IOException("checksum mismatch — the downloaded file is corrupt")
-                }
+            val actual = sha256.digest().joinToString("") { "%02x".format(it) }
+            if (actual != info.msiSha256) {
+                throw IOException("checksum mismatch — the downloaded file is corrupt")
             }
             return target
         } catch (t: Throwable) {
@@ -285,12 +354,31 @@ object UpdateChecker {
      *
      * Success/benign exit codes (0 ok, 1602 user-cancelled, 3010/1641 reboot variants) skip the
      * prompt; anything else — 1603 among them, which is what the 1926 rollback returns — offers it.
+     *
+     * **Every `msiexec` run is preceded by a fresh SHA-256 of the MSI** (`Get-FileHash`) against
+     * `$Sha256`, the digest the release published — also the elevated retry, which may start
+     * minutes later after the user answered the dialog. A mismatch (or an unreadable file) skips
+     * that install attempt and the retry prompt entirely; the helper then only cleans up and
+     * relaunches the unchanged app. So the installer never runs a file that changed after the
+     * app's own verification in [downloadMsi].
      */
     internal val INSTALLER_SCRIPT = """
-        param([string]${'$'}MsiPath, [string]${'$'}Lang = 'de', [string]${'$'}AppPath = '')
+        param([string]${'$'}MsiPath, [string]${'$'}Sha256, [string]${'$'}Lang = 'de', [string]${'$'}AppPath = '')
         Start-Sleep -Seconds 2
 
+        ${'$'}digestMismatch = -1
+
+        function Test-MsiDigest {
+            try {
+                ${'$'}actual = (Get-FileHash -LiteralPath ${'$'}MsiPath -Algorithm SHA256 -ErrorAction Stop).Hash
+                return (${'$'}Sha256 -match '^[0-9a-fA-F]{64}${'$'}') -and (${'$'}actual.ToLowerInvariant() -eq ${'$'}Sha256.ToLowerInvariant())
+            } catch {
+                return ${'$'}false
+            }
+        }
+
         function Invoke-MsiInstall([switch]${'$'}Elevated) {
+            if (-not (Test-MsiDigest)) { return ${'$'}digestMismatch }
             ${'$'}msiArgs = @('/i', ('"{0}"' -f ${'$'}MsiPath))
             if (${'$'}Elevated) {
                 ${'$'}proc = Start-Process -FilePath 'msiexec.exe' -ArgumentList ${'$'}msiArgs -Verb RunAs -Wait -PassThru
@@ -302,7 +390,7 @@ object UpdateChecker {
 
         ${'$'}okCodes = @(0, 1602, 3010, 1641)
         try { ${'$'}code = Invoke-MsiInstall } catch { ${'$'}code = 1603 }
-        if (${'$'}okCodes -notcontains ${'$'}code) {
+        if (${'$'}code -ne ${'$'}digestMismatch -and ${'$'}okCodes -notcontains ${'$'}code) {
             try {
                 Add-Type -AssemblyName System.Windows.Forms
                 if (${'$'}Lang -eq 'en') {
@@ -334,12 +422,19 @@ object UpdateChecker {
      * The helper invocation. Windows PowerShell 5.1 by absolute path (always present, unlike
      * pwsh); `-File` passes the MSI path as a plain positional argument, so no string ever needs
      * embedded quotes — paths with spaces or apostrophes survive ProcessBuilder's quoting as-is.
+     * [sha256] is the expected lowercase-hex digest the helper re-checks before every `msiexec`.
      * [lang] ("de"/"en") localizes the elevated-retry dialog to the language the GUI was showing
      * (any value other than "en" falls back to German); [appPath] is the launcher to relaunch
      * after the install (empty string to skip). Both are plain trailing positional arguments —
      * like the MSI path they carry no embedded quotes, so paths with spaces survive as-is.
      */
-    internal fun installerCommand(scriptFile: File, msiFile: File, lang: String, appPath: String): List<String> = listOf(
+    internal fun installerCommand(
+        scriptFile: File,
+        msiFile: File,
+        sha256: String,
+        lang: String,
+        appPath: String,
+    ): List<String> = listOf(
         File(System.getenv("SystemRoot") ?: """C:\Windows""", """System32\WindowsPowerShell\v1.0\powershell.exe""").absolutePath,
         "-NoProfile",
         "-NonInteractive",
@@ -347,6 +442,7 @@ object UpdateChecker {
         "-WindowStyle", "Hidden",
         "-File", scriptFile.absolutePath,
         msiFile.absolutePath,
+        sha256,
         if (lang == "en") "en" else "de",
         appPath,
     )
@@ -355,7 +451,8 @@ object UpdateChecker {
      * Write the helper script next to [msiFile] and launch it detached. The caller exits the app
      * right after — the helper waits, installs, removes the MSI and itself, then relaunches the
      * app. Its working dir is the temp root: never the install dir (which the MSI replaces) and
-     * never the update dir (which the helper deletes at the end). [lang] localizes the
+     * never the update dir (which the helper deletes at the end). [sha256] is the expected MSI
+     * digest the helper re-verifies before every install attempt; [lang] localizes the
      * elevated-retry dialog; [appLauncher] is the exe to relaunch (defaults to
      * [installedAppLauncher]; null skips the relaunch, e.g. in a dev run).
      *
@@ -363,11 +460,11 @@ object UpdateChecker {
      * the ANSI code page, which would mangle the German umlauts in the failure dialog; the BOM
      * makes it read the file as UTF-8.
      */
-    fun launchInstaller(msiFile: File, lang: String, appLauncher: File? = installedAppLauncher()) {
+    fun launchInstaller(msiFile: File, sha256: String, lang: String, appLauncher: File? = installedAppLauncher()) {
         val script = File(msiFile.parentFile, "install-update.ps1")
         val bom = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
         script.writeBytes(bom + INSTALLER_SCRIPT.toByteArray(Charsets.UTF_8))
-        ProcessBuilder(installerCommand(script, msiFile, lang, appLauncher?.absolutePath ?: ""))
+        ProcessBuilder(installerCommand(script, msiFile, sha256, lang, appLauncher?.absolutePath ?: ""))
             .directory(msiFile.parentFile.parentFile ?: msiFile.parentFile)
             .redirectOutput(ProcessBuilder.Redirect.DISCARD)
             .redirectError(ProcessBuilder.Redirect.DISCARD)
