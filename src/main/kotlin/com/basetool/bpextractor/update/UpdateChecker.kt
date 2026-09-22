@@ -355,12 +355,15 @@ object UpdateChecker {
      * Success/benign exit codes (0 ok, 1602 user-cancelled, 3010/1641 reboot variants) skip the
      * prompt; anything else — 1603 among them, which is what the 1926 rollback returns — offers it.
      *
-     * **Every `msiexec` run is preceded by a fresh SHA-256 of the MSI** (`Get-FileHash`) against
+     * **Every `msiexec` run is preceded by a fresh SHA-256 of the MSI** against
      * `$Sha256`, the digest the release published — also the elevated retry, which may start
      * minutes later after the user answered the dialog. A mismatch (or an unreadable file) skips
      * that install attempt and the retry prompt entirely; the helper then only cleans up and
      * relaunches the unchanged app. So the installer never runs a file that changed after the
-     * app's own verification in [downloadMsi].
+     * app's own verification in [downloadMsi]. The hash is computed with .NET's `SHA256` directly,
+     * not `Get-FileHash`: that cmdlet lives in a module, and a Windows PowerShell started with an
+     * inherited PowerShell 7 `PSModulePath` (the CI runner) could not load it, which made the
+     * check reject even the correct file.
      */
     internal val INSTALLER_SCRIPT = """
         param([string]${'$'}MsiPath, [string]${'$'}Sha256, [string]${'$'}Lang = 'de', [string]${'$'}AppPath = '')
@@ -369,9 +372,16 @@ object UpdateChecker {
         ${'$'}digestMismatch = -1
 
         function Test-MsiDigest {
+            if (${'$'}Sha256 -notmatch '^[0-9a-fA-F]{64}${'$'}') { return ${'$'}false }
             try {
-                ${'$'}actual = (Get-FileHash -LiteralPath ${'$'}MsiPath -Algorithm SHA256 -ErrorAction Stop).Hash
-                return (${'$'}Sha256 -match '^[0-9a-fA-F]{64}${'$'}') -and (${'$'}actual.ToLowerInvariant() -eq ${'$'}Sha256.ToLowerInvariant())
+                ${'$'}stream = [System.IO.File]::OpenRead(${'$'}MsiPath)
+                try {
+                    ${'$'}bytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash(${'$'}stream)
+                } finally {
+                    ${'$'}stream.Dispose()
+                }
+                ${'$'}actual = [System.BitConverter]::ToString(${'$'}bytes).Replace('-', '').ToLowerInvariant()
+                return ${'$'}actual -eq ${'$'}Sha256.ToLowerInvariant()
             } catch {
                 return ${'$'}false
             }
