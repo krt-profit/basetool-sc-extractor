@@ -60,7 +60,8 @@ class IngestException(message: String, val code: String = "") : Exception(messag
  * krt-profit/basetool#639, the `:ingest` module). The caller supplies the access token obtained via
  * the device grant; this client never authenticates.
  *
- * <p>The gateway terminates TLS at nginx-proxy-manager and runs plain HTTP behind it, so the prod
+ * <p>TLS for the gateway terminates at the basetool's edge proxy (nginx-proxy-manager until
+ * 2026-09-12, basetool ADR-0162) and it runs plain HTTP behind it, so the prod
  * base URL is a publicly-trusted {@code https://ingest.<domain>} (standard TLS — no custom trust)
  * and the only non-TLS escape is an explicit {@code http://localhost} / {@code http://127.0.0.1}
  * for the dev stack. There is **no** global trust-all and no self-signed handling. Mirrors

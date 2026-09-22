@@ -209,6 +209,8 @@ private (guardrail 1a) and live outside the repo; ask for their path.
     wildcard DNS record still resolves the name while the edge serves no vhost for it. Nothing on
     either side can check this literal (ADR-0167's single-source gate stops inside the `basetool`
     repo), so **an identity host move means cutting a release here, in the same change.**
+    The fix shipped as **v2.9.1** (2026-09-14), which is therefore the oldest build that can
+    still send; older ones only read and save JSON.
   **DPoP (RFC 9449, `REQ-INGEST-012`)** binds those tokens to a client-held EC P-256 key
   (`auth/Dpop.kt`) so the refresh token sitting on disk is worthless if copied. Load-
   bearing details: the key is persisted *with* the refresh token in one record (a bound
@@ -244,7 +246,8 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   `StartScreen.kt` (launcher — the only screen with the big `GreetingHeader`),
   `UpdateBanner.kt` (the start screen's update offer: `UpdateUiState`
   Hidden/Available/Downloading/Installing/Failed; install is that screen's one filled
-  CTA, "Später" hides it for the session — no persisted skip, the app stays stateless),
+  CTA, "Später" hides it for the session — no persisted skip; `config.json` keeps only the
+  three fields named in guardrail 2),
   `RefineryScreen.kt` (refinery workflow surface), `refinery/` (the five step screens +
   `RefineryUiState` — per-image checkboxes decide which images get extracted; while the
   images step is on screen the picked folder is polled once per second

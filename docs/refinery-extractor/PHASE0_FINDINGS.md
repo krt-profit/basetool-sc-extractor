@@ -1,14 +1,21 @@
 # Phase 0 spike report — refinery screenshot extraction (#433)
 
-> **Doc type:** Spike report — frozen once Phase 0 closes; Phase 3 (#436) consumes its
-> artifacts. **Status: complete** (one owner action open: low-resolution captures, §10).
+> **Doc type:** Spike report **plus a running measurement log.** §1–§10 are the Phase 0
+> report, frozen when Phase 0 closed (2026-06-10); Phase 3 (#436) consumed its artifacts.
+> The dated **addenda** below record every later measurement that changed or confirmed a
+> pipeline decision (bake-off rounds, `num_ctx`, cross-model verify, the C47 terminal skin)
+> and are still appended to — a new measurement gets a new dated addendum, never an edit of
+> §1–§10. Code cites both halves by section. *(Header corrected 2026-09-22: it used to say
+> the whole file was frozen, which the addenda through 2026-09-05 contradicted.)*
+> **Status:** Phase 0 complete; one owner action still open (native 1080p/1440p captures, §10).
 > Epic: [krt-profit/basetool#439](https://github.com/krt-profit/basetool/issues/439) ·
-> Plan: `basetool/docs/REFINERY_SCREENSHOT_IMPORT_PLAN.md` §Phase 0.
+> Plan: `basetool/docs/archive/REFINERY_SCREENSHOT_IMPORT_PLAN.md` §Phase 0 (archived in the
+> basetool repo — the plan has shipped).
 > Date: 2026-06-10 · Hardware: RTX 5090 32 GB VRAM, Ryzen 9 9950X3D, 95.6 GB RAM,
 > Ollama 0.30.7, Python 3.13 + Pillow 12.2.
 
-All spike code lives in `spike-phase0/harness/` (branch `spike/refinery-phase0`);
-private inputs/outputs stay under the gitignored `spike-phase0/work/`.
+All spike code lives in `spike-phase0/harness/` (written on the `spike/refinery-phase0`
+branch, now on `main`); private inputs/outputs stay under the gitignored `spike-phase0/work/`.
 
 ## 1. Golden test set (deliverable 4)
 

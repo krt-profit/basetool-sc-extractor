@@ -678,8 +678,8 @@ object StringsDe : Strings {
             "mindestens einen als Nachweis. Bitte die Extraktion mit den Screenshots erneut starten."
     override val rfUploadCardTitle = "In das Basetool hochladen"
     override val rfUploadSteps = listOf(
-        "1. Basetool öffnen → Refinery → Aufträge.",
-        "2. „Auftrag importieren\" wählen.",
+        "1. Basetool öffnen → Flotte & Logistik → Raffinerieverwaltung.",
+        "2. „Neuer Auftrag“ wählen, dann „Aus Screenshot-Extract importieren (JSON)“.",
         "3. Die exportierte JSON-Datei auswählen.",
         "4. Das vorausgefüllte Formular prüfen, ergänzen und speichern.",
     )
@@ -1080,8 +1080,8 @@ object StringsEn : Strings {
             "provenance. Start the extraction again with the screenshots."
     override val rfUploadCardTitle = "Upload into the basetool"
     override val rfUploadSteps = listOf(
-        "1. Open the basetool → Refinery → Orders.",
-        "2. Choose \"Import order\".",
+        "1. Open the basetool → Fleet & Logistics → Refinery.",
+        "2. Choose \"New Order\", then \"Import from screenshot extract (JSON)\".",
         "3. Pick the exported JSON file.",
         "4. Review the pre-filled form, complete it and save.",
     )
