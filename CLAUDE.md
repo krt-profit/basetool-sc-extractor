@@ -202,7 +202,9 @@ private (guardrail 1a) and live outside the repo; ask for their path.
     starts with `RELEASE_DOWNLOAD_PREFIX` (this repo's `releases/download/`, parsed — no
     user-info, port or `..`) **and** the API answer carries a well-formed `sha256:` `digest`.
     The helper gets that digest as its second positional argument and re-hashes the MSI
-    (`Get-FileHash`) **immediately before every `msiexec`**, the elevated retry included; a
+    (.NET `SHA256`, deliberately not `Get-FileHash`, whose module a Windows PowerShell with an
+    inherited PowerShell 7 `PSModulePath` failed to load on the CI runner) **immediately before
+    every `msiexec`**, the elevated retry included; a
     mismatch skips the install and the retry prompt. `UpdateCheckerTest` runs the helper's
     own functions in real Windows PowerShell with `Start-Process` stubbed, so that property
     is tested, not just grepped. Never loosen either check to make an odd release work —

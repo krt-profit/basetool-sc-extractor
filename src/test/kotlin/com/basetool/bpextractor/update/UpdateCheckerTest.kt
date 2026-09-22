@@ -270,7 +270,9 @@ class UpdateCheckerTest {
     @Test
     fun `installer script re-hashes the msi before every msiexec run, the elevated retry included`() {
         val script = UpdateChecker.INSTALLER_SCRIPT
-        assertTrue(script.contains("Get-FileHash -LiteralPath \$MsiPath -Algorithm SHA256"))
+        assertTrue(script.contains("[System.Security.Cryptography.SHA256]::Create().ComputeHash("))
+        // No module-provided cmdlet in the check itself: it must work whatever PSModulePath says.
+        assertFalse(script.contains("Get-FileHash"))
         // The digest is the second positional parameter, right after the MSI path.
         assertTrue(script.startsWith("param([string]\$MsiPath, [string]\$Sha256,"))
         // Both msiexec launches live inside Invoke-MsiInstall, whose first statement is the check.
