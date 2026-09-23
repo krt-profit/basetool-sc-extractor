@@ -19,11 +19,16 @@
 #      it silently — it tells you what to run. On CI ($env:CI = 'true') it accepts
 #      automatically (project decision, see issue krt-profit/basetool-sc-extractor#1).
 #   3. Bare machines / CI runners. If no WiX 7 is installed, WiX is bootstrapped
-#      as a LOCAL dotnet tool under tools\wix (gitignored; nothing system-wide),
-#      pinned to an exact version whose NuGet package must match a pinned SHA-512
-#      before wix.exe is ever run, and missing Util/UI extensions are added to the
-#      user's extension cache. The GitHub runner image carries no WiX 7, so every
-#      release build takes this path - the pin is what verifies the CI download too.
+#      as a LOCAL dotnet tool into a FRESH tools\wix on every run (gitignored;
+#      nothing system-wide), pinned to an exact version whose NuGet package must
+#      match a pinned SHA-512 before wix.exe is ever run. Missing Util/UI extensions
+#      are added to the user's extension cache, and every copy of them that wix.exe
+#      could load must match a pinned SHA-512 too. The GitHub runner image carries
+#      no WiX 7, so every release build takes this path - the pins are what verify
+#      the CI downloads too.
+#   4. The Compose plugin's own WiX 3.11 download is switched off in
+#      gradle.properties; build.gradle.kts makes packageMsi refuse to run unless a
+#      WiX 4+ is first on PATH - which is what this script arranges.
 #
 # Usage:  .\package-msi.ps1            # builds dist\...-<version>.msi
 #         .\package-msi.ps1 --info     # extra args are forwarded to Gradle
@@ -39,7 +44,16 @@ $wixBootstrapVersion = "7.0.0"   # installed as a local dotnet tool when no WiX 
 # NuGet writes beside it: that is NuGet's content hash, which leaves the repository
 # signature out and differs from the file's own hash.
 $wixBootstrapSha512 = "4GbdoDWjm0QmBLyJ8PPiknXomjI5vHat4H27AB6NNGzFpbEhN9Xw0kiPQokZ3zH8F1RcjvDSn8yGDXwKxlW8Tg=="
+# SHA-512 (base64) of the two extension DLLs wix.exe loads for WiX $wixBootstrapVersion: the
+# wixext7\<id>.dll inside each nuget.org package, whose own catalog `packageHash` was checked
+# first (2026-09-23). The WiX 7.0.0 installer's machine-cache copies are byte-identical.
+$wixExtensionSha512 = @{
+    'WixToolset.Util.wixext' = "JHl/qbyJsyzQbNUd4Jz30IHFUZHn48GfLEkRnfRZieeEp2DnAknVDvCLQgnV/mO8QaCH7ibUXtJ4/BGSDjsZ9A=="
+    'WixToolset.UI.wixext'   = "prwMDQ+gIhtnH6jZVP3LDYnTnQFbJRo1WIJlTNx1ioc7lgUf1Q+uU2aOfS23f8TctuiDWAgVVJoU6aqh5KuG2g=="
+}
 $wixToolDir = Join-Path $PSScriptRoot 'tools\wix'
+$userExtRoot = Join-Path $env:USERPROFILE '.wix\extensions'
+$machineExtRoot = Join-Path $env:CommonProgramFiles 'WixToolset\extensions'
 
 function Get-WixInfo([string]$exe) {
     # `wix --version` is not gated behind the OSMF EULA, so this works pre-acceptance.
@@ -69,9 +83,19 @@ function Test-WixBootstrap {
     return $true
 }
 
-# --- 1. Pick WiX 7: the newest installed 7.x on PATH, else the verified local bootstrap -
-# A tools\wix bootstrap no longer competes with an installed WiX: it is only used - and
-# only after its package matched the pin - when no WiX 7 is on PATH.
+function Test-WixExtensionCopy([string]$dll, [string]$ext) {
+    # True when this copy of the extension DLL matches its pin.
+    $actual = Get-FileSha512Base64 $dll
+    if ($actual -eq $wixExtensionSha512[$ext]) { return $true }
+    Write-Warning "$dll has SHA-512 $actual, expected $($wixExtensionSha512[$ext])."
+    return $false
+}
+
+# --- 1. Pick WiX 7: the newest installed 7.x on PATH, else a fresh, verified bootstrap --
+# A tools\wix bootstrap never competes with an installed WiX, and it is never reused: the
+# pin covers the .nupkg, not the files dotnet unpacked beside it nor the wix.exe shim dotnet
+# generates, so an old tools\wix is deleted and the tool installed afresh on every run (a few
+# seconds from NuGet's cache), then verified before wix.exe runs.
 $wix = @($env:PATH -split ';' | Where-Object { $_ } | ForEach-Object { Join-Path $_ 'wix.exe' }) |
     Where-Object { Test-Path $_ } | ForEach-Object { Get-WixInfo $_ } |
     Where-Object { $_ -and $_.Version.Major -eq $wixRequiredMajor } |
@@ -79,23 +103,18 @@ $wix = @($env:PATH -split ';' | Where-Object { $_ } | ForEach-Object { Join-Path
 
 if (-not $wix) {
     $localExe = Join-Path $wixToolDir 'wix.exe'
-    if ((Test-Path $localExe) -and -not (Test-WixBootstrap)) {
-        Write-Host "tools\wix is not the pinned, verified WiX $wixBootstrapVersion - removing it and bootstrapping afresh."
-        Remove-Item $wixToolDir -Recurse -Force
+    if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+        throw ("No WiX $wixRequiredMajor found and no .NET SDK to bootstrap one. Install WiX v$wixRequiredMajor " +
+            "(https://wixtoolset.org) or the .NET SDK, then re-run.")
     }
-    if (-not (Test-Path $localExe)) {
-        if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-            throw ("No WiX $wixRequiredMajor found and no .NET SDK to bootstrap one. Install WiX v$wixRequiredMajor " +
-                "(https://wixtoolset.org) or the .NET SDK, then re-run.")
-        }
-        Write-Host "No WiX $wixRequiredMajor found - installing WiX $wixBootstrapVersion as a local dotnet tool (tools\wix)..."
-        dotnet tool install wix --tool-path $wixToolDir --version $wixBootstrapVersion | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "dotnet tool install wix --version $wixBootstrapVersion failed." }
-        if (-not (Test-WixBootstrap)) {
-            Remove-Item $wixToolDir -Recurse -Force -ErrorAction SilentlyContinue
-            throw ("The downloaded wix.$wixBootstrapVersion.nupkg does not match the pinned SHA-512 - refusing to run it " +
-                "(tools\wix removed). Do not just update the pin: find out why the package differs first.")
-        }
+    if (Test-Path $wixToolDir) { Remove-Item $wixToolDir -Recurse -Force }
+    Write-Host "No WiX $wixRequiredMajor found - installing WiX $wixBootstrapVersion afresh as a local dotnet tool (tools\wix)..."
+    dotnet tool install wix --tool-path $wixToolDir --version $wixBootstrapVersion | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "dotnet tool install wix --version $wixBootstrapVersion failed." }
+    if (-not (Test-WixBootstrap)) {
+        Remove-Item $wixToolDir -Recurse -Force -ErrorAction SilentlyContinue
+        throw ("The downloaded wix.$wixBootstrapVersion.nupkg does not match the pinned SHA-512 - refusing to run it " +
+            "(tools\wix removed). Do not just update the pin: find out why the package differs first.")
     }
     $wix = Get-WixInfo $localExe
     if (-not $wix -or $wix.Version.Major -ne $wixRequiredMajor) {
@@ -121,16 +140,62 @@ if ($LASTEXITCODE -ne 0 -and $gateOut -match 'WIX7015') {
     }
 }
 
-# --- 3. Ensure the two extensions jpackage needs exist for THIS major ------------------
+# --- 3. Ensure the two extensions jpackage needs exist for THIS major, verified ---------
 # Healthy cache entries are listed as e.g. "WixToolset.Util.wixext 7.0.0"; incompatible
 # ones carry "(damaged)". The versioned add below pins the extension to the toolset.
+# For the pinned WiX version, what wix.exe will load must be the pinned DLL: jpackage passes
+# the extension unversioned, wix.exe takes the HIGHEST cached version, so a newer 7.x copy
+# is refused, and every copy of the toolset's version in either cache must match its hash.
+# A mismatching copy in the user's cache (which this script fills) is replaced once; one in
+# the machine cache belongs to an installed WiX and is only reported. An installed WiX of
+# another 7.x version brings its own extensions and is trusted like that WiX itself - but
+# this script downloads no extension it has no pin for.
+$wixPinned = "$($wix.Version)" -eq $wixBootstrapVersion
+
+function Add-WixExtension([string]$ext) {
+    if (-not $wixPinned) {
+        throw ("WiX $($wix.Version) lacks $ext, and this script only downloads extensions it can verify " +
+            "(pinned for $wixBootstrapVersion). Install WiX $($wix.Version) with its extensions, or move the pins.")
+    }
+    Write-Host "Adding missing extension $ext/$($wix.Version) to the user's extension cache..."
+    & $wix.Exe extension add --global "$ext/$($wix.Version)" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "wix extension add --global $ext/$($wix.Version) failed." }
+}
+
 foreach ($ext in 'WixToolset.Util.wixext', 'WixToolset.UI.wixext') {
     $healthy = $gateOut -split "`r?`n" |
         Where-Object { $_ -match "^\s*$([regex]::Escape($ext))\s+$($wix.Version.Major)\.[\d.]+\s*$" }
-    if (-not $healthy) {
-        Write-Host "Adding missing extension $ext/$($wix.Version) to the user's extension cache..."
-        & $wix.Exe extension add --global "$ext/$($wix.Version)" | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "wix extension add --global $ext/$($wix.Version) failed." }
+    if (-not $healthy) { Add-WixExtension $ext }
+    if (-not $wixPinned) { continue }
+
+    $rel = "$ext\$($wix.Version)\wixext$($wix.Version.Major)\$ext.dll"
+    $newer = foreach ($root in $userExtRoot, $machineExtRoot) {
+        Get-ChildItem (Join-Path $root $ext) -Directory -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -match '^\d+(\.\d+){1,3}$' -and ([version]$_.Name).Major -eq $wix.Version.Major -and
+                [version]$_.Name -gt $wix.Version } | ForEach-Object { $_.FullName }
+    }
+    if ($newer) {
+        throw ("A newer $ext is cached ($($newer -join ', ')); wix.exe would load it instead of the pinned " +
+            "$($wix.Version). Remove it, or move the pins to that version.")
+    }
+    $userDll = Join-Path $userExtRoot $rel
+    if ((Test-Path $userDll) -and -not (Test-WixExtensionCopy $userDll $ext)) {
+        Write-Host "Removing the mismatching $ext/$($wix.Version) from the user's extension cache and adding it afresh..."
+        Remove-Item (Join-Path $userExtRoot "$ext\$($wix.Version)") -Recurse -Force
+        Add-WixExtension $ext
+        if (-not (Test-WixExtensionCopy $userDll $ext)) {
+            Remove-Item (Join-Path $userExtRoot "$ext\$($wix.Version)") -Recurse -Force -ErrorAction SilentlyContinue
+            throw ("The downloaded $ext/$($wix.Version) does not match its pinned SHA-512 - refusing to use it " +
+                "(removed from the user's extension cache). Find out why before touching the pin.")
+        }
+    }
+    $machineDll = Join-Path $machineExtRoot $rel
+    if ((Test-Path $machineDll) -and -not (Test-WixExtensionCopy $machineDll $ext)) {
+        throw ("$machineDll does not match its pinned SHA-512. It belongs to the installed WiX - repair or " +
+            "reinstall WiX $($wix.Version); this script does not modify it.")
+    }
+    if (-not (Test-Path $userDll) -and -not (Test-Path $machineDll)) {
+        throw "$ext/$($wix.Version) is in neither extension cache ($userExtRoot, $machineExtRoot) - cannot verify it."
     }
 }
 
