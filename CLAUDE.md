@@ -432,6 +432,14 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   bootstraps a local dotnet-tool WiX under `tools\wix` on bare machines. It changes
   nothing on the system — keep building the MSI via the script, not
   `gradlew packageMsi`.
+- **The WiX bootstrap is checksum-pinned** (`$wixBootstrapSha512`): `wix.7.0.0.nupkg`
+  must match the nuget.org catalog's `packageHash` (SHA-512, base64) before `wix.exe`
+  runs; a mismatching `tools\wix` is deleted and bootstrapped again, and a fresh download
+  that still mismatches is refused. The runner image has no WiX 7, so **every release
+  build** takes this path — the pin is what verifies the CI download. Bump version
+  **and** hash together, and never pin the `.nupkg.sha512` file NuGet writes beside the
+  package (that is NuGet's content hash, not the file's). An installed WiX 7 on `PATH`
+  wins over `tools\wix`.
 - **Slim runtime:** the bundle is *not* all-modules. `modules("java.instrument",
   "jdk.unsupported", "java.net.http", "jdk.management")` plus the plugin's auto-detected base
   set. If you add a dependency that needs another JDK module, re-run
@@ -528,8 +536,8 @@ git tag v1.2.0 ; git push origin v1.2.0
 ```
 
 CI builds the MSI through `package-msi.ps1`, so the WiX setup (pinned WiX 7 — installed
-or bootstrapped as a local dotnet tool, OSMF-EULA auto-acceptance on CI, Util/UI
-extensions) is honored on the runner too. The `publish` job is the only one granted
+or bootstrapped as a local dotnet tool whose package must match a pinned SHA-512,
+OSMF-EULA auto-acceptance on CI, Util/UI extensions) is honored on the runner too. The `publish` job is the only one granted
 `contents: write`.
 
 **Every release gets a signed build-provenance attestation** (`actions/attest`, SLSA

@@ -20,16 +20,26 @@
 #      automatically (project decision, see issue krt-profit/basetool-sc-extractor#1).
 #   3. Bare machines / CI runners. If no WiX 7 is installed, WiX is bootstrapped
 #      as a LOCAL dotnet tool under tools\wix (gitignored; nothing system-wide),
-#      and missing Util/UI extensions are added to the user's extension cache.
+#      pinned to an exact version whose NuGet package must match a pinned SHA-512
+#      before wix.exe is ever run, and missing Util/UI extensions are added to the
+#      user's extension cache. The GitHub runner image carries no WiX 7, so every
+#      release build takes this path - the pin is what verifies the CI download too.
 #
 # Usage:  .\package-msi.ps1            # builds dist\...-<version>.msi
 #         .\package-msi.ps1 --info     # extra args are forwarded to Gradle
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-# The build is pinned to WiX 7 (issue #1); bump deliberately, then re-verify the build.
+# The build is pinned to WiX 7 (issue #1); bump deliberately (version AND hash together),
+# then re-verify the build.
 $wixRequiredMajor = 7
 $wixBootstrapVersion = "7.0.0"   # installed as a local dotnet tool when no WiX 7 is found
+# SHA-512 (base64) of wix.7.0.0.nupkg - the nuget.org catalog's `packageHash`, checked
+# 2026-09-23 against the package dotnet actually downloaded. Not the `.nupkg.sha512` file
+# NuGet writes beside it: that is NuGet's content hash, which leaves the repository
+# signature out and differs from the file's own hash.
+$wixBootstrapSha512 = "4GbdoDWjm0QmBLyJ8PPiknXomjI5vHat4H27AB6NNGzFpbEhN9Xw0kiPQokZ3zH8F1RcjvDSn8yGDXwKxlW8Tg=="
+$wixToolDir = Join-Path $PSScriptRoot 'tools\wix'
 
 function Get-WixInfo([string]$exe) {
     # `wix --version` is not gated behind the OSMF EULA, so this works pre-acceptance.
@@ -39,24 +49,58 @@ function Get-WixInfo([string]$exe) {
     }
 }
 
-# --- 1. Pick the newest installed WiX 7.x (PATH + a previous tools\wix bootstrap) -----
-$candidates = @($env:PATH -split ';' | Where-Object { $_ } |
-    ForEach-Object { Join-Path $_ 'wix.exe' })
-$candidates += Join-Path $PSScriptRoot 'tools\wix\wix.exe'
-$wix = $candidates | Where-Object { Test-Path $_ } | ForEach-Object { Get-WixInfo $_ } |
+function Get-FileSha512Base64([string]$path) {
+    # .NET directly rather than Get-FileHash: a Windows PowerShell 5.1 that inherits a
+    # PowerShell 7 PSModulePath cannot load Get-FileHash's module (#59).
+    $sha = [System.Security.Cryptography.SHA512]::Create()
+    $stream = [System.IO.File]::OpenRead($path)
+    try { [Convert]::ToBase64String($sha.ComputeHash($stream)) } finally { $stream.Dispose(); $sha.Dispose() }
+}
+
+function Test-WixBootstrap {
+    # True only when tools\wix holds exactly the pinned version and its package matches the pin.
+    $nupkg = Join-Path $wixToolDir ".store\wix\$wixBootstrapVersion\wix\$wixBootstrapVersion\wix.$wixBootstrapVersion.nupkg"
+    if (-not (Test-Path $nupkg)) { return $false }
+    $actual = Get-FileSha512Base64 $nupkg
+    if ($actual -ne $wixBootstrapSha512) {
+        Write-Warning "tools\wix: wix.$wixBootstrapVersion.nupkg has SHA-512 $actual, expected $wixBootstrapSha512."
+        return $false
+    }
+    return $true
+}
+
+# --- 1. Pick WiX 7: the newest installed 7.x on PATH, else the verified local bootstrap -
+# A tools\wix bootstrap no longer competes with an installed WiX: it is only used - and
+# only after its package matched the pin - when no WiX 7 is on PATH.
+$wix = @($env:PATH -split ';' | Where-Object { $_ } | ForEach-Object { Join-Path $_ 'wix.exe' }) |
+    Where-Object { Test-Path $_ } | ForEach-Object { Get-WixInfo $_ } |
     Where-Object { $_ -and $_.Version.Major -eq $wixRequiredMajor } |
     Sort-Object Version -Descending | Select-Object -First 1
 
 if (-not $wix) {
-    if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-        throw "No WiX $wixRequiredMajor found and no .NET SDK to bootstrap one. Install WiX v$wixRequiredMajor (https://wixtoolset.org) or the .NET SDK."
+    $localExe = Join-Path $wixToolDir 'wix.exe'
+    if ((Test-Path $localExe) -and -not (Test-WixBootstrap)) {
+        Write-Host "tools\wix is not the pinned, verified WiX $wixBootstrapVersion - removing it and bootstrapping afresh."
+        Remove-Item $wixToolDir -Recurse -Force
     }
-    Write-Host "No WiX $wixRequiredMajor found - installing WiX $wixBootstrapVersion as a local dotnet tool (tools\wix)..."
-    # `update` instead of `install`: installs when missing, replaces a stale tools\wix.
-    dotnet tool update wix --tool-path (Join-Path $PSScriptRoot 'tools\wix') --version $wixBootstrapVersion | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "dotnet tool update wix failed." }
-    $wix = Get-WixInfo (Join-Path $PSScriptRoot 'tools\wix\wix.exe')
-    if (-not $wix) { throw "Bootstrapped WiX did not report a usable version." }
+    if (-not (Test-Path $localExe)) {
+        if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+            throw ("No WiX $wixRequiredMajor found and no .NET SDK to bootstrap one. Install WiX v$wixRequiredMajor " +
+                "(https://wixtoolset.org) or the .NET SDK, then re-run.")
+        }
+        Write-Host "No WiX $wixRequiredMajor found - installing WiX $wixBootstrapVersion as a local dotnet tool (tools\wix)..."
+        dotnet tool install wix --tool-path $wixToolDir --version $wixBootstrapVersion | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "dotnet tool install wix --version $wixBootstrapVersion failed." }
+        if (-not (Test-WixBootstrap)) {
+            Remove-Item $wixToolDir -Recurse -Force -ErrorAction SilentlyContinue
+            throw ("The downloaded wix.$wixBootstrapVersion.nupkg does not match the pinned SHA-512 - refusing to run it " +
+                "(tools\wix removed). Do not just update the pin: find out why the package differs first.")
+        }
+    }
+    $wix = Get-WixInfo $localExe
+    if (-not $wix -or $wix.Version.Major -ne $wixRequiredMajor) {
+        throw "Bootstrapped WiX in tools\wix did not report a usable $wixRequiredMajor.x version."
+    }
 }
 Write-Host "Using WiX $($wix.Version) ($($wix.Exe))"
 
