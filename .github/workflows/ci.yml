@@ -165,7 +165,9 @@ jobs:
       # The release version comes from the tag (e.g. v1.2.0 -> 1.2.0), not from
       # build.gradle.kts. APP_VERSION is read by the Gradle build. Always via the script: it uses
       # WiX 7 (installed, or bootstrapped as a local dotnet tool), accepts the WiX OSMF EULA (CI
-      # only), ensures the Util/UI wixext extensions, and copies the MSI to dist\.
+      # only), ensures the Util/UI wixext extensions, and copies the MSI to dist\. The runner
+      # image has no WiX 7, so this always bootstraps - and the script refuses a wix.7.0.0.nupkg
+      # that does not match its pinned SHA-512 before wix.exe runs. No separate WiX step here.
       - name: Build MSI installer
         env:
           REF_NAME: ${{ github.ref_name }}
