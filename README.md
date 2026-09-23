@@ -409,9 +409,11 @@ The build is pinned to **WiX 7**: the script takes the newest installed WiX 7.x
 and puts it at the front of the `PATH` for this build process only, preflights the
 EULA and the extensions with clear error messages (the EULA is accepted
 automatically on CI only) and, on machines without WiX 7, bootstraps a local copy
-under `tools\wix` (dotnet tool, version 7.0.0) whose NuGet package must match a
-pinned SHA-512 before it is run — a copy that does not match is deleted and
-downloaded again, and a download that still does not match is refused. **Nothing**
+under `tools\wix` (dotnet tool, version 7.0.0) — installed afresh on every run,
+and refused unless its NuGet package matches a pinned SHA-512. The two WiX
+extensions it needs are checked against pinned hashes as well. The WiX 3.11 that
+the Compose plugin would otherwise download is switched off, and `gradlew
+packageMsi` on its own refuses to run without a WiX 4+ on the `PATH`. **Nothing**
 on the system is changed; the finished MSI lands in `dist\`.
 
 ### Adjusting installer behaviour

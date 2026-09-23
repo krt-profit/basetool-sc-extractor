@@ -1,4 +1,5 @@
 import org.jetbrains.compose.desktop.application.dsl.TargetFormat
+import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 
 plugins {
     kotlin("jvm") version "2.4.20"
@@ -160,6 +161,48 @@ compose.desktop {
                     iconFile.set(icon)
                 }
             }
+        }
+    }
+}
+
+// No WiX from the Compose plugin. gradle.properties sets `compose.desktop.application.downloadWix=false`
+// so the plugin never fetches its unchecked WiX 3.11. With the download off it leaves `wixToolsetDir`
+// unset, yet on Windows still prepends that directory to the PATH of EVERY jpackage task (including
+// createDistributable) and fails on the missing value - so it gets a directory that stays empty.
+// The WiX that builds the MSI is the one package-msi.ps1 puts first on PATH.
+val emptyWixToolsetDir = layout.buildDirectory.dir("no-bundled-wix")
+val createEmptyWixToolsetDir = tasks.register("createEmptyWixToolsetDir") {
+    outputs.dir(emptyWixToolsetDir)
+    doLast { emptyWixToolsetDir.get().asFile.mkdirs() }
+}
+tasks.withType<AbstractJPackageTask>().configureEach {
+    dependsOn(createEmptyWixToolsetDir)
+    wixToolsetDir.set(emptyWixToolsetDir)
+}
+
+// `gradlew packageMsi` without package-msi.ps1: jpackage takes a WiX 4+ from PATH first, but falls
+// back to a WiX 3 from its known install locations - or fails with a bare "Can not find WiX tools".
+// Refuse up front unless the first wix.exe on PATH (the daemon's PATH, which jpackage inherits)
+// reports major 4 or newer, and point at the script.
+tasks.matching { it.name == "packageMsi" || it.name == "packageReleaseMsi" }.configureEach {
+    doFirst {
+        val wixExe = System.getenv("PATH").orEmpty().split(File.pathSeparator)
+            .filter { it.isNotBlank() }
+            .map { File(it.trim('"'), "wix.exe") }
+            .firstOrNull { it.isFile }
+        val reported = wixExe?.let { exe ->
+            runCatching {
+                val process = ProcessBuilder(exe.absolutePath, "--version").redirectErrorStream(true).start()
+                process.inputStream.bufferedReader().use { it.readText() }.also { process.waitFor() }
+            }.getOrNull()?.lineSequence()?.firstOrNull()?.trim()
+        }
+        val major = reported?.substringBefore('.')?.toIntOrNull()
+        if (major == null || major < 4) {
+            val found = if (wixExe == null) "no wix.exe on PATH" else "$wixExe reports '${reported ?: "nothing"}'"
+            throw GradleException(
+                "The MSI needs WiX 4+ first on PATH ($found). Build it with .\\package-msi.ps1, which " +
+                    "selects or bootstraps the pinned, checksum-verified WiX 7 - not with gradlew packageMsi.",
+            )
         }
     }
 }

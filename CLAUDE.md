@@ -434,12 +434,25 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   `gradlew packageMsi`.
 - **The WiX bootstrap is checksum-pinned** (`$wixBootstrapSha512`): `wix.7.0.0.nupkg`
   must match the nuget.org catalog's `packageHash` (SHA-512, base64) before `wix.exe`
-  runs; a mismatching `tools\wix` is deleted and bootstrapped again, and a fresh download
-  that still mismatches is refused. The runner image has no WiX 7, so **every release
-  build** takes this path — the pin is what verifies the CI download. Bump version
-  **and** hash together, and never pin the `.nupkg.sha512` file NuGet writes beside the
-  package (that is NuGet's content hash, not the file's). An installed WiX 7 on `PATH`
-  wins over `tools\wix`.
+  runs, and a download that mismatches is refused. `tools\wix` is **never reused** — it is
+  deleted and installed afresh on every run, because the pin covers the `.nupkg` but not
+  the files unpacked beside it nor the `wix.exe` shim dotnet generates. The runner image
+  has no WiX 7, so **every release build** takes this path — the pin is what verifies the
+  CI download. Bump version **and** hash together, and never pin the `.nupkg.sha512` file
+  NuGet writes beside the package (that is NuGet's content hash, not the file's). An
+  installed WiX 7 on `PATH` wins over `tools\wix` and is trusted as installed.
+- **The Util/UI extensions are pinned too** (`$wixExtensionSha512`, the SHA-512 of each
+  `wixext7\<id>.dll` inside its catalog-verified nuget.org package). For the pinned WiX
+  version, every copy in the user (`~\.wix`) and machine extension cache must match; a bad
+  user-cache copy is replaced once, a bad machine-cache copy is reported, a newer cached 7.x
+  (which `wix.exe` would load instead) is refused, and the script downloads no extension it
+  has no pin for. Moving WiX means moving all three hashes.
+- **The Compose plugin's own WiX 3.11 is switched off**:
+  `compose.desktop.application.downloadWix=false` in `gradle.properties`. With it off the
+  plugin still prepends `wixToolsetDir` to every jpackage task's `PATH` and fails on the
+  unset value, so `build.gradle.kts` hands it an empty `build\no-bundled-wix`. `packageMsi`
+  refuses to start unless the first `wix.exe` on `PATH` is WiX 4+, and names the script.
+  Don't remove either half: the zip was fetched from GitHub with no checksum.
 - **Slim runtime:** the bundle is *not* all-modules. `modules("java.instrument",
   "jdk.unsupported", "java.net.http", "jdk.management")` plus the plugin's auto-detected base
   set. If you add a dependency that needs another JDK module, re-run

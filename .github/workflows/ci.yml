@@ -167,7 +167,8 @@ jobs:
       # WiX 7 (installed, or bootstrapped as a local dotnet tool), accepts the WiX OSMF EULA (CI
       # only), ensures the Util/UI wixext extensions, and copies the MSI to dist\. The runner
       # image has no WiX 7, so this always bootstraps - and the script refuses a wix.7.0.0.nupkg
-      # that does not match its pinned SHA-512 before wix.exe runs. No separate WiX step here.
+      # or a Util/UI extension DLL that does not match its pinned SHA-512 before it is used. The
+      # Compose plugin's own WiX 3.11 download is off (gradle.properties). No separate WiX step.
       - name: Build MSI installer
         env:
           REF_NAME: ${{ github.ref_name }}
