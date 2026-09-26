@@ -6,8 +6,9 @@ import kotlin.test.Test
 
 /**
  * Manual smoke harness for the [DigitOcr] digit reader on single-number crops. Trivially green unless
- * both `OCR_MODEL` (the `ch_PP-OCRv3_rec_infer.onnx` path) and `OCR_CELLS` (a folder of
- * `<truth>__<n>.png` crops) are set; the private crops are never committed.
+ * both `OCR_MODEL` (a recognition model path) and `OCR_CELLS` (a folder of `<truth>__<n>.png` crops)
+ * are set; `OCR_DICT` names the dictionary of a model without ONNX `character` metadata. The private
+ * crops are never committed.
  */
 class OcrSmokeTest {
 
@@ -21,7 +22,8 @@ class OcrSmokeTest {
         val crops = cellsDir.listFiles { f -> f.extension.lowercase() == "png" }!!.sortedBy { it.name }
         check(crops.isNotEmpty()) { "no .png cell crops in $cellsDir" }
 
-        DigitOcr(modelPath.toPath()).use { ocr ->
+        val dictionary = System.getenv("OCR_DICT")?.takeUnless { it.isBlank() }?.let { OcrModels.readDictionary(File(it).readText()) }
+        DigitOcr(modelPath.toPath(), dictionary).use { ocr ->
             var hits = 0
             crops.forEach { f ->
                 val truth = f.name.substringBefore("__").substringBefore('.')

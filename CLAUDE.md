@@ -93,8 +93,8 @@ $env:PROMPT_SMOKE_EXPECTED = "<corpus>\golden-expected.json" # PRIVATE, lives ne
 .\gradlew.bat test --tests '*PromptSmokeTest*' --rerun-tasks   # env changes don't invalidate the task
 ```
 
-An **onnxruntime or OCR-model bump** is checked differently, and much more cheaply: `OcrDigestTest`
-runs the bundled classical-OCR reader over the whole corpus and prints a SHA-256 of every cell it
+An **onnxruntime bump** is checked differently, and much more cheaply: `OcrDigestTest` runs the
+bundled classical-OCR reader over the whole corpus and prints a SHA-256 of every cell it
 recognised, with its box. ONNX Runtime's CPU inference is deterministic, so a clean bump is
 **bit-for-bit identical** — run it before and after and diff. No Ollama, under a minute, and any
 difference at all is real (1.22.0→1.27.0 and 1.29.0→1.30.0 both came back byte-identical).
@@ -104,6 +104,16 @@ $env:OCR_DIGEST_DIR = "<the sample corpus>"
 $env:OCR_DIGEST_OUT = "<outside the repo>\ocr-digest-before.txt"   # then ...-after.txt
 .\gradlew.bat test --tests '*OcrDigestTest*' --rerun-tasks
 ```
+
+An **OCR-model swap** is the opposite case: the digest is guaranteed to change and says nothing
+about whether the pipeline got better. Put each candidate in a folder (`det.onnx`, `rec.onnx`,
+optional `dict.txt` and `det.properties`) and add `PROMPT_SMOKE_OCR_CANDIDATES=<folder of those>`
+to the `PromptSmokeTest` run: `OcrCandidateEval` validates every candidate against the *same* VLM
+reads and reports what the cross-reader changed, flagged and mis-read. Run it with and without
+`PROMPT_SMOKE_VERIFY_MODEL` — without it the lower tiers' 2-vote fusion turns every OCR
+disagreement into a review flag. The criterion is cells rescued or flagged on the corpus, settled
+against the pixels, never a model card (issue #55; the round that moved to PP-OCRv6 small is in
+`docs/refinery-extractor/PHASE0_FINDINGS.md`).
 
 Add `PROMPT_SMOKE_VERIFY_MODEL=qwen3-vl:4b-instruct` for the config the expected file was generated
 with. **Never** regenerate the whole file with `PROMPT_SMOKE_WRITE_EXPECTED=1` to make a diff go
@@ -486,11 +496,16 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   warnings from `System.load()` — used by **both** Skiko's renderer **and** ONNX Runtime
   (the refinery OCR cross-reader). Keep it.
 - **Bundled OCR models + ONNX Runtime:** the refinery extractor runs a local classical-OCR
-  cross-check (`TextDetector`/`DigitOcr`/`PanelOcr`, PP-OCRv3 via the
+  cross-check (`TextDetector`/`DigitOcr`/`PanelOcr`, PP-OCRv6 small via the
   `com.microsoft.onnxruntime:onnxruntime` dep) as a decorrelated third reader for the numeric
-  cells the VLM mis-reads. The two PP-OCRv3 ONNX models (~12.5 MB, Apache-2.0) ship as
-  `src/main/resources/ocr/` classpath resources and are loaded by `OcrModels` lazily via
-  `createSession(bytes)` (env `OCR_MODELS_DIR` override for dev). `suggestRuntimeModules` is
+  cells the VLM mis-reads. The two PP-OCRv6 small ONNX models (~31 MB, Apache-2.0, PaddlePaddle's
+  own ONNX export) plus their character dictionary ship as `src/main/resources/ocr/` classpath
+  resources and are loaded by `OcrModels` lazily via `createSession(bytes)` (env `OCR_MODELS_DIR`
+  override for dev). The export carries **no** `character` metadata, so the dictionary is a
+  separate file, and `DigitOcr` refuses to load when its length does not match the model's output
+  class count (an off-by-one would shift every digit silently); `OcrModelsTest` loads the bundled
+  trio on every `gradlew test`. The detector parameters are per model
+  (`TextDetector.Params.PP_OCR_V6_SMALL`). `suggestRuntimeModules` is
   UNCHANGED by onnxruntime (it needs no extra jlink module) and its native libs extract to
   `%TEMP%`, NOT the install dir (guardrail 2 — verified under the bundled module set). Models
   are committed to git; build-time fetch is an option if the repo should stay lean.
@@ -526,9 +541,12 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   read out of the sidebar (see the knowledge base: *The refinery got a new skin and every panel was
   cropped to the sidebar*).
 - **bundled modules or the runtime** → `suggestRuntimeModules`, rebuild, GUI-launch test.
-- **`onnxruntime` or the bundled `/ocr/*.onnx` models** → diff `OcrDigestTest` across the bump
-  (above), then `suggestRuntimeModules` + a GUI-launch test from the app image — the native libs
-  come out of the jar at runtime, so a packaging regression shows up at launch, not in the tests.
+- **`onnxruntime`** → diff `OcrDigestTest` across the bump (above), then `suggestRuntimeModules` + a
+  GUI-launch test from the app image — the native libs come out of the jar at runtime, so a
+  packaging regression shows up at launch, not in the tests.
+- **the bundled `/ocr/` models** → the `OcrCandidateEval` round (above) with and without the verify
+  model, every disputed cell settled against the pixels, then a new `OcrDigestTest` baseline,
+  `suggestRuntimeModules` and a GUI-launch test from the app image.
 - **the export shape** → bump `schemaVersion` for any breaking change. Additive optional
   (nullable) fields may stay within the current version (basetool ADR-0008 evolution
   rule — precedents: `capturedAt` on `sourceImages`, 2026-06-11; `additionalSourceFolders`

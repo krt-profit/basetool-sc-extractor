@@ -15,8 +15,10 @@ import kotlin.test.Test
  *
  * Writes the reads to `build/prompt-smoke.txt` (or `PROMPT_SMOKE_OUT`). With
  * `PROMPT_SMOKE_EXPECTED=<file>` it fails on any deviation from that golden file, which
- * `PROMPT_SMOKE_WRITE_EXPECTED=1` rewrites. Inputs, report and expected file hold private data and
- * stay outside the repo.
+ * `PROMPT_SMOKE_WRITE_EXPECTED=1` rewrites. With `PROMPT_SMOKE_OCR_CANDIDATES=<folder>` it also
+ * compares OCR model candidates on the same VLM reads ([OcrCandidateEval]), reporting to
+ * `PROMPT_SMOKE_OCR_OUT`. Inputs, reports and expected file hold private data and stay outside the
+ * repo.
  */
 class PromptSmokeTest {
 
@@ -41,6 +43,7 @@ class PromptSmokeTest {
         val verifier = verifyName?.let { PanelReader(HttpOllamaClient(), it) }
         val report = StringBuilder()
         val actualOrders = linkedMapOf<String, ExpectedOrder>()
+        val orderReads = mutableListOf<OcrCandidateEval.OrderReads>()
 
         val orders = root.listFiles { f: File -> f.isDirectory }!!
             .sortedBy { it.name.filter(Char::isDigit).toIntOrNull() ?: Int.MAX_VALUE }
@@ -118,6 +121,7 @@ class PromptSmokeTest {
                     report.appendLine("  VERIFY ($verifyName) incomplete second read — skipped")
                 }
             }
+            orderReads += OcrCandidateEval.OrderReads(folder.name, stitched, crossCheck, panels.toMap())
             val ocrResult = OcrModels.get()?.let { ocr ->
                 OcrCrossCheck.read(stitched.rows, panels, ocr, PanelValues.toQuantity(stitched.toRefine))
             }
@@ -155,6 +159,14 @@ class PromptSmokeTest {
         }
 
         val diffs = diffAgainstExpected(actualOrders, report)
+        System.getenv("PROMPT_SMOKE_OCR_CANDIDATES")?.takeUnless { it.isBlank() }?.let { dir ->
+            OcrCandidateEval.run(
+                orderReads,
+                File(dir),
+                System.getenv("PROMPT_SMOKE_EXPECTED")?.takeUnless { it.isBlank() }?.let(::File),
+                File(System.getenv("PROMPT_SMOKE_OCR_OUT") ?: "build/ocr-candidates.txt"),
+            )
+        }
 
         val out = File(System.getenv("PROMPT_SMOKE_OUT") ?: "build/prompt-smoke.txt")
         out.absoluteFile.parentFile?.mkdirs()

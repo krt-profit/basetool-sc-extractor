@@ -13,27 +13,49 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
- * PP-OCRv3 text detection (DBNet) via ONNX Runtime, the cell finder paired with [DigitOcr]. Uses an
+ * PP-OCR text detection (DBNet) via ONNX Runtime, the cell finder paired with [DigitOcr]. Uses an
  * axis-aligned post-process (binarize, dilate, connected components, bounding box, DB unclip) with
- * the rapidocr `ch_PP-OCRv3_det` parameters. The ONNX session is heavyweight: construct once and
- * reuse; [close] releases it.
+ * the model's [Params]. The ONNX session is heavyweight: construct once and reuse; [close] releases it.
  */
 class TextDetector private constructor(
     private val env: OrtEnvironment,
     private val session: OrtSession,
+    private val params: Params,
 ) : AutoCloseable {
 
     /** Load from a model file on disk (smoke harnesses / dev). */
-    constructor(modelPath: Path) : this(
+    constructor(modelPath: Path, params: Params = Params.PP_OCR_V6_SMALL) : this(
         OrtEnvironment.getEnvironment(),
         OrtEnvironment.getEnvironment().createSession(modelPath.toString(), OrtSession.SessionOptions()),
+        params,
     )
 
     /** Load from in-memory model bytes (the bundled classpath resource — no temp file needed). */
-    constructor(modelBytes: ByteArray) : this(
+    constructor(modelBytes: ByteArray, params: Params = Params.PP_OCR_V6_SMALL) : this(
         OrtEnvironment.getEnvironment(),
         OrtEnvironment.getEnvironment().createSession(modelBytes, OrtSession.SessionOptions()),
+        params,
     )
+
+    /**
+     * The per-model pre- and post-processing parameters of a DBNet detector.
+     *
+     * @property limitSide the shorter image side is scaled up to at least this many pixels.
+     * @property thresh the probability above which a map pixel counts as text.
+     * @property boxThresh the minimum mean probability of a kept box.
+     * @property unclipRatio how far a kept box is grown back out.
+     */
+    data class Params(
+        val limitSide: Int,
+        val thresh: Float,
+        val boxThresh: Double,
+        val unclipRatio: Double,
+    ) {
+        companion object {
+            /** The published `PP-OCRv6_small_det` configuration, with PaddleOCR's default 736 px minimum side. */
+            val PP_OCR_V6_SMALL = Params(limitSide = 736, thresh = 0.2f, boxThresh = 0.45, unclipRatio = 1.4)
+        }
+    }
 
     private val inputName: String = session.inputNames.first()
 
@@ -49,7 +71,7 @@ class TextDetector private constructor(
     fun detect(img: BufferedImage): List<Box> {
         val srcW = img.width
         val srcH = img.height
-        val ratio = if (min(srcH, srcW) < LIMIT_SIDE) LIMIT_SIDE.toDouble() / min(srcH, srcW) else 1.0
+        val ratio = if (min(srcH, srcW) < params.limitSide) params.limitSide.toDouble() / min(srcH, srcW) else 1.0
         val rw = snap32((srcW * ratio).roundToInt())
         val rh = snap32((srcH * ratio).roundToInt())
         val resized = resize(img, rw, rh)
@@ -67,7 +89,7 @@ class TextDetector private constructor(
 
     /** DB post-process: binarize → dilate → connected components → bbox → score → unclip → scale. */
     private fun boxesFromProb(prob: Array<FloatArray>, mapW: Int, mapH: Int, srcW: Int, srcH: Int): List<Box> {
-        val bin = Array(mapH) { y -> BooleanArray(mapW) { x -> prob[y][x] > THRESH } }
+        val bin = Array(mapH) { y -> BooleanArray(mapW) { x -> prob[y][x] > params.thresh } }
         val mask = dilate2x2(bin, mapW, mapH)
 
         val boxes = mutableListOf<Box>()
@@ -101,8 +123,8 @@ class TextDetector private constructor(
                 if (min(w, h) < MIN_SIZE) continue
                 var sum = 0.0
                 for (y in minY..maxY) for (x in minX..maxX) sum += prob[y][x]
-                if (sum / (w * h) < BOX_THRESH) continue
-                val dist = (w.toDouble() * h * UNCLIP_RATIO / (2.0 * (w + h))).roundToInt()
+                if (sum / (w * h) < params.boxThresh) continue
+                val dist = (w.toDouble() * h * params.unclipRatio / (2.0 * (w + h))).roundToInt()
                 val ex0 = (minX - dist).coerceAtLeast(0)
                 val ey0 = (minY - dist).coerceAtLeast(0)
                 val ex1 = (maxX + dist).coerceAtMost(mapW - 1)
@@ -171,10 +193,6 @@ class TextDetector private constructor(
     override fun close() = session.close()
 
     companion object {
-        private const val LIMIT_SIDE = 736
-        private const val THRESH = 0.3f
-        private const val BOX_THRESH = 0.5
-        private const val UNCLIP_RATIO = 1.6
         private const val MIN_SIZE = 3
         private const val MEAN_R = 0.485f
         private const val MEAN_G = 0.456f
