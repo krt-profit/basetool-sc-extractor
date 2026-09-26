@@ -110,4 +110,47 @@ class ScLocalizationTest {
 
         assertEquals("german_(germany)", ScLocalization.activeLanguage(channel))
     }
+
+    @Test
+    fun `an active language whose pack lacks the label is named`() {
+        writeLanguage("english", "crafting_hud_notification_received_blueprint=Received Blueprint: %s")
+        writeLanguage("german_(germany)", "some_other_key=Irgendwas")
+        File(channel, "user.cfg").writeText("g_language = german_(germany)\n")
+
+        val detected = ScLocalization.detect(channel)
+
+        assertEquals(listOf("german_(germany)"), detected.languagesWithoutLabel)
+        assertEquals("german_(germany)", detected.activeLanguageWithoutLabel())
+    }
+
+    @Test
+    fun `an active language that has the label, or no folder at all, is not flagged`() {
+        writeLanguage("german_(germany)", "crafting_hud_notification_received_blueprint,P=Bauplan erhalten: %s")
+        File(channel, "user.cfg").writeText("g_language = german_(germany)\n")
+        assertNull(ScLocalization.detect(channel).activeLanguageWithoutLabel())
+
+        File(channel, "user.cfg").writeText("g_language = english\n")
+        assertNull(ScLocalization.detect(channel).activeLanguageWithoutLabel())
+    }
+
+    @Test
+    fun `a raw key name is recognised and a real name is not`() {
+        assertEquals("Nozzle_FuelGiver_Name", ScLocalization.rawKeyOf("@Nozzle_FuelGiver_Name"))
+        assertNull(ScLocalization.rawKeyOf("Sth/2/C Cirrus"))
+        assertNull(ScLocalization.rawKeyOf("@ Mention in a name"))
+    }
+
+    @Test
+    fun `raw keys resolve through the installed packs, the active language first`() {
+        writeLanguage("english", "Item_Name_Foo=Foo Pistol", "Item_Name_Bar=Bar Rifle", "Item_Name_Ref=@Item_Name_Foo")
+        writeLanguage("german_(germany)", "item_name_foo,P=Foo-Pistole")
+
+        val resolved = ScLocalization.resolveKeys(
+            channel,
+            setOf("Item_Name_Foo", "Item_Name_Bar", "Item_Name_Ref", "Item_Name_Missing"),
+            preferredLanguage = "german_(germany)",
+        )
+
+        assertEquals(mapOf("Item_Name_Foo" to "Foo-Pistole", "Item_Name_Bar" to "Bar Rifle"), resolved)
+    }
 }

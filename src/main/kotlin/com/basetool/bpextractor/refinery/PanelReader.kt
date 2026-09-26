@@ -10,7 +10,11 @@ class PanelReader(
     private val model: String,
     /** `0` forces CPU-only inference (below-minimum tier); null = Ollama's automatic offload. */
     private val numGpu: Int? = null,
+    /** Whether the captures come from a German-language client, whose panel labels the prompt then names too. */
+    germanClient: Boolean = false,
 ) {
+
+    private val prompt: String = if (germanClient) PROMPT_GERMAN_CLIENT else PROMPT
 
     /**
      * Read one SETUP panel image (base64 PNG) into a [PanelRead]; null when the answer carried no
@@ -19,9 +23,9 @@ class PanelReader(
      * when it is done with a model (master plan Phase 3, Ollama integration).
      */
     fun readPanel(imageB64: String): PanelRead? {
-        var result = ollama.chat(model, PROMPT, imageB64, NUM_PREDICT, KEEP_ALIVE_BATCH, numGpu)
+        var result = ollama.chat(model, prompt, imageB64, NUM_PREDICT, KEEP_ALIVE_BATCH, numGpu)
         if (result.doneReason == "length") {
-            result = ollama.chat(model, PROMPT, imageB64, NUM_PREDICT_RETRY, KEEP_ALIVE_BATCH, numGpu)
+            result = ollama.chat(model, prompt, imageB64, NUM_PREDICT_RETRY, KEEP_ALIVE_BATCH, numGpu)
         }
         return MarkdownPanelParser.parse(result.text)
     }
@@ -47,6 +51,23 @@ class PanelReader(
             .getResourceAsStream("/refinery/setup_panel_prompt_v1.txt")!!
             .bufferedReader()
             .readText()
+
+        /** The line of [PROMPT] after which [PROMPT_GERMAN_CLIENT] names the German labels. */
+        private const val GERMAN_LABELS_AFTER = "- a bottom button labelled either CONFIRM or GET QUOTE\n"
+
+        /**
+         * [PROMPT] plus the German client's panel labels, copied from the German pack's `refinery_ui_*`
+         * keys; used only for a German-language client so every English read stays on the frozen prompt.
+         */
+        val PROMPT_GERMAN_CLIENT: String = run {
+            val labels = PanelReader::class.java
+                .getResourceAsStream("/refinery/setup_panel_prompt_de_labels.txt")!!
+                .bufferedReader(Charsets.UTF_8)
+                .readText()
+            val normalized = PROMPT.replace("\r\n", "\n")
+            check(GERMAN_LABELS_AFTER in normalized) { "prompt anchor for the German labels is missing" }
+            normalized.replaceFirst(GERMAN_LABELS_AFTER, GERMAN_LABELS_AFTER + labels.replace("\r\n", "\n"))
+        }
 
         private val LOCATION_PROMPT = """
             This is the header area of a Star Citizen refinement terminal.

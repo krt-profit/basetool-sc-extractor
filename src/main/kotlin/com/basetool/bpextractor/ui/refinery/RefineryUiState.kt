@@ -7,6 +7,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
+import com.basetool.bpextractor.ScInstallLocator
+import com.basetool.bpextractor.ScLocalization
+import com.basetool.bpextractor.config.AppConfigStore
 import com.basetool.bpextractor.refinery.CaptureTime
 import com.basetool.bpextractor.refinery.ExtractWarning
 import com.basetool.bpextractor.refinery.GpuInfo
@@ -459,6 +462,58 @@ class RefineryUiState(
         return importTransferable(scope, t)
     }
 
+    /**
+     * Whether new clipboard images are taken in automatically while the images step is shown, so a
+     * PrtScn in the game needs no switch to this window. Session-only, off at every start.
+     */
+    var watchClipboard by mutableStateOf(false)
+        private set
+
+    /** The fingerprint of the clipboard image already seen, so each capture is taken once. */
+    private var lastClipboardImage: Long? = null
+
+    /** Turns [watchClipboard] on or off; turning it on ignores the image the clipboard holds right now. */
+    fun setClipboardWatch(on: Boolean) {
+        lastClipboardImage = if (on) currentClipboardImage()?.let(ImageIntake::fingerprint) else null
+        watchClipboard = on
+    }
+
+    /** One [watchClipboard] tick: takes in the clipboard image when it is a new one. */
+    fun pollClipboard(scope: CoroutineScope) {
+        if (!watchClipboard || loadingImages || running) return
+        val image = currentClipboardImage() ?: return
+        val print = ImageIntake.fingerprint(image)
+        if (print == lastClipboardImage) return
+        lastClipboardImage = print
+        loadingImages = true
+        scope.launch(Dispatchers.IO) {
+            try {
+                val saved = ImageIntake.saveClipboardImage(image, intakeDir())
+                val loaded = loadImages(listOf(saved))
+                loaded.forEach { dismissedPaths -= it.file.absolutePath }
+                images.addAll(loaded)
+            } finally {
+                loadingImages = false
+            }
+        }
+    }
+
+    /**
+     * Whether the member's Star Citizen install runs German (`g_language` in its `user.cfg`), so the
+     * read also names the German panel labels; `false` whenever no install is found.
+     */
+    private fun detectGermanClient(): Boolean = runCatching {
+        val remembered = AppConfigStore().load().lastChannelFolder
+        val channel = ScInstallLocator.locate(remembered) ?: return@runCatching false
+        ScLocalization.isGerman(ScLocalization.activeLanguage(channel))
+    }.getOrDefault(false)
+
+    /** The raw image on the system clipboard, or `null` when it holds none or is busy. */
+    private fun currentClipboardImage(): BufferedImage? = runCatching {
+        val t = Toolkit.getDefaultToolkit().systemClipboard.getContents(null) ?: return@runCatching null
+        ImageIntake.rawImageFrom(t)
+    }.getOrNull()
+
     /** Where pastes/drops are persisted: the picked folder if valid, else the temp folder. */
     private fun intakeDir(): File {
         val picked = File(folder.trim())
@@ -489,6 +544,7 @@ class RefineryUiState(
             isActive = { !cancelRequested },
             numGpu = if (gpuMode) null else 0,
             verifyModel = verifyModel,
+            germanClient = detectGermanClient(),
         )
         val listener = object : PipelineListener {
             override fun onStage(index: Int, name: String, stage: PipelineStage) {

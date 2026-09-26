@@ -13,16 +13,31 @@ import java.awt.image.BufferedImage
  * 3. [Result.toRefineContested]: set when the VLM TO REFINE total is absent from every panel's OCR
  *    numbers but a confusable edit of it is present.
  *
+ * 4. [Result.glyphVeto]: whether a stitched row's cell visibly shows a value a repair would replace
+ *    ([GlyphTopology]).
+ *
  * Every check requires a confusable single-digit edit ([Validation.confusableEdits]), so OCR noise
- * can only raise a review flag, never change a value.
+ * can only raise a review flag or hold a repair back, never change a value.
  */
 object OcrCrossCheck {
 
-    /** The fused signals; the latter two are flag-only. */
+    /** Holds back a single-digit repair of a row's cell whose glyphs clearly show the unrepaired value. */
+    fun interface GlyphVeto {
+        /** Whether row [rowIndex]'s cell reading [from] visibly shows [from] rather than the repair [to]. */
+        fun contradicts(rowIndex: Int, from: Long, to: Long): Boolean
+
+        companion object {
+            /** Never vetoes. */
+            val NONE = GlyphVeto { _, _, _ -> false }
+        }
+    }
+
+    /** The fused signals; all but [readings] are flag-only or hold a repair back. */
     data class Result(
         val readings: Map<Int, PanelOcr.RowReading>,
         val qtyContested: Set<Int>,
         val toRefineContested: Boolean,
+        val glyphVeto: GlyphVeto = GlyphVeto.NONE,
     )
 
     fun read(
@@ -56,6 +71,15 @@ object OcrCrossCheck {
             cache.values.none { toRefine in it.allNumbers } &&
             Validation.confusableEdits(toRefine).any { edit -> cache.values.any { edit in it.allNumbers } }
 
-        return Result(readings, qtyContested, toRefineContested)
+        val glyphVeto = GlyphVeto { rowIndex, from, to ->
+            val row = rows.getOrNull(rowIndex) ?: return@GlyphVeto false
+            val panel = panels[row.sourceImage] ?: return@GlyphVeto false
+            val numbers = cache[row.sourceImage] ?: return@GlyphVeto false
+            val cell = numbers.cells.filter { it.digits.toLongOrNull() in setOf(from, to) }.singleOrNull()
+                ?: return@GlyphVeto false
+            GlyphTopology.arbitrate(ocr.cellImage(panel, cell), from.toString(), to.toString()) == from.toString()
+        }
+
+        return Result(readings, qtyContested, toRefineContested, glyphVeto)
     }
 }

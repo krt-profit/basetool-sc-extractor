@@ -77,6 +77,39 @@ class BlueprintParserTest {
     }
 
     @Test
+    fun `a nickname line naming another player does not win over a later login line`() {
+        val tmp = File.createTempFile("nick", ".log")
+        tmp.deleteOnExit()
+        tmp.writeText(
+            listOf(
+                """<2026-04-04T17:59:00.000Z> [Notice] <Connection> peer nickname="OtherPilot" playerGEID=1 joined""",
+                """<2026-04-04T18:00:00.000Z> [Notice] <SHUDEvent_OnNotification> Added notification """ +
+                    """"Received Blueprint: Lancet MH2 Mining Laser: " [90] to queue. New queue size: 1""",
+                """<2026-04-04T18:01:00.000Z> [Notice] <Legacy login response> User Login Success - Handle[OwnPilot]""",
+            ).joinToString("\n"),
+        )
+        val result = BlueprintParser.parseFile(tmp)
+        assertEquals("OwnPilot", result.player?.handle)
+        assertEquals(listOf("OwnPilot"), result.blueprints.map { it.player })
+    }
+
+    @Test
+    fun `a nickname line is used when the file names its player no other way`() {
+        val tmp = File.createTempFile("nickonly", ".log")
+        tmp.deleteOnExit()
+        tmp.writeText(
+            listOf(
+                """<2026-04-04T17:59:00.000Z> [Notice] <Connection> nickname="OnlyPilot" playerGEID=1""",
+                """<2026-04-04T18:00:00.000Z> [Notice] <SHUDEvent_OnNotification> Added notification """ +
+                    """"Received Blueprint: Lancet MH2 Mining Laser: " [90] to queue. New queue size: 1""",
+            ).joinToString("\n"),
+        )
+        val result = BlueprintParser.parseFile(tmp)
+        assertEquals("OnlyPilot", result.player?.handle)
+        assertEquals(listOf("OnlyPilot"), result.blueprints.map { it.player })
+    }
+
+    @Test
     fun `categorizes items by name`() {
         assertEquals("Weapon", BlueprintParser.categorize("Yubarev \"Mirage\" Pistol"))
         assertEquals("Ammo", BlueprintParser.categorize("S71 Rifle Magazine (30 cap)"))

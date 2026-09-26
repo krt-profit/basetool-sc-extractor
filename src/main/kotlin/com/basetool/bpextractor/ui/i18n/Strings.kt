@@ -118,6 +118,7 @@ interface Strings {
     val bpSumZeroTitle: String
     val bpSumZeroBody: String
     val bpSumZeroLanguage: (String) -> String
+    val bpSumZeroLabelMissing: (String) -> String
     val bpLabelChannelFolder: String
     val bpPlaceholderChannel: String
     val bpLabelOutputJson: String
@@ -133,7 +134,8 @@ interface Strings {
     val bpHintWrongFolder: String
     val bpHintValidFolder: (String) -> String
     val bpHintArchiveFolder: (Int) -> String
-    val bpHotfixNote: String
+    val bpSiblingChannelNote: (String) -> String
+    val bpHintChannelSuggestion: (String) -> String
     val bpErrSelectChannel: String
     val bpErrFolderNotFound: (String) -> String
     val bpErrSelectOutput: String
@@ -241,6 +243,7 @@ interface Strings {
     val rfCropTagAuto: String
     val rfCropTagPre: String
     val rfPasteDropHint: String
+    val rfWatchClipboard: String
     val rfCaptureAberrationTitle: String
     val rfCaptureAberrationHint: String
     val rfCaptureFramingTitle: String
@@ -420,6 +423,10 @@ object StringsDe : Strings {
             "Die Meldung im Log ist übersetzt; die Sprachdatei deiner Installation wird dafür " +
             "mitgelesen. Meld dich mit einer Beispielzeile, wenn es trotzdem leer bleibt."
     override val bpSumZeroLanguage: (String) -> String = { lang -> "Spielsprache laut user.cfg: $lang" }
+    override val bpSumZeroLabelMissing: (String) -> String = { lang ->
+        "Die Sprachdatei „$lang\" enthält keinen Blueprint-Text — Meldungen in dieser Sprache " +
+            "kann das Tool nicht erkennen. Aktualisiere das Sprachpaket oder stell die Spielsprache um."
+    }
     override val bpLabelChannelFolder = "Star-Citizen-Channel-Ordner"
     override val bpPlaceholderChannel = "z. B. C:\\Program Files\\Roberts Space Industries\\StarCitizen\\LIVE"
     override val bpLabelOutputJson = "Ausgabe-JSON (Ziel)"
@@ -439,7 +446,10 @@ object StringsDe : Strings {
     override val bpHintArchiveFolder: (Int) -> String = { count ->
         "Archivordner mit $count losen Log-Datei(en) — wird gelesen wie ein „logbackups\"-Ordner."
     }
-    override val bpHotfixNote = "HOTFIX-Ordner daneben gefunden — dessen Logs werden zusätzlich ausgelesen."
+    override val bpSiblingChannelNote: (String) -> String = { name ->
+        "$name-Ordner daneben gefunden — dessen Logs werden zusätzlich ausgelesen."
+    }
+    override val bpHintChannelSuggestion: (String) -> String = { path -> "Meintest du $path?" }
     override val bpErrSelectChannel = "Bitte einen Channel-Ordner auswählen."
     override val bpErrFolderNotFound: (String) -> String = { path -> "Ordner nicht gefunden: $path" }
     override val bpErrSelectOutput = "Bitte einen Ziel-Pfad für die JSON angeben."
@@ -556,6 +566,8 @@ object StringsDe : Strings {
     override val rfCropTagAuto = "vlm"
     override val rfCropTagPre = "vorgecroppt"
     override val rfPasteDropHint = "Strg+V fügt ein Bild aus der Zwischenablage ein (z. B. Snipping Tool) — Bilder lassen sich auch per Drag & Drop hierher ziehen."
+    override val rfWatchClipboard =
+        "Zwischenablage beobachten — jedes neue Bild (z. B. per Druck-Taste im Spiel) wird automatisch übernommen, ohne ins Tool zu wechseln"
     override val rfCaptureAberrationTitle = "Chromatische Aberration vor der Aufnahme ausschalten"
     override val rfCaptureAberrationHint = "Den Regler in den Star-Citizen-Grafikeinstellungen auf 0 stellen, bevor die Screenshots entstehen — die Farbsäume machen Ziffern für das Modell mehrdeutig und sind nachträglich nicht entfernbar."
     override val rfCaptureFramingTitle = "Frontal und in höchster Auflösung aufnehmen"
@@ -610,6 +622,7 @@ object StringsDe : Strings {
             "OCR_CONTESTED" -> "Qualität: Modelle/OCR widersprechen sich ohne Mehrheit — markierte Zeile prüfen"
             "QTY_OCR_CONTESTED" -> "Menge einer Refine-OFF-Zeile: OCR liest sie anders als das Modell — markierte Zeile prüfen"
             "TO_REFINE_CONTESTED" -> "TO-REFINE-Gesamtwert (Checksummen-Anker) von OCR/Zweitmodell bestritten — Kopfzeile prüfen"
+            "GLYPH_VETOED" -> "Ziffern-Korrektur zurückgehalten: die Ziffernform im Bild zeigt den gelesenen Wert — markierte Zeile prüfen"
             else -> warning
         }
     }
@@ -828,6 +841,10 @@ object StringsEn : Strings {
             "message is translated, and your installation's language file is read to match it. " +
             "Get in touch with an example line if it still comes up empty."
     override val bpSumZeroLanguage: (String) -> String = { lang -> "Game language per user.cfg: $lang" }
+    override val bpSumZeroLabelMissing: (String) -> String = { lang ->
+        "The language file \"$lang\" has no blueprint text — notifications in that language cannot " +
+            "be recognised. Update the language pack or switch the game language."
+    }
     override val bpLabelChannelFolder = "Star Citizen channel folder"
     override val bpPlaceholderChannel = "e.g. C:\\Program Files\\Roberts Space Industries\\StarCitizen\\LIVE"
     override val bpLabelOutputJson = "Output JSON (target)"
@@ -847,7 +864,10 @@ object StringsEn : Strings {
     override val bpHintArchiveFolder: (Int) -> String = { count ->
         "Archive folder with $count loose log file(s) — read like a \"logbackups\" folder."
     }
-    override val bpHotfixNote = "HOTFIX folder found next to it — its logs are read as well."
+    override val bpSiblingChannelNote: (String) -> String = { name ->
+        "$name folder found next to it — its logs are read as well."
+    }
+    override val bpHintChannelSuggestion: (String) -> String = { path -> "Did you mean $path?" }
     override val bpErrSelectChannel = "Please select a channel folder."
     override val bpErrFolderNotFound: (String) -> String = { path -> "Folder not found: $path" }
     override val bpErrSelectOutput = "Please provide a target path for the JSON."
@@ -964,6 +984,8 @@ object StringsEn : Strings {
     override val rfCropTagAuto = "vlm"
     override val rfCropTagPre = "pre-cropped"
     override val rfPasteDropHint = "Ctrl+V pastes an image from the clipboard (e.g. the snipping tool) — images can also be dragged & dropped here."
+    override val rfWatchClipboard =
+        "Watch the clipboard — every new image (e.g. PrtScn in the game) is taken in automatically, without switching to the tool"
     override val rfCaptureAberrationTitle = "Turn off chromatic aberration before capturing"
     override val rfCaptureAberrationHint = "Set the slider to 0 in Star Citizen's graphics settings before taking the screenshots — the colour fringing makes digits ambiguous for the model and cannot be removed afterwards."
     override val rfCaptureFramingTitle = "Capture head-on and at the highest resolution"
@@ -1018,6 +1040,7 @@ object StringsEn : Strings {
             "OCR_CONTESTED" -> "Quality: models/OCR disagree with no majority — review the flagged row"
             "QTY_OCR_CONTESTED" -> "A refine-OFF row's quantity: OCR reads it differently than the model — review the flagged row"
             "TO_REFINE_CONTESTED" -> "TO REFINE total (the checksum anchor) is disputed by OCR/the verify model — check the header"
+            "GLYPH_VETOED" -> "A digit correction was held back: the digit shapes in the image show the value as read — review the flagged row"
             else -> warning
         }
     }

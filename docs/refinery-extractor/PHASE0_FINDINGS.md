@@ -639,3 +639,50 @@ file records a run, not the truth — and none of them discriminates between can
 `PROMPT_SMOKE_OCR_CANDIDATES`. Each candidate is a folder with `det.onnx`, `rec.onnx`, optional
 `dict.txt` and `det.properties`; the defaults are the bundled model's, so a v3 candidate needs
 `thresh=0.3`, `boxThresh=0.5`, `unclipRatio=1.6`.
+
+## Addendum 2026-09-26 — a glyph-topology reader for 0/6/8/9, and the German labels
+
+Both came out of a read-only comparison with VerseKit, which tells mining-HUD digits apart by the
+holes they enclose. Its code is GPL-3.0-only and its font is a different one, so only the idea was
+taken; `GlyphTopology` is our own.
+
+**The reader.** A cell is upscaled 4× (bicubic), thresholded (Otsu on the brightest channel),
+split into glyphs by connected components merged per column, and each glyph's enclosed background
+regions are measured. It only ever decides between 0, 6, 8 and 9 — the `CONFUSABLE_DIGITS` every
+repair swaps within — and abstains otherwise. First measurement on the corpus (`GlyphTopologyEval`,
+every OCR cell whose number is a golden value, 844 cells): 1454 decisions right, **57 wrong**,
+791 abstained. The wrong ones were all systematic and all visible in the features:
+
+- **The HUD's 0 is slashed, upper-left to lower-right.** Its two holes sit diagonally
+  (Δcx 0.19–0.27 of the glyph width); an 8's are stacked (Δcx ≤ 0.05). The first rule expected the
+  other diagonal and abstained on every two-hole 0.
+- **A 6 or 9 whose hook blurs shut** shows a second, much smaller hole: area ratio 0.34–0.58 against
+  0.52–1.00 for a real 8. The bigger hole says which (lower → 6, upper → 9).
+- **A slashed 0 that lost one hole** leaves a single small hole *off-centre* (cx ≈ 0.4 or 0.6); a
+  real 6 or 9 has its hole centred (0.44–0.56). Small lone holes (< 4.5 % of the glyph box) also
+  occur for an 8 that lost one — so a small lone hole now abstains.
+
+With those rules and the gaps between the classes as margins: **1219 right, 0 wrong, 1083
+abstained**. On the 12 cells the OCR itself misread, it abstained 12 times — the damage that fools
+the CRNN also fills the holes. So it rescues nothing on this corpus, and it ships only as a
+**veto**: before `checksumRepair`, `yieldRepair` or `ocrYieldRepair` changes a digit, the one OCR
+cell in the row's capture that reads either value is asked, and a clear „this is the old value"
+holds the repair back as `GLYPH_VETOED` (confidence 0.75). No veto fires on the corpus; the golden
+sweep and `OcrDigestTest` (1355 cells, `42ed8407…`) are unchanged by it. The thresholds were set on
+the same corpus that measures them — only where the classes are separated by a clear gap — and the
+expected file itself carries a few misread cells (addendum above), so „0 wrong" means „0 against
+the golden values", and wrong must stay 0 on any retuning.
+
+**German labels.** The German community pack translates the SETUP panel's labels but none of its
+method or material names (all 34 `(Ore)`/`(Raw)` names and the nine methods stay English). A first
+version named the German labels in the shared prompt. On the English corpus that moved reads
+without moving a single number, reproducibly across two runs: Auftrag 15's four `TARANITE`/`HEPH`
+names went from `[RAW]` to `(RAW)` (the HUD draws round brackets square; the game string is
+`(Raw)`), Auftrags 19 and 20 lost a false `REFINE_CORRECTED` because the C47 toggle was read right,
+and Auftrag 18's verify model started disputing the header, trading `SUM_MISMATCH` for
+`TO_REFINE_CONTESTED`. Mostly for the better, but a change to every English member's reads for a
+benefit only German members get. So the labels moved into `setup_panel_prompt_de_labels.txt`, and
+`PanelReader.PROMPT_GERMAN_CLIENT` splices them in after the button line only when the install's
+`user.cfg` says German; English clients keep the frozen prompt byte for byte, and the sweep is back
+to the baseline. `Validation.ctaMeansQuoted` maps BESTÄTIGEN / ANGEBOT EINHOLEN either way. No
+German capture is in the corpus; German reads stay unmeasured until one arrives.

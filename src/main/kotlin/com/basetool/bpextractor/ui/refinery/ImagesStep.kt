@@ -117,6 +117,13 @@ private fun ImagesStepContent(
         }
     }
 
+    LaunchedEffect(state.watchClipboard) {
+        while (state.watchClipboard) {
+            delay(1_000)
+            state.pollClipboard(appScope)
+        }
+    }
+
     StepScaffold(
         overline = strings.rfStepOverline(2),
         title = strings.rfImagesTitle,
@@ -165,6 +172,13 @@ private fun ImagesStepContent(
             }
             Spacer(Modifier.height(6.dp))
             Text(strings.rfPasteDropHint, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+            Spacer(Modifier.height(8.dp))
+            KrtCheckbox(
+                checked = state.watchClipboard,
+                onCheckedChange = { state.setClipboardWatch(it) },
+                label = strings.rfWatchClipboard,
+                labelStyle = MaterialTheme.typography.bodySmall,
+            )
         }
         Spacer(Modifier.height(12.dp))
 

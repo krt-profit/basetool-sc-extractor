@@ -62,19 +62,19 @@ object BlueprintExtractor {
     const val PRIMARY_CHANNEL_NAME = "LIVE"
 
     /**
-     * The patch-cycle channel next to LIVE, whose logs are swept along with a picked LIVE folder because
-     * blueprints received there are recorded only in its own logs ([siblingHotfixFolder]).
+     * The patch-cycle channel next to LIVE. The two share one account's progress, so each is swept along
+     * with the other ([siblingChannelFolder]).
      */
     const val SIBLING_CHANNEL_NAME = "HOTFIX"
 
     /**
      * Collects the SC log files to scan from a channel folder: its `Game.log`, then every `*.log` in
-     * `logbackups` by name, then the logs of a sibling HOTFIX folder when [channelFolder] is LIVE
-     * ([siblingHotfixFolder]). A folder of neither shape is read as an archive ([looseLogsIn]).
+     * `logbackups` by name, then the logs of the sibling LIVE/HOTFIX folder ([siblingChannelFolder]). A
+     * folder of neither shape is read as an archive ([looseLogsIn]).
      */
     fun findLogFiles(channelFolder: File): List<File> {
         val files = collectChannelLogs(channelFolder).toMutableList()
-        siblingHotfixFolder(channelFolder)?.let { files += collectChannelLogs(it) }
+        siblingChannelFolder(channelFolder)?.let { files += collectChannelLogs(it) }
         return files
     }
 
@@ -111,18 +111,27 @@ object BlueprintExtractor {
             .orEmpty()
 
     /**
-     * Returns the sibling [SIBLING_CHANNEL_NAME] folder of a LIVE [channelFolder] when it exists and
-     * holds SC logs (a `Game.log` or a `logbackups` subfolder), otherwise `null`. Reads file metadata
-     * only.
+     * Returns the sibling channel of a LIVE or HOTFIX [channelFolder] — HOTFIX for LIVE, LIVE for HOTFIX —
+     * when it exists and holds SC logs (a `Game.log` or a `logbackups` subfolder), otherwise `null`. Any
+     * other folder has no sibling. Reads file metadata only.
      */
-    fun siblingHotfixFolder(channelFolder: File): File? {
-        if (!channelFolder.name.equals(PRIMARY_CHANNEL_NAME, ignoreCase = true)) return null
+    fun siblingChannelFolder(channelFolder: File): File? {
+        val siblingName = siblingChannelName(channelFolder.name) ?: return null
         val parent = channelFolder.absoluteFile.parentFile ?: return null
-        val sibling = File(parent, SIBLING_CHANNEL_NAME)
-        if (!sibling.isDirectory) return null
-        val hasLogs = File(sibling, "Game.log").isFile || File(sibling, "logbackups").isDirectory
-        return if (hasLogs) sibling else null
+        val sibling = File(parent, siblingName)
+        return if (holdsChannelLogs(sibling)) sibling else null
     }
+
+    /** `HOTFIX` for `LIVE` and `LIVE` for `HOTFIX`, case-insensitively; `null` for any other name. */
+    fun siblingChannelName(folderName: String): String? = when {
+        folderName.equals(PRIMARY_CHANNEL_NAME, ignoreCase = true) -> SIBLING_CHANNEL_NAME
+        folderName.equals(SIBLING_CHANNEL_NAME, ignoreCase = true) -> PRIMARY_CHANNEL_NAME
+        else -> null
+    }
+
+    /** Whether [folder] is a directory holding a `Game.log` or a `logbackups` subfolder. */
+    fun holdsChannelLogs(folder: File): Boolean =
+        folder.isDirectory && (File(folder, "Game.log").isFile || File(folder, "logbackups").isDirectory)
 
     /** Report within-file byte progress at most every this many bytes, to keep UI churn low. */
     private const val PROGRESS_BYTE_STEP = 4L * 1024 * 1024
@@ -150,9 +159,11 @@ object BlueprintExtractor {
     ): ExtractionResult {
         val files = findLogFiles(channelFolder)
         val bytesTotal = files.sumOf { it.length() }
+        val sibling = siblingChannelFolder(channelFolder)
 
         val localization = ScLocalization.detect(channelFolder)
-        val formats = (localization.formats + BlueprintParser.BUILT_IN_FORMATS).distinct()
+        val siblingFormats = sibling?.let { ScLocalization.detect(it).formats }.orEmpty()
+        val formats = (localization.formats + siblingFormats + BlueprintParser.BUILT_IN_FORMATS).distinct()
         val patterns = BlueprintParser.compile(formats)
 
         val allBlueprints = mutableListOf<BlueprintEvent>()
@@ -185,7 +196,8 @@ object BlueprintExtractor {
         }
         progress?.invoke(files.size, files.size, bytesTotal, bytesTotal, "")
 
-        val sorted = allBlueprints.sortedBy { it.receivedAt.ifEmpty { "￿" } }
+        val named = resolveRawKeys(allBlueprints, listOfNotNull(channelFolder, sibling), localization.activeLanguage)
+        val sorted = named.sortedBy { it.receivedAt.ifEmpty { "￿" } }
 
         val players = countsByPlayer.entries
             .sortedByDescending { it.value }
@@ -196,14 +208,38 @@ object BlueprintExtractor {
             toolVersion = TOOL_VERSION,
             generatedAt = Instant.now().toString(),
             sourceFolder = channelFolder.absolutePath,
-            additionalSourceFolders = siblingHotfixFolder(channelFolder)
-                ?.let { listOf(it.absolutePath) },
+            additionalSourceFolders = sibling?.let { listOf(it.absolutePath) },
             logFilesScanned = files.size - skipped.size,
             blueprintCount = sorted.size,
             players = players,
             blueprints = sorted,
         )
         return ExtractionResult(export, skipped, localization, formats)
+    }
+
+    /**
+     * Replaces each untranslated `@key` name in [events] with that key's value from the `global.ini`
+     * files of [channelFolders], keeping the key in [BlueprintEvent.localizationKey]; an unresolved key
+     * keeps its raw name.
+     */
+    private fun resolveRawKeys(
+        events: List<BlueprintEvent>,
+        channelFolders: List<File>,
+        preferredLanguage: String?,
+    ): List<BlueprintEvent> {
+        val keys = events.mapNotNullTo(linkedSetOf()) { ScLocalization.rawKeyOf(it.productName) }
+        if (keys.isEmpty()) return events
+        val resolved = linkedMapOf<String, String>()
+        for (folder in channelFolders) {
+            val open = keys.filterTo(linkedSetOf()) { it !in resolved }
+            if (open.isEmpty()) break
+            ScLocalization.resolveKeys(folder, open, preferredLanguage).forEach { (k, v) -> resolved.putIfAbsent(k, v) }
+        }
+        return events.map { event ->
+            val key = ScLocalization.rawKeyOf(event.productName) ?: return@map event
+            val name = resolved[key] ?: return@map event.copy(localizationKey = key)
+            event.copy(productName = name, category = BlueprintParser.categorize(name), localizationKey = key)
+        }
     }
 
     /** Serialize an export to pretty JSON text. */
