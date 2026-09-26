@@ -39,7 +39,7 @@ jobs:
         uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # zizmor: ignore[cache-poisoning]
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
