@@ -177,7 +177,7 @@ def _parse_markdown(text: str):
                 }
             )
         return fields, None
-    except Exception as e:  # noqa: BLE001 — spike code, every failure is a data point
+    except Exception as e:  # noqa: BLE001
         return None, f"{type(e).__name__}: {e}"
 
 
