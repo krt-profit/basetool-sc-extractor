@@ -451,7 +451,7 @@ basetool-sc-extractor/
 ├── build.gradle.kts                  # build + Compose/MSI configuration
 ├── settings.gradle.kts
 ├── gradle.properties
-├── gradlew(.bat)                     # Gradle wrapper (9.7.1)
+├── gradlew(.bat)                     # Gradle wrapper (9.8.0)
 ├── package-msi.ps1                   # MSI build (WiX selection, EULA/extension preflight)
 ├── src/main/kotlin/com/basetool/bpextractor/
 │   ├── Main.kt                       # Compose GUI (tabs/shell), entry point

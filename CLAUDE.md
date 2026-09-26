@@ -571,8 +571,12 @@ GitHub Actions — [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
   `id-token` + `attestations: write`) and `publish` (VirusTotal + `gh release create`,
   `contents: write`). Suffixed tags (`v1.2.0-rc1`) publish as pre-releases.
 - **Supply-chain rules (SIB-SEC-02 / SIB-CI-03, 2026-09-22):** every `uses:` is pinned to a
-  full commit SHA with a `# vX.Y.Z` comment; `.github/dependabot.yml` moves those pins and the
-  Gradle build weekly; every checkout has `persist-credentials: false`; the tag reaches
+  full commit SHA (no version comment — the no-comments rule removed them; the tag each SHA
+  resolves to is recorded in the knowledge base's *SC Extractor Release Pipeline*);
+  `.github/dependabot.yml` moves those pins and the Gradle build weekly; the Gradle
+  distribution is checked against `distributionSha256Sum` in `gradle-wrapper.properties`
+  (move it with the wrapper: `gradlew wrapper --gradle-version <v>
+  --gradle-distribution-sha256-sum <sha>`, twice); every checkout has `persist-credentials: false`; the tag reaches
   scripts only via `env: REF_NAME` and is validated against
   `^v\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$` first; every job has `timeout-minutes`. There is no
   third-party release action any more (`softprops/action-gh-release` is gone). The one zizmor
