@@ -17,12 +17,9 @@ import com.basetool.bpextractor.ui.refinery.ReviewStep
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * The Refinery workflow surface (design spec §5): hosts the active step screen. Step navigation
- * lives in the window-level [CommandStrip] inline stepper (back up to the furthest reached step;
- * forward only through each screen's CTA). [onPicker] hosts KRT file-picker requests at the
- * window root (no native dialogs). [appScope] is the window-root coroutine scope — long-running
- * work (preflight probes, model pull, the extraction pipeline, the export write) must run on it
- * so step or tab switches, which destroy the step composables, cannot cancel it mid-flight.
+ * The Refinery workflow surface hosting the active step screen. [onPicker] hosts file-picker requests
+ * at the window root; long-running work runs on [appScope], the window-root scope, so step or tab
+ * switches cannot cancel it.
  */
 @Composable
 fun RefineryScreen(state: RefineryUiState, appScope: CoroutineScope, onPicker: (PickerRequest) -> Unit) {

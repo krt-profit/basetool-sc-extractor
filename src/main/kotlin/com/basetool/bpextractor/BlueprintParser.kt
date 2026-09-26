@@ -6,9 +6,7 @@ import java.io.FilterInputStream
 import java.io.InputStream
 
 /**
- * Pure, side-effect-free parsing of Star Citizen Game.log files for received
- * blueprints. No mission logic — by design we only care about what blueprints a
- * player received and everything the log tells us about each one.
+ * Pure, side-effect-free parsing of Star Citizen `Game.log` files for received blueprints.
  *
  * The signal line looks like:
  * ```
@@ -16,18 +14,9 @@ import java.io.InputStream
  *   "Received Blueprint: Yubarev "Mirage" Pistol: " [19] to queue. New queue size: 2,
  *   MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [...]
  * ```
- * Note three real-world quirks the patterns below handle:
- *  - the item name can itself contain double quotes (`Yubarev "Mirage" Pistol`),
- *  - it can contain parentheses, slashes and hyphens (`Yubarev Pistol Battery (10 cap)`,
- *    `Sth/2/C Cirrus`, `ADP-mk4 Core Woodland`),
- *  - it can carry a trailing space (`Antium Legs Moss Camo `) which we trim.
- *
- * The `Received Blueprint` label in front of the name is **localised** — everything around it
- * is a C++ format literal and stays English. See [BLUEPRINT_LABELS].
- *
- * The MissionId on a blueprint line is always all-zero, so it is useless for
- * attribution — which is fine, because mission data is explicitly out of scope.
- * The *receiving player* instead comes from the login lines of the same file.
+ * The item name may contain double quotes, parentheses, slashes and hyphens, and a trailing space is
+ * trimmed. The label before the name is localised ([BUILT_IN_FORMATS]); the receiving player comes
+ * from the login lines of the same file.
  */
 object BlueprintParser {
 
@@ -35,33 +24,15 @@ object BlueprintParser {
     private val TIMESTAMP = Regex("""^<([^>]+)>""")
 
     /**
-     * The localised **format strings** the game renders the notification from. Star Citizen takes
-     * them from its localisation tables under the invariant key
-     * [ScLocalization.BLUEPRINT_KEY]; `%s` is the item name. The line *around* the rendered text
-     * — `Added notification "<rendered>: " [<id>] to queue. New queue size: …` — is a C++ format
-     * literal and stays English in every language. Note what that implies: because `%s` is the
-     * *last* thing the localised value contributes, everything after the item name is engine-side
-     * and cannot vary by language.
+     * The built-in notification format strings (`%s` is the item name), used when the player's
+     * installation provides no readable `global.ini` for [ScLocalization.detect].
      *
-     * Matching only the English format is a *silent total* failure on a localised client: no
-     * error, no skipped file, just an export with zero blueprints.
-     *
-     * These are the fallback. The authoritative source is the player's own installation, which
-     * [ScLocalization.detect] reads — so a rewording is picked up without a release here. This
-     * list only has to carry us when there is no readable `global.ini`: a vanilla English install
-     * (its copy lives inside `Data.p4k`), or an archive folder with no game next to it.
-     *
-     * Deliberately a **closed whitelist**: an entry goes in only on authoritative evidence —
-     * the localisation source (`rjcncpt/StarCitizen-Deutsch-INI`, which is what the SC Deutsch
-     * Launcher installs) or a real log of that client language. A guessed translation is at best
-     * dead weight and at worst matches the wrong notification kind. Verified there: exactly one
-     * key produces each of these values, in both languages, so none of them can collide with
-     * another notification kind.
+     * A closed whitelist: an entry is added only on authoritative evidence from the localisation source
+     * or a real log of that client language.
      */
     val BUILT_IN_FORMATS: List<String> = listOf(
         "Received Blueprint: %s",
         "Bauplan erhalten: %s",
-        // Swiss German, shipped as the `live-CH` variant of the same translation.
         "Bauplan überchoo: %s",
     )
 
@@ -69,22 +40,9 @@ object BlueprintParser {
     private const val NAME_PLACEHOLDER = "%s"
 
     /**
-     * Compile one matcher per format. Anchored on `Added notification` so the noisy follow-up
-     * lines (the bare queue echo and the later `UpdateNotificationItem` Next/StartFade/Remove
-     * lines) are ignored — they all repeat the same text and would otherwise inflate the count
-     * ~6x. (Measured on the private corpus: 1063 blueprint mentions for 179 real events.)
-     *
-     * Splitting the format at `%s` rather than treating it as a prefix is what makes a *reordered*
-     * translation work: every value seen so far is `<label>: %s`, but `%s ist eingetroffen` would
-     * be just as legal and a prefix-only rule could not express it.
-     *
-     * In every pattern: group 1 = item name (non-greedy, up to the terminator), group 2 =
-     * notification id. One regex per format rather than one alternation keeps that numbering
-     * true no matter what the formats look like; the cost is bounded by the prefilter (~41k of
-     * ~7.9M lines reach this stage at all).
-     *
-     * A format without `%s` is dropped: it cannot describe where the name sits, and guessing
-     * would be worse than not matching.
+     * Compiles one matcher per format, anchored on `Added notification` so the follow-up queue lines
+     * are not counted. In every pattern group 1 is the item name and group 2 the notification id; a
+     * format without `%s` is dropped.
      */
     fun compile(formats: List<String>): List<Regex> =
         formats.filter { NAME_PLACEHOLDER in it }.map { format ->
@@ -100,20 +58,8 @@ object BlueprintParser {
     val BUILT_IN_PATTERNS: List<Regex> = compile(BUILT_IN_FORMATS)
 
     /**
-     * Cheap literal prefilter for the patterns from [compile]: a plain substring check skips them
-     * for ~99.5% of lines (logs run to hundreds of MB). Must stay a literal prefix of every
-     * pattern — which is why it stops before the localised text, that text being a set and, now
-     * that the formats can come from the player's installation, not even a fixed one. Measured
-     * over the 424-file corpus: 41 560 of 7 863 351 lines reach the regex stage, against 179
-     * before; the scan is I/O-bound, so the cost does not show up.
-     *
-     * **Case:** this check is exact, and correspondingly the leading `Added notification "` is the
-     * one part of each pattern *not* wrapped in `(?i:…)`. That is not an oversight — it is the
-     * invariant that keeps the two consistent. `Added notification "` is a compile-time format
-     * literal in the game binary and cannot vary; the localised text after it comes from the
-     * translation tables and can, which is exactly the part matched case-insensitively. Making
-     * the prefilter itself case-insensitive would give up the intrinsified `String.indexOf` on
-     * every one of ~7.9M lines to guard a string that cannot change.
+     * Literal prefilter for the patterns from [compile]: a line without it is never matched against a
+     * regex. Must stay a literal, case-sensitive prefix of every pattern.
      */
     private const val BLUEPRINT_MARKER = "Added notification \""
 
@@ -130,31 +76,18 @@ object BlueprintParser {
     private val BUILD_FROM_NAME = Regex("""Build\((\d+)\)""", RegexOption.IGNORE_CASE)
 
     /**
-     * Every SC log declares on its **first** line the name it will later be backed up as:
-     * `<ts> BackupNameAttachment=" Build(11518367) 26 Mar 26 (17 24 58)"  -- used by backup system`.
-     *
-     * The rotated backups carry that build in their own file name, but the live `Game.log` does
-     * not — so without reading the header, every event from the session the player just finished
-     * exports `gameBuild = null`. Verified across the whole private corpus: the header is present
-     * in all 424 files and always states the same build as the file name.
+     * Marker of the first-line header that names the log's build, e.g.
+     * `BackupNameAttachment=" Build(11518367) 26 Mar 26 (17 24 58)"`; the only build source for the live
+     * `Game.log`, whose file name carries none.
      */
     private const val BUILD_HEADER_MARKER = "BackupNameAttachment="
 
-    // --- Player identity lines (first match in a file wins) ----------------
-    //
-    // All three are matched case-insensitively. Like [BLUEPRINT] they sit behind an exact literal
-    // guard in [extractPlayer] (see there): the guard is the hot-path filter and pins the case of
-    // the regex's own leading literal, so the two can never disagree.
-
-    /** `<Legacy login response> ... User Login Success - Handle[greluc] - ...` */
+    /** Matches the login line `User Login Success - Handle[<handle>]` and captures the player handle. */
     private val LOGIN_HANDLE = Regex("""User Login Success - Handle\[([^\]]+)]""", RegexOption.IGNORE_CASE)
 
     /**
-     * `<AccountLoginCharacterStatus_Character> Character: ... geid 202153876894 -
-     *  accountId 412645 - name greluc - state STATE_CURRENT`
-     * Most reliable identity line — we anchor on the full geid/accountId/name
-     * pattern for precision but keep only the handle (name); geid and accountId
-     * are deliberately not stored or exported.
+     * Matches the `STATE_CURRENT` character-status line, the most reliable identity line; only the
+     * handle (`name`) is kept, the geid and account id are never stored or exported.
      */
     private val CHAR_STATUS = Regex(
         """geid (\d+) - accountId (\d+) - name (\S+) - state STATE_CURRENT""",
@@ -176,17 +109,9 @@ object BlueprintParser {
     )
 
     /**
-     * Parse a single Game.log file. Streams line by line so multi-hundred-MB
-     * logs never get loaded whole. Unreadable bytes are replaced, never fatal.
-     *
-     * [blueprintPatterns] are the compiled notification matchers, from [compile] — the caller
-     * passes the formats it resolved from the player's installation, defaulting to
-     * [BUILT_IN_PATTERNS]. Compiling once per run rather than per file is why this is a
-     * parameter and not a lookup.
-     *
-     * [onBytesRead] (optional) is called with the cumulative raw bytes consumed so far —
-     * the within-file progress source for the GUI bar. Granularity follows the reader's
-     * internal buffering (a few KB per step), which is plenty for a progress bar.
+     * Parses a single `Game.log` file line by line without loading it whole; unreadable bytes are
+     * replaced, never fatal. [blueprintPatterns] come from [compile], and [onBytesRead] receives the
+     * cumulative raw bytes consumed so far.
      */
     fun parseFile(
         file: File,
@@ -194,8 +119,6 @@ object BlueprintParser {
         onBytesRead: ((bytesRead: Long) -> Unit)? = null,
     ): FileResult {
         var gameBuild = BUILD_FROM_NAME.find(file.name)?.groupValues?.get(1)
-        // Only the live Game.log lacks a build in its name; then, and only then, we look at the
-        // header. Bounded to the very first line so this never touches the hot path.
         var buildHeaderPending = gameBuild == null
         val blueprints = mutableListOf<BlueprintEvent>()
         var player: PlayerIdentity? = null
@@ -212,12 +135,10 @@ object BlueprintParser {
                     }
                 }
 
-                // Resolve the player once, from whichever identity line shows up first.
                 if (player == null) {
                     player = extractPlayer(line)
                 }
 
-                // Cheap literal prefilter — skips the regexes for the vast majority of lines.
                 if (BLUEPRINT_MARKER !in line) continue
                 val bp = blueprintPatterns.firstNotNullOfOrNull { it.find(line) } ?: continue
                 val name = bp.groupValues[1].trim()
@@ -236,7 +157,6 @@ object BlueprintParser {
             }
         }
 
-        // A player line can appear *after* an early blueprint in rare logs; back-fill.
         val resolved = player
         val finalBlueprints =
             if (resolved != null && blueprints.any { it.player == null }) {
@@ -249,11 +169,6 @@ object BlueprintParser {
     }
 
     private fun extractPlayer(line: String): PlayerIdentity? {
-        // Each regex sits behind a literal substring guard — identity lines are rare,
-        // so the regexes must not run on every line of a multi-hundred-MB log. The guards stay
-        // case-exact for the same reason [BLUEPRINT_MARKER] does: they run per line in a file
-        // whose player is still unresolved, and they guard engine-side format literals that
-        // cannot vary in case. The regexes behind them are case-insensitive.
         if ("geid " in line) {
             CHAR_STATUS.find(line)?.let {
                 return PlayerIdentity(handle = it.groupValues[3])
@@ -271,8 +186,6 @@ object BlueprintParser {
         }
         return null
     }
-
-    // --- Categorisation -----------------------------------------------------
 
     /** `(30 cap)`-style capacity suffix — the ammo marker that isn't a keyword. */
     private val CAP_SUFFIX = Regex("""\(\d+\s*cap\)""")
@@ -294,11 +207,8 @@ object BlueprintParser {
     )
 
     /**
-     * Best-effort item classification from the localised name. Purely derived
-     * (the log doesn't state a category), provided as a convenience for filtering.
-     * Keywords match on word boundaries; order matters: ammo/tool keywords are
-     * checked before the broad weapon keywords so "S71 Rifle Magazine" lands in
-     * Ammo, not Weapon.
+     * Derives a best-effort category from the localised item name by word-boundary keyword matching.
+     * Ammo and tool keywords are checked before weapon keywords, so "S71 Rifle Magazine" is Ammo.
      */
     fun categorize(name: String): String {
         val n = name.lowercase()

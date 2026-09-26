@@ -6,26 +6,17 @@ import javax.imageio.ImageIO
 import kotlin.test.Test
 
 /**
- * The regression check for an **onnxruntime or OCR-model bump**: a deterministic digest of what the
- * classical-OCR cross-reader sees across the whole sample corpus.
- *
- * <p>ONNX Runtime's CPU inference is deterministic, so a clean dependency bump is **bit-for-bit
- * identical** — verified 1.22.0 vs 1.27.0 (2026-07-01) and 1.29.0 vs 1.30.0 (2026-09-14, 35 orders
- * / 1366 cells, same SHA-256). That makes this a far sharper instrument than the live VLM sweep for
- * this one question: it runs offline, needs no Ollama, finishes in under a minute, and **any**
- * difference at all is a real change in what the reader recognises — there is no run noise to argue
- * about. `PromptSmokeTest` still owns the end-to-end contract; onnxruntime never touches the VLM.
- *
- * <p>Run it once before the bump and once after, and diff the two files:
+ * Writes a deterministic digest of what the classical-OCR reader sees across a sample corpus, so an
+ * onnxruntime or OCR-model bump can be checked by diffing the digest before and after.
  *
  * ```powershell
- * $env:OCR_DIGEST_DIR = "<the sample corpus>"      # one folder per order
+ * $env:OCR_DIGEST_DIR = "<the sample corpus>"
  * $env:OCR_DIGEST_OUT = "<somewhere outside the repo>\ocr-digest-before.txt"
  * .\gradlew.bat test --tests '*OcrDigestTest*' --rerun-tasks
  * ```
  *
- * <p>Trivially green when `OCR_DIGEST_DIR` is unset. Reads a local folder and writes outside the
- * repo — the corpus is private (guardrail 1a) and nothing derived from it is committed.
+ * Trivially green when `OCR_DIGEST_DIR` is unset; the corpus is private and the output is written
+ * outside the repo.
  */
 class OcrDigestTest {
 
@@ -38,8 +29,6 @@ class OcrDigestTest {
         }
         val ocr = OcrModels.get() ?: error("bundled OCR models did not load from the /ocr/ resources")
 
-        // Natural order, so "Auftrag 2" sorts before "Auftrag 10" and the digest of a corpus does
-        // not depend on the platform's collation.
         val orders = corpus.listFiles { f: File -> f.isDirectory }.orEmpty().sortedWith(NATURAL)
         check(orders.isNotEmpty()) { "no order folders in $corpus" }
 

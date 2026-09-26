@@ -1,11 +1,9 @@
 package com.basetool.bpextractor.refinery
 
 /**
- * The intermediate result of reading ONE screenshot's SETUP panel — the deterministic reformat of
- * the VLM's freeform markdown answer (Phase 0 frozen read strategy, see
- * `docs/refinery-extractor/PHASE0_FINDINGS.md` §4). All cells stay verbatim strings here; numeric
- * interpretation happens in [PanelValues] so a mis-read like `2.1KM` (HUD-marker bleed-through)
- * surfaces as a validation flag instead of a crash.
+ * The result of reading one screenshot's SETUP panel, reformatted from the VLM's markdown answer.
+ * All cells stay verbatim strings; [PanelValues] interprets them, so a misread surfaces as a
+ * validation flag instead of a crash.
  */
 data class PanelRead(
     /** Refining method as read, e.g. `FERRON EXCHANGE`; null when the model answered `?`. */
@@ -47,11 +45,8 @@ data class PanelRow(
 )
 
 /**
- * Parses the VLM's markdown-layout answer into a [PanelRead] — the Kotlin port of the Phase 0
- * spike's `_parse_markdown` (deterministic, ~no heuristics: the prompt pins the exact layout).
- * Returns null only when the answer carries none of the expected anchors at all (a truncated or
- * off-script response); partial answers parse into a partial [PanelRead] and are caught by the
- * validation layer instead.
+ * Parses the VLM's markdown-layout answer into a [PanelRead]. Returns `null` only when the answer
+ * carries none of the expected anchors; partial answers yield a partial [PanelRead].
  */
 object MarkdownPanelParser {
 
@@ -81,12 +76,9 @@ object MarkdownPanelParser {
         for (line in text.lineSequence()) {
             val trimmed = line.trim()
             if (!trimmed.startsWith("|")) continue
-            // Skip the separator line (only pipes, dashes, colons, spaces).
             if (trimmed.replace("|", "").trim().trimStart('-', ':', ' ').isEmpty()) continue
             val cells = trimmed.trim('|').split("|").map { it.trim() }
             if (cells.size != 5 || cells[0].uppercase() == "MATERIAL") continue
-            // Some models emit the edge-cut marker as a row OF ITS OWN ("| PARTIAL | ? | … |")
-            // instead of a name suffix; no material is named PARTIAL, so drop the ghost row.
             if (cells[0].uppercase() == "PARTIAL") continue
             var name = cells[0]
             val partial = name.endsWith(" PARTIAL")
@@ -120,9 +112,8 @@ object MarkdownPanelParser {
 }
 
 /**
- * Interprets [PanelRead]'s verbatim cells as numbers — the validation seam of the Phase 0
- * confidence policy (`PHASE0_FINDINGS.md` §6 rule 1): a cell that should be numeric but is not
- * (e.g. `2.1KM` from an AR-marker bleed-through) parses to null, and the caller flags the row.
+ * Interprets [PanelRead]'s verbatim cells as numbers: a cell that should be numeric but is not
+ * (e.g. `2.1KM`) parses to `null`, and the caller flags the row.
  */
 object PanelValues {
 

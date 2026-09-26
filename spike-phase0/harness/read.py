@@ -19,12 +19,9 @@ import urllib.request
 from pathlib import Path
 
 OLLAMA = "http://localhost:11434"
-# Hardware-tier probe (issue #433 deliverable 5): HARNESS_NUM_GPU=0 forces CPU-only
-# inference without touching the Ollama service config.
 NUM_GPU = os.environ.get("HARNESS_NUM_GPU")
 PROMPT = (Path(__file__).parent / "prompts" / "setup_panel_v1.txt").read_text(encoding="utf-8")
 
-# All numerics as STRINGS: the model must transcribe, not interpret.
 PANEL_SCHEMA = {
     "type": "object",
     "required": ["method", "quoted", "inManifest", "toRefine", "totalCost", "processingTime", "rows"],

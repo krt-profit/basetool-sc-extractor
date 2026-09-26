@@ -5,13 +5,9 @@ import javax.imageio.ImageIO
 import kotlin.test.Test
 
 /**
- * Manual smoke harness for the [DigitOcr] PP-OCR digit reader — validates that the in-JVM ONNX
- * recognition reproduces the digits the VLM mis-reads (the cells in `refinery-digit-misread-recovery`).
- * Trivially green unless BOTH `OCR_MODEL` (path to `ch_PP-OCRv3_rec_infer.onnx`) and `OCR_CELLS`
- * (a folder of `<truth>__<n>.png` single-number crops) are set.
- *
- * The crops are produced offline from the PRIVATE captures (guardrail 1a) — they are NEVER committed
- * or bundled; the harness only READS a local folder, exactly like [PromptSmokeTest].
+ * Manual smoke harness for the [DigitOcr] digit reader on single-number crops. Trivially green unless
+ * both `OCR_MODEL` (the `ch_PP-OCRv3_rec_infer.onnx` path) and `OCR_CELLS` (a folder of
+ * `<truth>__<n>.png` crops) are set; the private crops are never committed.
  */
 class OcrSmokeTest {
 
@@ -35,7 +31,6 @@ class OcrSmokeTest {
                 println("  ${f.name.padEnd(14)} truth=${truth.padStart(5)}  ocr=${read.padStart(6)}  ${if (ok) "OK" else "MISS"}")
             }
             println("DigitOcr exact: $hits/${crops.size}")
-            // The port must reproduce the Python reference (which read every one of these correctly).
             check(hits == crops.size) { "DigitOcr matched only $hits/${crops.size} — port/preprocessing regression" }
         }
     }

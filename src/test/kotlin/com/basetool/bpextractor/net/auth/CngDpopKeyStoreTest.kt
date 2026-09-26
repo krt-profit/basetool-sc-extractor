@@ -57,12 +57,10 @@ class CngDpopKeyStoreTest {
             val proof = key.proof("POST", "https://ingest.example/v1/refinery-extract", accessToken = "AT")
             val reopened = assertNotNull(store.open(name), "the name in the record must open the key")
             assertEquals(key.thumbprint, reopened.thumbprint, "reopened by name it is the same key")
-            // Both the key as created and the key as reopened sign proofs the server accepts.
             val publicKey = publicKeyOf(key)
             assertTrue(verifies(proof, publicKey))
             assertTrue(verifies(reopened.proof("POST", "https://ingest.example/v1/x"), publicKey))
 
-            // The property the whole change exists for: Windows will not hand out the private half.
             assertFalse(store.isPrivateKeyExportable(name), "the DPoP key must not be exportable")
         }
     }
@@ -103,7 +101,6 @@ class CngDpopKeyStoreTest {
             .generateKeyPair()
         val public = pair.public as ECPublicKey
         val blob = ByteArray(8 + 64)
-        // BCRYPT_ECCKEY_BLOB header, little-endian: magic "ECS1", 32-byte coordinates.
         blob[0] = 0x45; blob[1] = 0x43; blob[2] = 0x53; blob[3] = 0x31
         blob[4] = 32
         fixed(public.w.affineX).copyInto(blob, 8)
@@ -113,7 +110,7 @@ class CngDpopKeyStoreTest {
 
         assertContentEquals(public.encoded, decoded.encoded)
         assertFailsWith<IllegalArgumentException> { CngDpopKeyStore.publicKeyFromBlob(blob.copyOf(40)) }
-        val wrongMagic = blob.copyOf().also { it[3] = 0x32 } // "ECS2" = a private blob
+        val wrongMagic = blob.copyOf().also { it[3] = 0x32 }
         assertFailsWith<IllegalArgumentException> { CngDpopKeyStore.publicKeyFromBlob(wrongMagic) }
     }
 

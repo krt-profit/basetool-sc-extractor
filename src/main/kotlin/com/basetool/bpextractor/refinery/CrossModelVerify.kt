@@ -1,28 +1,15 @@
 package com.basetool.bpextractor.refinery
 
 /**
- * Cross-model verification (PHASE0_FINDINGS 2026-06-12 addendum): merge the stitched read of the
- * primary model with the stitched read of an architecturally DIFFERENT verify model.
+ * Merges the stitched read of the primary model with that of an architecturally different verify
+ * model, whose errors are decorrelated from the primary's.
  *
- * Same-model two-pass was rejected in Phase 0 (§6): at temperature 0 the errors are systematic,
- * so a second pass reads the same wrong value. Two different vision encoders, however, make
- * DECORRELATED errors — on the golden set there is no cell where both models read the same wrong
- * value. That gives two deterministic levers:
+ * - Cells the models read differently mark the row contested.
+ * - A disagreeing QTY of a refine-ON row is decided by the TO REFINE checksum when exactly one
+ *   candidate lands the sum inside the tolerance band.
+ * - Otherwise YIELD ≤ QTY decides when exactly one candidate satisfies it.
  *
- * 1. **Disagreement flagging** — any cell the models read differently contains at least one
- *    misread; the row is marked contested and the review is forced to look (the union of both
- *    models' error sets becomes visible, including errors no checksum can catch).
- * 2. **Checksum arbitration** — for a disagreeing QTY cell of a refine-ON row, the TO REFINE
- *    header (= Σ QTY of refine-ON rows, ±1 per row, §7) decides: if exactly one candidate value
- *    lands the sum inside the tolerance band, that value wins. This auto-corrects digit misreads
- *    that previously could only be flagged as an order-level SUM_MISMATCH.
- * 3. **Physics arbitration** — refining removes impurities, so YIELD can never exceed QTY. When
- *    the models disagree on ONE of the two cells while agreeing on the other, and exactly one
- *    candidate satisfies the constraint, that candidate wins. Decides cells the header checksum
- *    cannot reach (refine-OFF rows, missing header).
- *
- * The merge is conservative: when the two stitched row sets do not align 1:1 (different row
- * count — e.g. a ghost row in one read), no cell comparison runs and the order is only flagged.
+ * When the row sets do not align 1:1, no cell comparison runs and the order is only flagged.
  */
 object CrossModelVerify {
 
@@ -61,9 +48,6 @@ object CrossModelVerify {
         val contested = mutableSetOf<Int>()
         val corrected = mutableSetOf<Int>()
 
-        // Σ QTY of refine-ON rows from the primary read — the arbitration baseline. Refine uses
-        // the same yield-first semantics as Validation, so a misread toggle cannot skew the sum
-        // for quoted reads.
         val baseSum = primary.rows
             .filter { finalRefine(it) }
             .sumOf { PanelValues.toQuantity(it.qty) ?: 0L }
@@ -74,8 +58,6 @@ object CrossModelVerify {
             if (!namesAgree(p, s)) contested += i
             if (p.quality != s.quality) contested += i
 
-            // A refine disagreement only matters where the yield signal does not already decide
-            // it deterministically (Validation overrides the toggle for quoted reads anyway).
             if (p.refine != s.refine && Validation.yieldRefineSignal(p) == null) contested += i
 
             var row = p
@@ -85,7 +67,7 @@ object CrossModelVerify {
                         row = row.copy(yield_ = s.yield_)
                         corrected += i
                     }
-                    Arbitration.PRIMARY -> Unit // physics confirms the primary — no flag
+                    Arbitration.PRIMARY -> Unit
                     Arbitration.UNDECIDED -> contested += i
                 }
             }
@@ -95,13 +77,12 @@ object CrossModelVerify {
                         row = row.copy(qty = s.qty)
                         corrected += i
                     }
-                    Arbitration.PRIMARY -> Unit // an arbiter confirms the primary — no flag
+                    Arbitration.PRIMARY -> Unit
                     Arbitration.UNDECIDED -> contested += i
                 }
             }
             rows[i] = row
         }
-        // The two models' TO_REFINE totals: a numeric disagreement means one mis-read the anchor.
         val pT = PanelValues.toQuantity(primary.toRefine)
         val sT = PanelValues.toQuantity(secondary.toRefine)
         val headerContested = pT != null && sT != null && pT != sT
@@ -114,11 +95,8 @@ object CrossModelVerify {
     private enum class Arbitration { PRIMARY, SECONDARY, UNDECIDED }
 
     /**
-     * Decide a QTY disagreement. First arbiter: the TO REFINE checksum (refine-ON rows only;
-     * "wins" requires the substituted Σ to land INSIDE the ±tolerance band — if rows are
-     * scrolled out of the viewport, neither sum lands). Second arbiter where the checksum cannot
-     * reach (OFF rows, missing header, both sums fitting): the physical constraint QTY ≥ YIELD
-     * over an AGREED numeric yield. Undecided stays contested (safe).
+     * Decides a QTY disagreement: first by the TO REFINE checksum (refine-ON rows, substituted sum inside
+     * the tolerance band), then by QTY ≥ YIELD over an agreed yield. Undecided stays contested.
      */
     private fun arbitrateQty(
         p: StitchedRow,
@@ -171,9 +149,8 @@ object CrossModelVerify {
         Validation.yieldRefineSignal(row) ?: (row.refine != "OFF")
 
     /**
-     * Name folding for comparison only (exported names stay verbatim): case, ALL whitespace and
-     * the bracket style fold — `SA VRIL IUM (ORE)` vs `SAVRILIUM [ORE]` is the same physical row
-     * transcribed by two models, not a disagreement worth a review flag.
+     * Folds a name for comparison only: case, all whitespace and bracket style are ignored, so
+     * `SA VRIL IUM (ORE)` equals `SAVRILIUM [ORE]`.
      */
     private fun foldName(name: String): String =
         name.uppercase().replace(Regex("\\s+"), "").replace('[', '(').replace(']', ')')

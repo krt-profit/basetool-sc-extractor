@@ -36,9 +36,7 @@ class MarkdownPanelParserTest {
         assertEquals("FERRON EXCHANGE", read.method)
         assertTrue(read.quoted)
         assertEquals("32295", read.inManifest)
-        // Grouping commas are dropped by the cell normalizer.
         assertEquals("32295", read.toRefine)
-        // A trailing ".00" is display formatting, not data.
         assertEquals("48928", read.totalCost)
         assertEquals("20H 58M", read.processingTime)
         assertEquals("CONFIRM", read.cta)
@@ -78,11 +76,8 @@ class MarkdownPanelParserTest {
         val read = MarkdownPanelParser.parse(answer)!!
 
         assertFalse(read.quoted)
-        // "--" cost/time mean "not quoted yet" — normalized to absent.
         assertNull(read.totalCost)
         assertNull(read.processingTime)
-        // A "--" yield cell stays verbatim: validation distinguishes the marker (un-quoted or
-        // refine-OFF) from an unreadable cell (null).
         assertEquals("--", read.rows[0].yield_)
     }
 
@@ -117,8 +112,6 @@ class MarkdownPanelParserTest {
 
     @Test
     fun `a literal PARTIAL ghost row is dropped`() {
-        // The 4b's real failure shape on Auftrag 7/8: the edge-cut marker emitted as a row of
-        // its own instead of a name suffix — no material is named PARTIAL, drop it.
         val answer = quotedAnswer + "\n| PARTIAL | ? | ? | ? | ? |"
 
         val read = MarkdownPanelParser.parse(answer)!!
@@ -142,7 +135,6 @@ class PanelValuesTest {
     @Test
     fun `quantities parse plain integers and reject HUD bleed-through`() {
         assertEquals(48928L, PanelValues.toQuantity("48928"))
-        // The Phase 0 golden set's real overlay artefact: an AR distance marker read as a cell.
         assertNull(PanelValues.toQuantity("2.1KM"))
         assertNull(PanelValues.toQuantity("--"))
         assertNull(PanelValues.toQuantity(null))

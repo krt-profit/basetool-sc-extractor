@@ -112,11 +112,9 @@ class ImageIntakeTest {
             val png = pngFile(source, "shot.png")
             val first = ImageIntake.copyInto(png, target)
             assertEquals(File(target, "shot.png").absolutePath, first.absolutePath)
-            // Same bytes again -> the existing copy is reused, no duplicate appears.
             val again = ImageIntake.copyInto(png, target)
             assertEquals(first.absolutePath, again.absolutePath)
             assertEquals(1, target.listFiles()!!.size)
-            // Different content under the same name -> dodged to clash-2.png.
             val clash = pngFile(source, "clash.png", rgb = 0x123456)
             pngFile(target, "clash.png", rgb = 0x654321)
             assertEquals("clash-2.png", ImageIntake.copyInto(clash, target).name)

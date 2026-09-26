@@ -16,12 +16,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Drives the "remember me" account surface (epic krt-profit/basetool#639, sub-issue #648): reflects
- * whether a basetool refresh token is stored and runs the "Vom Basetool trennen" disconnect —
- * revoke the token at Keycloak (best-effort), then delete it from Windows Credential Manager and
- * its non-exportable DPoP key from the key storage. A Compose state holder; the revoke/delete runs
- * off the UI thread. Collaborators are injected so the surface is exercisable without a real
- * Keycloak, credential vault or key storage.
+ * Drives the "remember me" account surface: reflects whether a refresh token is stored and runs the
+ * "Vom Basetool trennen" disconnect, revoking the token at Keycloak (best-effort) and deleting it and
+ * its DPoP key. A Compose state holder whose revoke and delete run off the UI thread.
  */
 class AccountController(
     private val credentialStore: CredentialStore = WinCredentialStore(),
@@ -68,8 +65,6 @@ class AccountController(
         working = true
         scope.launch {
             withContext(Dispatchers.IO) {
-                // A DPoP-bound refresh token is only revocable with a proof from the key it was
-                // issued to, which is why the record names that key (REQ-INGEST-012).
                 when (val record = credentialStore.loadRecord()) {
                     is CredentialRecord.Current -> {
                         val keyName = record.credential.dpopKeyName

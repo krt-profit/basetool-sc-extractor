@@ -22,11 +22,9 @@ import java.security.spec.ECPublicKeySpec
 import java.util.UUID
 
 /**
- * Where the persistent DPoP keys live. A key that has to survive the process — because the refresh
- * token bound to it does — is **created inside** a store and never leaves it; the credential record
- * keeps only its [DpopKey.keyName]. Implementations must be **fail-safe** like [CredentialStore]:
- * an unavailable store answers `null`/`false`, never throws, so the send flow falls back to a
- * session key and an interactive login.
+ * Where persistent DPoP keys live: a key is created inside a store and never leaves it, and the
+ * credential record keeps only its [DpopKey.keyName]. Implementations are fail-safe: an unavailable
+ * store answers `null`/`false` and never throws.
  */
 interface DpopKeyStore {
 
@@ -55,26 +53,14 @@ interface DpopKeyStore {
 }
 
 /**
- * [DpopKeyStore] on Windows CNG (`ncrypt.dll`), bound with the JDK Foreign Function &amp; Memory API
- * like [WinCredentialStore] — no native dependency, no JNI, no extra jlink module.
+ * [DpopKeyStore] on Windows CNG (`ncrypt.dll`), bound with the JDK Foreign Function & Memory API
+ * (REQ-INGEST-012).
  *
- * <p>**Which provider.** [PLATFORM_PROVIDER] (the TPM via the Microsoft Platform Crypto Provider) is
- * tried first: a TPM key's private half physically never leaves the chip. Where that fails — no TPM,
- * a TPM 1.2 without ECDSA, a policy that blocks it — [SOFTWARE_PROVIDER] (the Microsoft Software Key
- * Storage Provider) is used, with the export policy set to **0** (`NCRYPT_ALLOW_EXPORT_FLAG` not
- * set): Windows then refuses every private-key export, and signing happens inside the key-isolation
- * service rather than in this JVM. That is weaker than the TPM — an attacker already running code as
- * this user on this machine can still ask Windows to sign, and one with administrator rights can
- * patch key isolation — but either way a **copied** Credential Manager record is useless on another
- * machine, which is what `REQ-INGEST-012`'s sender-constraint is for.
+ * Tries [PLATFORM_PROVIDER] (the TPM) first, then [SOFTWARE_PROVIDER] with private-key export
+ * disabled. Keys are per-user, every call that could prompt is silent, and on any other OS every
+ * method degrades to "no key".
  *
- * <p>Keys are per-user (no `NCRYPT_MACHINE_KEY_FLAG`), live in the user profile's key storage — never
- * the install directory (guardrail 2) — and every call that could prompt passes `NCRYPT_SILENT_FLAG`,
- * so no Windows dialog can ever appear. `NCryptDeleteKey` alone gets no flags: the TPM provider
- * rejects the silent flag there (the key then stayed behind — found by the regression test), and
- * deleting never prompts. On any other OS every method degrades to "no key".
- *
- * @param providers the providers to try, in order — injectable so a test can pin the software one
+ * @param providers the providers to try, in order
  */
 class CngDpopKeyStore(private val providers: List<String> = listOf(PLATFORM_PROVIDER, SOFTWARE_PROVIDER)) :
     DpopKeyStore {
@@ -100,7 +86,6 @@ class CngDpopKeyStore(private val providers: List<String> = listOf(PLATFORM_PROV
                 val publicKey = withKey(provider, keyName) { _, key -> exportPublicKey(key) } ?: continue
                 return DpopKey(CngSigner(provider, keyName, publicKey), keyName)
             } catch (_: Throwable) {
-                // Not in this provider (or the provider is unusable) — try the next one.
             }
         }
         return null
@@ -116,10 +101,8 @@ class CngDpopKeyStore(private val providers: List<String> = listOf(PLATFORM_PROV
                     val opened =
                         Nc.openKey.invokeExact(prov, out, wide(arena, keyName), 0, NCRYPT_SILENT_FLAG) as Int
                     if (opened != 0) {
-                        true // not in this provider
+                        true
                     } else {
-                        // NCryptDeleteKey frees the handle on success; free it ourselves on failure.
-                        // No NCRYPT_SILENT_FLAG: the TPM provider refuses the delete with it.
                         val key = out.get(ValueLayout.JAVA_LONG, 0L)
                         val status = Nc.deleteKey.invokeExact(key, 0) as Int
                         if (status != 0) Nc.freeObject.invokeExact(key) as Int
@@ -135,9 +118,7 @@ class CngDpopKeyStore(private val providers: List<String> = listOf(PLATFORM_PROV
     }
 
     /**
-     * Whether Windows would hand out the private half of [keyName] — the property this store exists
-     * to rule out. Asks for both private-key blob formats CNG knows for ECDSA; a non-exportable key
-     * refuses both. Exposed for the regression test, which must be able to prove it on real CNG.
+     * Whether Windows would export the private half of [keyName]; exposed for the regression test.
      *
      * @param keyName the key to probe
      * @return `true` if any private export succeeded (a defect), `false` otherwise
@@ -148,8 +129,6 @@ class CngDpopKeyStore(private val providers: List<String> = listOf(PLATFORM_PROV
             try {
                 withKey(provider, keyName) { arena, key ->
                     listOf(BCRYPT_ECCPRIVATE_BLOB, NCRYPT_PKCS8_PRIVATE_KEY_BLOB).any { type ->
-                        // The full two-step export, so a provider that answers the size query but
-                        // refuses the data is judged by what it actually hands out.
                         val blobType = wide(arena, type)
                         val size = arena.allocate(ValueLayout.JAVA_INT)
                         val probe = Nc.exportKey.invokeExact(
@@ -181,9 +160,6 @@ class CngDpopKeyStore(private val providers: List<String> = listOf(PLATFORM_PROV
             if (created != 0) return@withProvider null
             val key = out.get(ValueLayout.JAVA_LONG, 0L)
             try {
-                // Export policy 0: no NCRYPT_ALLOW_EXPORT_FLAG, no plaintext export — set explicitly
-                // rather than relying on the provider default. The TPM provider cannot export a
-                // private key at all and may not accept the property; there a refusal is no defect.
                 val policy = arena.allocate(ValueLayout.JAVA_INT)
                 policy.set(ValueLayout.JAVA_INT, 0L, 0)
                 val set = Nc.setProperty.invokeExact(
@@ -192,7 +168,6 @@ class CngDpopKeyStore(private val providers: List<String> = listOf(PLATFORM_PROV
                 val policyOk = set == 0 || provider == PLATFORM_PROVIDER
                 val finalized = if (policyOk) Nc.finalizeKey.invokeExact(key, NCRYPT_SILENT_FLAG) as Int else set
                 if (finalized != 0) {
-                    // Discard the half-made key (NCryptDeleteKey also frees the handle on success).
                     val deleted = Nc.deleteKey.invokeExact(key, 0) as Int
                     if (deleted != 0) Nc.freeObject.invokeExact(key) as Int
                     return@withProvider null
@@ -227,7 +202,6 @@ class CngDpopKeyStore(private val providers: List<String> = listOf(PLATFORM_PROV
                 check(status == 0) { "NCryptSignHash failed: 0x${Integer.toHexString(status)}" }
                 val length = written.get(ValueLayout.JAVA_INT, 0L)
                 check(length == P256_SIGNATURE_BYTES) { "unexpected ECDSA signature length $length" }
-                // CNG's ECDSA output is already the raw R‖S that JWS ES256 wants.
                 signature.toArray(ValueLayout.JAVA_BYTE)
             } ?: error("the DPoP key $keyName is no longer available")
         }

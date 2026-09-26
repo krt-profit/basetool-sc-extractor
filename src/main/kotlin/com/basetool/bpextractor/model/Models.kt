@@ -4,13 +4,10 @@ import kotlinx.serialization.Serializable
 
 /**
  * One received-blueprint event, parsed from a single
- * `Added notification "Received Blueprint: <name>: " [id]` line in a Game.log.
+ * `Added notification "Received Blueprint: <name>: " [id]` line in a `Game.log`.
  *
- * All fields except [productName] and [receivedAt] may be absent depending on
- * what a given log build wrote, so they are nullable. We intentionally keep
- * every scrap of information the log carries about the blueprint — the player
- * who received it, when, in which game build, and from which file — because the
- * blueprint detail is the whole point of this tool.
+ * All fields except [productName] and [receivedAt] are nullable because not every log build writes
+ * them.
  */
 @Serializable
 data class BlueprintEvent(
@@ -48,9 +45,8 @@ data class BlueprintExport(
     val generatedAt: String,
     val sourceFolder: String,
     /**
-     * Extra channel folders swept besides [sourceFolder] (currently the sibling HOTFIX
-     * channel next to LIVE), or null when only [sourceFolder] was scanned. Additive
-     * nullable field within schemaVersion 1 (basetool ADR-0008 evolution rule).
+     * Extra channel folders swept besides [sourceFolder] (the sibling HOTFIX channel), or `null` when
+     * only [sourceFolder] was scanned.
      */
     val additionalSourceFolders: List<String>? = null,
     val logFilesScanned: Int,

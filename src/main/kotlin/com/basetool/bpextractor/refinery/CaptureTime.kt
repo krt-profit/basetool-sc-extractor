@@ -9,23 +9,12 @@ import java.time.LocalTime
 import java.time.ZoneId
 
 /**
- * Derives the capture instant of a screenshot file — the metadata source for the contract's
- * per-image `capturedAt` field. The basetool uses the LATEST capture of an order as the
- * refinery-order start time (the user captures the SETUP panel right when starting the order).
+ * Derives a screenshot's capture instant for the contract's per-image `capturedAt`.
  *
- * Strategy, first hit wins:
- * 1. A timestamp embedded in the file NAME. It survives copies and downloads — Discord, browsers
- *    and file sync reset the file times but keep the name (verified on field samples whose
- *    modified time was days after the name timestamp). Recognized shapes:
- *    - Windows Snipping Tool: `Screenshot 2026-06-01 213823.png`
- *    - Star Citizen client:   `ScreenShot-2026-06-06_15-50-53-C28.jpg`
- *    - generally: `yyyy-MM-dd` + `HHmmss` (separators `-`/`:`/`.` optional between time parts)
- * 2. The file's last-modified time — right for clipboard pastes (`image.png` is written by the
- *    intake at capture time) and untouched originals.
- *
- * Name timestamps carry no zone and are interpreted in [ZoneId.systemDefault] — the machine that
- * captured the screenshots is the machine running the extractor. EXIF is intentionally NOT read:
- * neither the SC client nor the Snipping Tool writes a capture tag (verified on field samples).
+ * First hit wins:
+ * 1. a timestamp in the file name (`yyyy-MM-dd` plus `HHmmss`, e.g. `Screenshot 2026-06-01 213823.png`
+ *    or `ScreenShot-2026-06-06_15-50-53-C28.jpg`), interpreted in [ZoneId.systemDefault];
+ * 2. the file's last-modified time.
  */
 object CaptureTime {
 

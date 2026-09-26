@@ -3,18 +3,14 @@ package com.basetool.bpextractor.refinery
 import java.nio.file.Path
 
 /**
- * Lazy, process-lifetime provider of the bundled classical-OCR cross-reader ([PanelOcr]). The ONNX
- * sessions are heavyweight, so they are created at most once — on the FIRST refinery extraction
- * that asks for them (a blueprint-only session never loads them) — and reused across runs; they are
- * deliberately never closed (process lifetime). The pipeline must not close the returned instance.
+ * Lazy, process-lifetime provider of the bundled classical-OCR reader ([PanelOcr]), created on the
+ * first refinery extraction that asks for it and never closed; callers must not close it.
  *
  * Resolution order:
- * 1. `OCR_MODELS_DIR` env override — a folder holding the two `ch_PP-OCRv3_{det,rec}_infer.onnx`
- *    files. Lets the golden-sweep harness validate the integration against local models BEFORE the
- *    ~12.5 MB models are bundled into the app.
- * 2. The bundled classpath resources under `/ocr/`. Absent in a dev/test build with no models
- *    bundled — [get] then returns null and the pipeline runs without the OCR cross-check (no
- *    regression: the VLM result stands).
+ * 1. the `OCR_MODELS_DIR` environment override, a folder holding the two
+ *    `ch_PP-OCRv3_{det,rec}_infer.onnx` files;
+ * 2. the bundled classpath resources under `/ocr/`. When absent, [get] returns `null` and the
+ *    pipeline runs without the OCR cross-check.
  */
 object OcrModels {
 

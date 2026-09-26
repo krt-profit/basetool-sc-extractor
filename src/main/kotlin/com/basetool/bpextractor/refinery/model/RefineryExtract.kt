@@ -3,11 +3,9 @@ package com.basetool.bpextractor.refinery.model
 import kotlinx.serialization.Serializable
 
 /**
- * The frozen `RefineryExtract` JSON contract, v1 — the single hand-off between this desktop tool,
- * the basetool frontend upload and the backend import endpoint (master plan §5, ADR-0008 in the
- * basetool repo). Field names and shapes are FROZEN: any breaking change requires bumping
- * [SCHEMA_VERSION] and a coordinated backend change. The backend accepts `schemaVersion == 1`
- * only and rejects anything else with a 400.
+ * The frozen `RefineryExtract` JSON contract, v1: the single hand-off between this tool, the basetool
+ * frontend upload and the backend import. A breaking change requires bumping [SCHEMA_VERSION]; the
+ * backend accepts `schemaVersion == 1` only.
  */
 @Serializable
 data class RefineryExtract(
@@ -103,33 +101,23 @@ data class RefineryExtractGood(
 )
 
 /**
- * The `rowIndex`es whose `inputQuantity` is null — rows the basetool ingest edge HARD-REJECTS. The
- * server contract makes `inputQuantity` `@NotNull @PositiveOrZero`, but this producer emits `null`
- * when the QTY cell could not be read at all (a clipped or too-small capture, e.g. a panel crop that
- * lost the number columns). Sending such a payload makes the gateway answer `400` with an opaque
- * `"Validation failed."` problem, so the export screen blocks the send on this instead and points the
- * user back to the review to correct (or re-capture) the flagged rows. Empty ⇒ every row carries a
- * quantity and the payload clears the edge. Spans every order, in on-screen (`rowIndex`) order.
+ * The `rowIndex`es whose `inputQuantity` is `null`, which the ingest edge rejects, so the export
+ * screen blocks the send on them. Spans every order in on-screen order; empty when every row has a
+ * quantity.
  */
 fun RefineryExtract.rowsMissingQuantity(): List<Int> =
     orders.flatMap { it.goods }.filter { it.inputQuantity == null }.map { it.rowIndex }
 
 /**
- * The indexes of orders carrying **no source image**, which the ingest edge HARD-REJECTS since
- * `orders[].sourceImages` became `@NotEmpty` (ADR-0008 amendment, `REQ-INGEST-010`). This producer
- * builds the list from the very screenshots the extraction ran on, so an empty one is a can't-happen
- * — but "can't happen" is exactly what an edge contract is for, and the local guard turns a
- * would-be opaque `400 "Validation failed."` from the gateway into a sentence naming the problem.
- * Empty ⇒ every order carries its provenance. See [ordersMissingGoods] for the sibling check.
+ * The indexes of orders without a source image, which the ingest edge rejects (REQ-INGEST-010);
+ * empty when every order carries its provenance.
  */
 fun RefineryExtract.ordersMissingSourceImages(): List<Int> =
     orders.indices.filter { orders[it].sourceImages.isEmpty() }
 
 /**
- * The indexes of orders carrying **no goods row**, likewise `@NotEmpty` at the ingest edge since the
- * ADR-0008 amendment. Unlike [ordersMissingSourceImages] this one is reachable in practice: a
- * capture of an empty manifest, or one whose row area was cropped away, stitches to zero rows — and
- * there is nothing to import from it. Empty ⇒ every order has at least one row.
+ * The indexes of orders without a goods row, which the ingest edge rejects; empty when every order
+ * has at least one row.
  */
 fun RefineryExtract.ordersMissingGoods(): List<Int> =
     orders.indices.filter { orders[it].goods.isEmpty() }

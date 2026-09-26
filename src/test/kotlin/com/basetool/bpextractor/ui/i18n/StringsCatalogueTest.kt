@@ -6,17 +6,8 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 /**
- * Guards the two things about the string catalogues that nothing else catches.
- *
- * <p>**Class loading.** A flat `class Strings(val …)` would exceed the JVM's 254-value-parameter
- * constructor limit and be rejected at class-LOAD time with `ClassFormatError` — which
- * `compileKotlin` does not see and which, before this test, only a manual GUI launch would reveal
- * (and only for the German catalogue, since [StringsEn] loads first when someone flips the toggle).
- * Touching every entry of both objects forces both to initialise here.
- *
- * <p>**Parity.** German is the default and English must have full parity (design spec §6). Walking
- * the [Strings] interface by reflection means a new entry is covered the moment it is declared,
- * without anyone remembering to extend this test.
+ * Guards class loading and DE/EN parity of the string catalogues: every entry of both objects is
+ * touched, forcing both to initialise, and the [Strings] interface is walked by reflection.
  */
 class StringsCatalogueTest {
 
@@ -33,10 +24,7 @@ class StringsCatalogueTest {
                 when (value) {
                     is String ->
                         assertTrue(value.isNotBlank(), "$name.${accessor.name} is blank")
-                    // Flat lists of strings plus the nested help tables (List<List<String>>).
                     is List<*> -> assertNoBlankLeaf(value, "$name.${accessor.name}")
-                    // Lambdas and the grouped holders (SendStrings/AccountStrings): being non-null
-                    // is the whole assertion — their contents are exercised below.
                     else -> Unit
                 }
             }
@@ -45,8 +33,6 @@ class StringsCatalogueTest {
 
     @Test
     fun `the grouped send and account holders are filled in both languages`() {
-        // These two are real classes with constructors, so a missing argument is a compile error —
-        // but a blank one is not, and they carry the send flow's entire user-facing vocabulary.
         for (catalogue in listOf<Strings>(StringsDe, StringsEn)) {
             val name = catalogue::class.simpleName
             with(catalogue.send) {
@@ -55,17 +41,11 @@ class StringsCatalogueTest {
                     .forEach { assertTrue(it.isNotBlank(), "$name.send has a blank entry") }
                 assertTrue(authCode("WXYZ-1234").contains("WXYZ-1234"))
                 assertTrue(error("boom").contains("boom"))
-                // The gateway's CLIENT_NOT_ALLOWED detail is a hardcoded English sentence with no
-                // server-side localisation, so the extractor's own wording has to carry the
-                // explanation — and still relay what the basetool said.
                 assertTrue(errorClientNotAllowed("boom").contains("boom"))
                 assertTrue(
                     errorClientNotAllowed("boom").length > error("boom").length,
                     "$name: a permanent refusal needs more than the generic failure line",
                 )
-                // The two other named failures: a nonce handshake this build does not speak, and a
-                // clock too far off for any proof to land. Both must relay the server's words AND
-                // say what would actually fix them.
                 assertTrue(errorDpopNonceRequired("boom").contains("boom"))
                 assertTrue(errorClockSkew(-42, "boom").contains("boom"))
                 assertTrue(errorClockSkew(-42, "boom").contains("42"), "$name: state the measurement")
@@ -88,14 +68,12 @@ class StringsCatalogueTest {
             assertTrue(catalogue.rfSendBlockedMissingQty(3).contains("3"))
             assertTrue(catalogue.rfExportSuccess("C:\\tmp\\x.json").contains("C:\\tmp\\x.json"))
         }
-        // The two @NotEmpty guards (ADR-0008 amendment) are fixed sentences; only parity matters.
         assertNotEquals(StringsDe.rfSendBlockedNoGoods, StringsEn.rfSendBlockedNoGoods)
         assertNotEquals(StringsDe.rfSendBlockedNoSourceImages, StringsEn.rfSendBlockedNoSourceImages)
     }
 
     @Test
     fun `the catalogues are distinct objects with distinct wording`() {
-        // A copy-paste that left StringsEn pointing at German text would otherwise pass everything.
         val differing =
             accessors.count { accessor ->
                 val de = accessor.invoke(StringsDe)

@@ -40,29 +40,19 @@ import java.awt.Desktop
 import java.io.File
 
 /**
- * §5.5 Export & Versand on the [StepScaffold]: the reviewed contract is either **sent straight to
- * the basetool** (the single filled CTA — nothing is written to disk) or **saved as JSON locally**
- * (the alternative). Saving locally is never required for sending; if a send fails, the save-JSON
- * path stays available as a fallback (also offered inside the send overlay). After a local save the
- * green written-path alert + "show in folder" appear. A provenance panel mirrors the contract
- * fields, and the manual-upload card explains how to import a saved JSON by hand.
+ * The Export & Versand step: the reviewed contract is sent straight to the basetool or saved as JSON
+ * locally, the latter also offered as a fallback when a send fails.
  *
- * @param state the refinery workflow state (provides the reviewed extract + the local-save write)
- * @param appScope the window-root scope long-running send/write work runs on
- * @param onPicker hosts the KRT save-file picker at the window root (no native dialogs)
+ * @param state the refinery workflow state
+ * @param appScope the window-root scope long-running send and write work runs on
+ * @param onPicker hosts the KRT save-file picker at the window root
  */
 @Composable
 fun ExportStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (PickerRequest) -> Unit) {
     val strings = LocalStrings.current
     val extract = state.reviewedExtract() ?: return
     val order = extract.orders.first()
-    // Rows whose quantity could not be read (a clipped/too-small capture): the basetool ingest edge
-    // rejects a null inputQuantity (@NotNull) with an opaque "Validation failed." 400. Block the send
-    // here and point the user back to the review instead of shipping a payload the gateway rejects.
     val missingQtyRows = extract.rowsMissingQuantity()
-    // Same reasoning for the two lists the frozen contract made @NotEmpty (ADR-0008 amendment):
-    // sending an order without its screenshots or without a single goods row buys the same opaque
-    // 400 from the edge, so it is named here instead.
     val ordersWithoutImages = extract.ordersMissingSourceImages()
     val ordersWithoutGoods = extract.ordersMissingGoods()
     val canSend = missingQtyRows.isEmpty() && ordersWithoutImages.isEmpty() && ordersWithoutGoods.isEmpty()
@@ -70,11 +60,8 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
     val exportError = state.exportError
     val canOpen = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
     val sendController = remember { SendController() }
-    // The export's locale tag for the relayed Accept-Language (derived from the active catalogue).
     val langTag = if (strings === StringsEn) "en" else "de"
 
-    // Save-JSON-locally: open the KRT save picker, then write the reviewed contract to the chosen
-    // path. Used both as the explicit alternative to sending and as the fallback after a failed send.
     val saveJsonLocally = {
         onPicker(
             PickerRequest(
@@ -104,14 +91,12 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
                     )
                 }
                 GhostButton(strings.rfNewExtraction, onClick = { state.newExtraction() })
-                // Saving the JSON locally is the alternative to sending — no file is written unless used.
                 GhostButton(strings.rfCtaExport, onClick = saveJsonLocally)
                 Spacer(Modifier.weight(1f))
                 CtaButton(
                     strings.send.button,
                     enabled = canSend,
                     onClick = {
-                        // Send the reviewed contract straight from memory — nothing is written to disk.
                         if (!canSend) return@CtaButton
                         val json = runCatching { RefineryPipeline.toJson(extract) }.getOrNull()
                         if (json != null) sendController.request(appScope, SendKind.REFINERY, json, langTag)
@@ -165,7 +150,6 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
             }
 
             Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                // Manual-upload instructions — the fallback path if you saved the JSON instead of sending.
                 Column(
                     modifier = Modifier.weight(1.4f).fillMaxHeight().hudBox().padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -179,7 +163,6 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
                         Text(stepText, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
                     }
                 }
-                // Provenance panel mirroring the contract fields.
                 Column(
                     modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Gray3).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),

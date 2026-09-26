@@ -10,19 +10,11 @@ import java.nio.file.Path
 import kotlin.math.ceil
 
 /**
- * Classical-OCR digit reader: PP-OCRv3 text recognition (CRNN + CTC) run via ONNX Runtime, used as a
- * DECORRELATED second opinion on the numeric cells the VLM mis-reads (the SC HUD 0/8·6/8·8/9 glyph
- * confusions — see `docs`/memory `refinery-digit-misread-recovery`). On the golden captures this
- * reader recovers cells every VLM misses (e.g. an INERT qty both the 8b and 4b read wrong).
+ * Classical-OCR digit reader (PP-OCRv3 recognition, CRNN + CTC, via ONNX Runtime), a decorrelated
+ * second opinion on numeric cells the VLM misreads.
  *
- * Recognition ONLY: the caller crops a single horizontal cell (one number) and reads it — there is no
- * panel-structure understanding here, so it is never used standalone. The pipeline pairs each cell
- * read with the VLM's structured read and resolves disagreements deterministically (qty checksum,
- * yield rate, or 8b/4b/OCR majority). The character dictionary is read from the model's `character`
- * metadata; the result is filtered to [0-9], discarding the model's letter guesses (the numeric
- * columns are pure digits).
- *
- * The ONNX session is heavyweight — construct once and reuse; [close] releases the native session.
+ * Reads a single cropped cell only and is never used standalone; the result is filtered to `0-9`.
+ * The ONNX session is heavyweight: construct once and reuse; [close] releases it.
  */
 class DigitOcr private constructor(
     private val env: OrtEnvironment,
@@ -60,7 +52,7 @@ class DigitOcr private constructor(
         OnnxTensor.createTensor(env, FloatBuffer.wrap(data), shape).use { tensor ->
             session.run(mapOf(inputName to tensor)).use { result ->
                 @Suppress("UNCHECKED_CAST")
-                val preds = (result[0].value as Array<Array<FloatArray>>)[0] // [timestep][class]
+                val preds = (result[0].value as Array<Array<FloatArray>>)[0]
                 return ctcDigits(preds)
             }
         }
@@ -86,9 +78,9 @@ class DigitOcr private constructor(
             for (x in 0 until width) {
                 val rgb = scaled.getRGB(x, y)
                 val i = y * width + x
-                data[i] = (rgb and 0xFF) / 127.5f - 1f                  // channel 0 = B
-                data[plane + i] = ((rgb shr 8) and 0xFF) / 127.5f - 1f  // channel 1 = G
-                data[2 * plane + i] = ((rgb shr 16) and 0xFF) / 127.5f - 1f // channel 2 = R
+                data[i] = (rgb and 0xFF) / 127.5f - 1f
+                data[plane + i] = ((rgb shr 8) and 0xFF) / 127.5f - 1f
+                data[2 * plane + i] = ((rgb shr 16) and 0xFF) / 127.5f - 1f
             }
         }
         return data to width

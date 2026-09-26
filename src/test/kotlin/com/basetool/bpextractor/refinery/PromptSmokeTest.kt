@@ -9,18 +9,14 @@ import javax.imageio.ImageIO
 import kotlin.test.Test
 
 /**
- * Manual smoke harness for the live read path (Locate → Normalize → PanelReader → Stitch →
- * Validation) against a local folder of REAL sample orders — used to spot-check prompt changes
- * against a running Ollama. Skipped (trivially green) unless `PROMPT_SMOKE_DIR` points at a
- * folder of order folders (one folder = one order, e.g. `…\Beispiele Raffinerieaufträge`).
+ * Manual smoke harness for the live read path (Locate, Normalize, PanelReader, Stitch, Validation)
+ * against a running Ollama. Trivially green unless `PROMPT_SMOKE_DIR` points at a folder of order
+ * folders.
  *
- * The per-image reads + validated orders are written to `build/prompt-smoke.txt` (or
- * `PROMPT_SMOKE_OUT`). With `PROMPT_SMOKE_EXPECTED=<file>` the validated values are diffed
- * against a golden-expected JSON and the test FAILS on any regression — set
- * `PROMPT_SMOKE_WRITE_EXPECTED=1` to (re)write the file from the current state. The input
- * captures, the report AND the expected file contain PRIVATE data (player handle, balance) —
- * keep all of them outside the repo (guardrail 1a; the expected file lives best next to the
- * golden set itself).
+ * Writes the reads to `build/prompt-smoke.txt` (or `PROMPT_SMOKE_OUT`). With
+ * `PROMPT_SMOKE_EXPECTED=<file>` it fails on any deviation from that golden file, which
+ * `PROMPT_SMOKE_WRITE_EXPECTED=1` rewrites. Inputs, report and expected file hold private data and
+ * stay outside the repo.
  */
 class PromptSmokeTest {
 
@@ -41,7 +37,6 @@ class PromptSmokeTest {
         require(root.isDirectory) { "PROMPT_SMOKE_DIR is not a directory: $root" }
         val model = System.getenv("PROMPT_SMOKE_MODEL") ?: "qwen3-vl:8b-instruct"
         val reader = PanelReader(HttpOllamaClient(), model)
-        // Optional cross-model verify pass, mirroring RefineryPipeline's merge semantics.
         val verifyName = System.getenv("PROMPT_SMOKE_VERIFY_MODEL")?.takeUnless { it.isBlank() }
         val verifier = verifyName?.let { PanelReader(HttpOllamaClient(), it) }
         val report = StringBuilder()
@@ -65,8 +60,6 @@ class PromptSmokeTest {
                 var prepared = Locate.prepare(img, box)
                 var b64 = toBase64Png(prepared.readImage)
                 var panel = reader.readPanel(b64)
-                // Ultrawide rescue, mirroring RefineryPipeline: a sidebar-clipped per-panel crop
-                // reads names but no quantities (Auftrag 16) — retry once with the terminal extent.
                 if (box != null && Locate.isUltrawide(img) && (panel == null || panel!!.rows.none { it.qty != null })) {
                     Locate.terminalExtentBox(img)?.takeIf { it != box }?.let { extentBox ->
                         val rescued = Locate.prepare(img, extentBox)
@@ -80,8 +73,6 @@ class PromptSmokeTest {
                 }
                 panels[file.name] = prepared.readImage
                 if (verifier != null) verifyQueue += file.name to b64
-                // Location semantics mirror RefineryPipeline: read ONCE, from the first capture
-                // that has a header strip (a null answer does not retry on later captures).
                 if (!locationRead && prepared.locationImage != null) {
                     location = reader.readLocation(toBase64Png(prepared.locationImage))
                     locationRead = true
@@ -127,7 +118,6 @@ class PromptSmokeTest {
                     report.appendLine("  VERIFY ($verifyName) incomplete second read — skipped")
                 }
             }
-            // Classical-OCR cross-check (env OCR_MODELS_DIR or bundled), mirroring RefineryPipeline.
             val ocrResult = OcrModels.get()?.let { ocr ->
                 OcrCrossCheck.read(stitched.rows, panels, ocr, PanelValues.toQuantity(stitched.toRefine))
             }

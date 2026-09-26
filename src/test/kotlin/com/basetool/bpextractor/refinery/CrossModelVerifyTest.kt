@@ -6,9 +6,8 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
- * Pins the cross-model verify merge (PHASE0 addendum 2026-06-12): disagreement flagging, the
- * TO-REFINE checksum arbitration of QTY disagreements, cosmetic name folding and the conservative
- * row-count gate — modelled on the real golden-set disagreements between the 8b and the 4b.
+ * Pins the cross-model verify merge: disagreement flagging, TO REFINE checksum arbitration of QTY
+ * disagreements, cosmetic name folding and the row-count gate.
  */
 class CrossModelVerifyTest {
 
@@ -38,8 +37,6 @@ class CrossModelVerifyTest {
 
     @Test
     fun `a QTY disagreement is corrected when only the verify value lands on TO REFINE`() {
-        // The Auftrag 10 reality: primary reads 483, verify reads 403; Σ QTY(ON) with 403 lands
-        // exactly on the header (46+403+192+727+276 = 1644 ≈ 1645), with 483 it exceeds it.
         val primary = listOf(
             row("GOLD (ORE)", qty = "46", yield_ = "21"),
             row("BORASE (ORE)", quality = "359", qty = "483", yield_ = "195"),
@@ -84,7 +81,6 @@ class CrossModelVerifyTest {
 
     @Test
     fun `an ambiguous QTY disagreement stays contested`() {
-        // Both candidates land inside the tolerance band (difference 1 on a 1-row order).
         val primary = listOf(row("GOLD (ORE)", qty = "46", yield_ = "21"))
         val secondary = listOf(row("GOLD (ORE)", qty = "47", yield_ = "21"))
 
@@ -96,9 +92,6 @@ class CrossModelVerifyTest {
 
     @Test
     fun `a QTY disagreement is decided by the yield bound where the checksum cannot reach`() {
-        // No usable header arbitration (both sums short of TO REFINE — scrolled viewport), but
-        // the models AGREE on the yield: a QTY below its own yield is physically impossible
-        // (refining removes impurities), so the candidate satisfying QTY ≥ YIELD wins.
         val primary = listOf(row("GOLD (ORE)", qty = "46", yield_ = "50"))
         val secondary = listOf(row("GOLD (ORE)", qty = "96", yield_ = "50"))
 
@@ -111,7 +104,6 @@ class CrossModelVerifyTest {
 
     @Test
     fun `a YIELD disagreement is decided by the agreed QTY bound`() {
-        // The models agree on QTY 100; a yield of 195 would exceed it — the 95 candidate wins.
         val primary = listOf(row("BORASE (ORE)", qty = "100", yield_ = "195"))
         val secondary = listOf(row("BORASE (ORE)", qty = "100", yield_ = "95"))
 
@@ -155,8 +147,6 @@ class CrossModelVerifyTest {
 
     @Test
     fun `a one-edit name garble with agreeing numbers is not contested`() {
-        // The verify partner's run-to-run artefact (LINDINIMUM): basetool fuzzy-matches names —
-        // with quality+qty agreeing this is transcription noise, not a review-worthy mismatch.
         val primary = listOf(row("LINDINIUM (ORE)", quality = "729", qty = "391", yield_ = "183"))
         val secondary = listOf(primary[0].copy(name = "LINDINIMUM (ORE)"))
 
@@ -168,8 +158,6 @@ class CrossModelVerifyTest {
 
     @Test
     fun `a refine disagreement is contested only where the yield signal does not decide`() {
-        // Row 0: quoted with a numeric yield — the yield rule decides, no flag needed.
-        // Row 1: un-quoted read — no signal, the toggle disagreement must surface.
         val primary = listOf(
             row("GOLD (ORE)", yield_ = "21", refine = "ON"),
             row("BEXALITE (RAW)", yield_ = "--", refine = "ON", quotedRead = false),

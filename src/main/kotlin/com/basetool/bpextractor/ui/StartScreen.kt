@@ -33,11 +33,8 @@ import com.basetool.bpextractor.ui.i18n.LocalStrings
 import com.basetool.bpextractor.ui.refinery.KrtChip
 
 /**
- * The launcher (design spec §3, "Start" tab): the greeting banner (the one place it remains after
- * the redesign), a "choose a workflow" overline and one card per workflow. The cards grow to fill
- * the window height (`REDESIGN_IMPLEMENTATION.md` §4.1) — each card earns that height with a
- * centred bullet block (input / output / runs-locally) between its description and its pinned
- * open action, so there is no padded void. The fan-kit footer is global and lives outside.
+ * The launcher on the Start tab: the greeting banner and one card per workflow, each card filling the
+ * window height with its description, bullet block and open action.
  */
 @Composable
 fun StartScreen(
@@ -48,8 +45,6 @@ fun StartScreen(
 ) {
     val strings = LocalStrings.current
     val honeycomb = rememberHoneycombPainter()
-    // The "remember me" account state (#648); refreshed on entry so a token a send just stored
-    // shows as connected when the user returns to Start.
     val account = remember { AccountController() }
     val accountScope = rememberCoroutineScope()
     LaunchedEffect(Unit) { account.refresh() }
@@ -57,7 +52,6 @@ fun StartScreen(
         Column(modifier = Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 16.dp)) {
             GreetingHeader(title = strings.startTitle, subtitle = strings.startSubtitle)
             Spacer(Modifier.height(14.dp))
-            // The update offer (hidden unless a newer GitHub release was found at startup).
             if (update !is UpdateUiState.Hidden) {
                 UpdateBanner(state = update, onInstall = onUpdateInstall, onDismiss = onUpdateDismiss)
                 Spacer(Modifier.height(14.dp))
@@ -69,7 +63,6 @@ fun StartScreen(
             )
             Spacer(Modifier.height(10.dp))
 
-            // The two workflow cards fill the remaining height (audit fix: no bottom void).
             Row(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -145,7 +138,6 @@ private fun WorkflowCard(
         Spacer(Modifier.height(8.dp))
         Text(description, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
 
-        // The growing middle zone: bullets centred between hairlines (the height is earned).
         Column(
             modifier = Modifier
                 .weight(1f)

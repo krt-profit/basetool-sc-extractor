@@ -39,27 +39,20 @@ import com.basetool.bpextractor.ui.i18n.LocalStrings
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * §5.3 Extraktion on the [StepScaffold]: overall progress + measured per-image ETA, one row per
- * image with the Locate → Normalize → Read stage track (strictly one image active at a time) and
- * the orange-accent console pane filling the height side by side, the model chip in the head,
- * the per-image un-quoted ⚠ state, and the pinned cancel / "Weiter: Review" footer.
+ * The Extraktion step: overall progress with the per-image ETA, one row per image with its stage
+ * track, a console pane, and the cancel / "Weiter: Review" footer.
  */
 @Composable
 fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
     val strings = LocalStrings.current
-    // Auto-start once when the step is entered with no result yet. The run lives on the
-    // window-root scope so leaving this composable (step/tab switch) cannot cancel it.
     LaunchedEffect(Unit) {
         if (!state.running && state.result == null && state.extractError == null) {
             state.runExtraction(appScope, BlueprintExtractor.TOOL_VERSION)
         }
     }
 
-    // The run works on the §5.2 selection snapshot, not the full grid list.
     val total = state.runImages.size
     val done = state.outcomes.size
-    // During the verify pass (all reads done, run still active) the remaining estimate comes
-    // from the not-yet-verified images instead of the long-finished read counter.
     val verifyStarted = state.stageReached.values.count { it == PipelineStage.VERIFY }
     val remaining =
         if (state.runVerify && done == total && state.running) {
@@ -74,7 +67,6 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
         scrollBody = false,
         headRight = { KrtChip(state.selectedModel, color = Krt.Orange, border = Krt.Orange) },
         footer = {
-            // Cancel/back left, Review CTA right (enables on completion).
             if (state.running) {
                 GhostButton(strings.rfCancel, onClick = { state.cancelRequested = true })
             } else {
@@ -107,7 +99,6 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
         Spacer(Modifier.height(14.dp))
 
         Row(modifier = Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            // Left: per-image stage tracks (scrolls when an order has many captures).
             Column(
                 modifier = Modifier
                     .weight(1f)
@@ -121,7 +112,6 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
                     ImageStageRow(state, index, image)
                 }
             }
-            // Right: console pane (orange accent).
             Column(modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Orange).padding(12.dp)) {
                 Text(
                     strings.rfConsoleTitle.uppercase(),
@@ -141,7 +131,6 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
             }
         }
 
-        // Un-quoted warning (§5.3): any GET-QUOTE capture earns the amber alert.
         val unquotedCount = state.outcomes.values.count { it.quoted == false }
         if (unquotedCount > 0) {
             Spacer(Modifier.height(12.dp))
@@ -184,7 +173,6 @@ private fun ImageStageRow(state: RefineryUiState, index: Int, image: RefineryIma
         active -> Krt.Orange
         else -> Krt.Gray2
     }
-    // The VERIFY stage only exists for runs with a cross-model verify pass.
     val stages = if (state.runVerify) {
         PipelineStage.entries
     } else {
@@ -205,8 +193,6 @@ private fun ImageStageRow(state: RefineryUiState, index: Int, image: RefineryIma
         ) {
             stages.forEach { stage ->
                 val passed = when {
-                    // VERIFY runs after every image's read: done once a later image started
-                    // verifying or the run finished — the read outcome alone says nothing.
                     stage == PipelineStage.VERIFY ->
                         reached == PipelineStage.VERIFY && (state.currentIndex > index || !state.running)
                     reached != null && reached.ordinal > stage.ordinal -> true

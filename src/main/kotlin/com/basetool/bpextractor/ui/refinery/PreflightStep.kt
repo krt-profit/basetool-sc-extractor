@@ -35,12 +35,8 @@ import com.basetool.bpextractor.ui.i18n.LocalStrings
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * §5.1 Vorprüfung & Setup on the [StepScaffold] (`REDESIGN_IMPLEMENTATION.md` §4.3 — the most
- * important fix of the redesign): the body SCROLLS and the CTA lives in the pinned footer, so
- * the worst case (minimum tier with two fallback radios + model-missing alert + SC-running
- * banner) can never push "Weiter: Bilder laden" off-screen. The head carries the help button
- * opening the KRT help page (§4.3a); the cards are the Ollama runtime and hardware panels, with
- * the SC soft-warning banner below.
+ * The Vorprüfung & Setup step: a scrolling body with the Ollama runtime and hardware cards and the SC
+ * warning banner, and the CTA in the pinned footer so it is never pushed off-screen.
  */
 @Composable
 fun PreflightStep(state: RefineryUiState, appScope: CoroutineScope) {
@@ -94,7 +90,6 @@ private fun OllamaCard(state: RefineryUiState, appScope: CoroutineScope, modifie
         is OllamaStatus.PullFailed, is OllamaStatus.Unreachable -> Krt.Danger
     }
     PanelCard(strings.rfOllamaCardTitle, dot, modifier) {
-        // Endpoint is configurable (master plan: endpoint + model name configurable).
         Text(strings.rfEndpointLabel.uppercase(), style = MaterialTheme.typography.labelMedium, color = Krt.Gray2)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             KrtTextField(

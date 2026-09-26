@@ -17,14 +17,11 @@ from pathlib import Path
 
 from PIL import Image
 
-# The model's sweet spot per the master plan section 9 / Phase 0.
 TARGET_LONG_EDGE = 1536
-PRECROP_MAX_DIM = 1200  # a ~500 px panel upscaled beyond ~2.4x just blurs
+PRECROP_MAX_DIM = 1200
 
-# Verified manually against the owner's 4K example set (all nine 3840x2160 frames
-# share this terminal layout; the work-order panel is stable across them).
-PANEL_4K = (950, 350, 920, 1500)  # x, y, w, h in source pixels
-LOCATION_4K = (250, 200, 900, 220)  # terminal header strip holding the location
+PANEL_4K = (950, 350, 920, 1500)
+LOCATION_4K = (250, 200, 900, 220)
 
 
 def is_precropped(img: Image.Image) -> bool:
@@ -84,8 +81,7 @@ def locate_panels(img: Image.Image) -> list[tuple[int, int, int, int]]:
     px = small.load()
     w, h = small.size
     max_gap = max(6, w // 80)
-    # 1. Per row: gap-tolerant maroon runs of plausible strip width.
-    row_runs: list[tuple[int, int, int]] = []  # (y, x0, x1)
+    row_runs: list[tuple[int, int, int]] = []
     for y in range(h):
         matches = [_is_maroon(*px[x, y]) for x in range(w)]
         for x0, x1 in _runs(matches, max_gap):
@@ -93,8 +89,6 @@ def locate_panels(img: Image.Image) -> list[tuple[int, int, int, int]]:
             density = sum(matches[x0 : x1 + 1]) / max(1, width + 1)
             if 0.08 * w <= width <= 0.45 * w and density >= 0.35:
                 row_runs.append((y, x0, x1))
-    # 2. Cluster runs that overlap horizontally, sit on consecutive rows AND have
-    #    similar width (environment noise above the strip must not chain in).
     clusters: list[list[tuple[int, int, int]]] = []
     for run in sorted(row_runs):
         y, x0, x1 = run
@@ -110,25 +104,15 @@ def locate_panels(img: Image.Image) -> list[tuple[int, int, int, int]]:
             clusters.append([run])
     boxes: list[tuple[int, int, int, int]] = []
     for cl in clusters:
-        if len(cl) < 2:  # a real strip is several rows tall even at 1/4 scale
+        if len(cl) < 2:
             continue
         ys = [r[0] for r in cl]
         x0 = sorted(r[1] for r in cl)[len(cl) // 2]
         x1 = sorted(r[2] for r in cl)[len(cl) // 2]
         strip_top, strip_bot = min(ys), max(ys)
-        if strip_bot - strip_top > 12:  # too tall to be a tab strip
+        if strip_bot - strip_top > 12:
             continue
         strip_w = x1 - x0
-        # 3. Confirm with an orange element (CTA button / progress bar) below the
-        #    strip. The maroon strip covers only the LEFT part of the panel (the
-        #    "WORK ORDER n" zone right of it is dark gray — measured), while the
-        #    CTA is right-aligned: search to the right of the strip too, and use
-        #    an absolute run threshold (small/distant panels have small buttons).
-        # The maroon strip covers the panel's left part only (the "WORK ORDER n"
-        # zone right of it is dark gray — measured); the panel's right border
-        # sits a small margin beyond max(strip end, CTA-button end). Do NOT
-        # scan the whole body for orange: with two panels side by side
-        # (Auftrag 2) that bleeds into the neighbour's progress bar.
         search_x1 = min(w - 1, x0 + int(strip_w * 1.9))
         bottom = None
         orange_right = x1
@@ -142,7 +126,7 @@ def locate_panels(img: Image.Image) -> list[tuple[int, int, int, int]]:
         if bottom is None:
             continue
         margin = max(3, strip_w // 40)
-        top = max(0, strip_top - 4 * margin)  # include the WORK ORDER bar above
+        top = max(0, strip_top - 4 * margin)
         bot = min(h - 1, bottom + 3 * margin)
         boxes.append(
             (
@@ -152,7 +136,6 @@ def locate_panels(img: Image.Image) -> list[tuple[int, int, int, int]]:
                 (bot - top) * scale,
             )
         )
-    # Merge near-duplicate candidates (overlapping clusters from split strips).
     boxes.sort(key=lambda b: b[0])
     merged: list[tuple[int, int, int, int]] = []
     for b in boxes:
@@ -223,7 +206,7 @@ def prepare(src: str | Path, out_dir: str | Path, pad: int = 0, scale_tweak: flo
         x, y = max(0, x - pad), max(0, y - pad)
         w, h = min(img.width - x, w + 2 * pad), min(img.height - y, h + 2 * pad)
         panel = img.crop((x, y, x + w, y + h))
-        meta["cropMode"] = "vlm"  # spike: CV-located; production keeps the same tag space
+        meta["cropMode"] = "vlm"
         meta["panelBox"] = [x, y, w, h]
         fx, fy = img.width / 3840, img.height / 2160
         lx, ly, lw, lh = LOCATION_4K

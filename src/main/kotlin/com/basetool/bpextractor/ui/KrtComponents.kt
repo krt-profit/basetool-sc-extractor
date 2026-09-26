@@ -81,19 +81,15 @@ fun Modifier.hudBox(
         val o = w / 2f
         val ww = size.width
         val hh = size.height
-        drawLine(bracket, Offset(o, o), Offset(len, o), w)                 // TL top
-        drawLine(bracket, Offset(o, o), Offset(o, len), w)                 // TL left
-        drawLine(bracket, Offset(ww - o, hh - o), Offset(ww - len, hh - o), w) // BR bottom
-        drawLine(bracket, Offset(ww - o, hh - o), Offset(ww - o, hh - len), w) // BR right
+        drawLine(bracket, Offset(o, o), Offset(len, o), w)
+        drawLine(bracket, Offset(o, o), Offset(o, len), w)
+        drawLine(bracket, Offset(ww - o, hh - o), Offset(ww - len, hh - o), w)
+        drawLine(bracket, Offset(ww - o, hh - o), Offset(ww - o, hh - len), w)
     }
 
 /**
- * Keyboard-focus affordance in the brand idiom — a 2dp orange outline drawn as an
- * overlay (so it never shifts layout), mirroring the system's
- * `:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px }`.
- * A positive [offset] draws the ring *outside* the control (the caller must leave
- * that much breathing room around it); a negative [offset] insets it for controls
- * with no outer slack, e.g. the title-bar buttons.
+ * Draws a 2dp orange keyboard-focus outline as an overlay without shifting layout. A positive
+ * [offset] draws it outside the control, a negative one insets it.
  */
 fun Modifier.focusRing(focused: Boolean, offset: Dp = 2.dp): Modifier =
     if (!focused) this else drawWithContent {
@@ -249,8 +245,6 @@ fun GhostButton(
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
     val focused by interaction.collectIsFocusedAsState()
-    // Hover and keyboard-focus both light the button orange (content + hairline);
-    // focus additionally gets the offset ring below so it reads as :focus-visible.
     val active = (hovered || focused) && enabled
     val content = if (active) Krt.Orange else if (enabled) Krt.Gray1 else Krt.Gray2
     val border = if (active) Krt.Orange else Krt.Gray3
@@ -324,10 +318,8 @@ fun KrtCheckbox(
 }
 
 /**
- * Determinate, square progress bar in the brand palette: a 6dp track
- * (`SurfaceInput` fill + 1dp `Gray3` hairline) with an orange fill driven by
- * [done]/[total]. A zero or unknown [total] renders an empty track (the caller
- * shows the indeterminate spinner instead until the file count is known).
+ * Determinate square progress bar in the brand palette, filled by [done]/[total]; a zero or unknown
+ * [total] renders an empty track.
  */
 @Composable
 fun KrtProgressBar(done: Int, total: Int, modifier: Modifier = Modifier) {
@@ -426,12 +418,9 @@ fun Modifier.tiled(painter: Painter): Modifier = this.drawBehind {
 }
 
 /**
- * Always-visible Star Citizen fan disclaimer footer. Renders the official
- * "Made by the Community" logo (unaltered, full opacity — never recolored, flipped,
- * distorted or shadowed) alongside the required trademark notice, as mandated by the
- * Star Citizen Fankit Guidelines (logo in a corner at ≥50% opacity + the trademark
- * notice in a legible size/color, visible regardless of scrolling). [logo] must be the
- * white-ink variant (`drawable/made_by_the_community_black.png`) so it reads on the dark HUD.
+ * Always-visible Star Citizen fan disclaimer footer: the unaltered "Made by the Community" logo beside
+ * the required trademark notice, per the Fankit Guidelines. [logo] must be the white-ink variant so
+ * it reads on the dark HUD.
  */
 @Composable
 fun CommunityDisclaimerFooter(logo: Painter, modifier: Modifier = Modifier) {
@@ -444,15 +433,12 @@ fun CommunityDisclaimerFooter(logo: Painter, modifier: Modifier = Modifier) {
             .padding(start = 16.dp, end = 24.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        // Unaltered, fully opaque, only proportionally scaled (Fankit "what not to do").
         Image(painter = logo, contentDescription = "Made by the Community", modifier = Modifier.size(34.dp))
         Spacer(Modifier.width(12.dp))
         Column {
             Text(Legal.UNAFFILIATED, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
-            // Required notice: kept legible (Gray1 on Gray4) and ≥10pt (bodySmall = 13sp).
             Text(Legal.TRADEMARK_NOTICE, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1)
         }
-        // Right-aligned quick links: the manual (wiki) and the GitHub repo (logo, far right).
         Spacer(Modifier.weight(1f))
         FooterTextLink(strings.footerManual, WIKI_URL)
         Spacer(Modifier.width(16.dp))

@@ -29,14 +29,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 /**
- * The structural skeleton of every workflow screen (`REDESIGN_IMPLEMENTATION.md` §3): a compact
- * [SectionHead] on top, a body that grows to fill the remaining height (and — with [scrollBody] —
- * scrolls on overflow), and an optional pinned footer action bar. This is the structural
- * guarantee that (a) the screen's one orange CTA is always visible regardless of window height
- * and content amount, and (b) no large vertical void can form (the body fills the space).
- *
- * Rule: the screen's primary CTA always lives in the [footer] row (right of a
- * `Spacer(Modifier.weight(1f))`), never inside the scrolling [body].
+ * The skeleton of every workflow screen: a [SectionHead], a body filling the remaining height
+ * (scrolling with [scrollBody]) and an optional pinned footer. The screen's primary CTA always lives
+ * in the [footer], never in the scrolling [body].
  */
 @Composable
 fun StepScaffold(
@@ -74,11 +69,8 @@ fun StepScaffold(
 }
 
 /**
- * The slim per-step header that replaces the tall `GreetingHeader` inside workflows
- * (`REDESIGN_IMPLEMENTATION.md` §3): a 3dp orange accent edge, a grey UPPERCASE overline (e.g.
- * "REFINERY · SCHRITT 1 / 5"), the orange Lato-Bold title with an optional one-line subtitle
- * beside it, and an optional [right] slot for badges or actions. The big greeting banner remains
- * only on the START screen.
+ * The slim per-step header inside workflows: an orange accent edge, an uppercase overline, the title
+ * with an optional subtitle, and an optional [right] slot for badges or actions.
  */
 @Composable
 fun SectionHead(

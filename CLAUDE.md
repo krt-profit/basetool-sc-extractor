@@ -300,7 +300,7 @@ private (guardrail 1a) and live outside the repo; ask for their path.
 
 - **Kotlin official code style** (`kotlin.code.style=official`). Match the surrounding
   style; small, pure functions; data classes for models.
-- **Comments in English; user-facing UI strings via the i18n catalogue.** Every
+- **KDoc in English (no other comments — see below); user-facing UI strings via the i18n catalogue.** Every
   UI string lives in `ui/i18n/Strings.kt` (German default + full English parity,
   switched by the title-bar DE/EN toggle — design spec §6). Never hardcode UI text at a
   call site; add a property to BOTH catalogues.
@@ -322,6 +322,28 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   change the export shape.
 - **`geid`/`accountId` are intentionally NOT stored or exported.** The parser reads the
   char-status line for the *handle* only; do not add the numeric IDs back to the model.
+
+## Code comments (HARD RULE — no comments besides KDoc)
+
+**The code carries no comments besides proper KDoc, the KDoc is short and precise, and no history is
+kept in either.** Binding on every change and every agent, main and test sources alike — the same
+rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-comments-besides-javadoc.md`).
+
+- **No comments.** No `//` or `/* */` in Kotlin, no `<!-- -->` in XML resources, no `#` in YAML,
+  properties, ProGuard rules or scripts, no commented-out code or config.
+- **What stays:** KDoc `/** */` on the declarations it documents (Python docstrings and PowerShell
+  comment-based help under the same rules), licence headers, and tool directives with no prose
+  after them (`# shellcheck disable=`, `# noqa`, …). `@Suppress` and other annotations are not
+  comments.
+- **KDoc is short, precise and carries no history.** One summary sentence, a contract sentence only
+  when a caller needs it, then the tags. No dates, PR or issue numbers, "previously" / "now" /
+  "used to", migration or incident stories, rationale essays or pointers to other comments; a bare
+  `REQ-…` / `ADR-…` pointer is fine.
+- **The reasoning goes into the commit message and the PR body.** A durable fact a later change
+  needs goes into the spec, the ADR, the docs or the Basetool knowledge base — never into a comment.
+- **Out of scope:** generated and vendored files, Markdown, and test fixtures whose comments are the
+  data under test.
+- **Mind live syntax.** Before deleting a comment, check it held nothing a tool reads.
 
 ## Parsing domain notes (hard-won — preserve in tests)
 

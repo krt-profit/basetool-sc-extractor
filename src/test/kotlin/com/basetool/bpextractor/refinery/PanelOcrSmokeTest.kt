@@ -5,12 +5,9 @@ import javax.imageio.ImageIO
 import kotlin.test.Test
 
 /**
- * Manual smoke harness for the in-app classical-OCR cell-finder ([PanelOcr] = [TextDetector] +
- * [DigitOcr]): runs the full DET→REC chain over real NORMALIZED panels and prints the recovered
- * numeric grid (rows top→bottom, cells left→right) so it can be eyeballed against the rapidocr
- * reference and the golden truth. Trivially green unless `OCR_DET_MODEL`, `OCR_REC_MODEL` and
- * `PANEL_DIR` (a folder of `<order>__<image>.png` normalized panels, e.g. the [PanelDumpTest]
- * output) are all set. Reads a local folder only — no private data is committed (guardrail 1a).
+ * Manual smoke harness for [PanelOcr] ([TextDetector] + [DigitOcr]) that prints the recovered numeric
+ * grid of real normalized panels. Trivially green unless `OCR_DET_MODEL`, `OCR_REC_MODEL` and
+ * `PANEL_DIR` are all set.
  */
 class PanelOcrSmokeTest {
 

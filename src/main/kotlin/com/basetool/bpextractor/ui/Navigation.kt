@@ -73,14 +73,9 @@ private fun LangItem(label: String, active: Boolean, onClick: () -> Unit) {
 private enum class StepState { DONE, ACTIVE, TODO }
 
 /**
- * The single navigation band of the redesign (`REDESIGN_IMPLEMENTATION.md` §2): the three
- * top-level tabs on the left and — only while a workflow tab is active — the workflow's inline
- * stepper on the right. Replaces the former separate `TabBar` + `StepperBar` stack. Completed
- * steps render as green ✔ squares, the active one orange, upcoming ones grey; steps up to
- * [maxReached] are clickable for going back (forward navigation stays CTA-only). The stepper row
- * scrolls horizontally so it stays usable at the 640dp minimum window width.
- *
- * [stepLabels] is null on the START tab (no workflow → no stepper).
+ * The single navigation band: the three top-level tabs and, while a workflow tab is active, its
+ * inline stepper. Steps up to [maxReached] are clickable for going back; forward navigation is
+ * CTA-only. [stepLabels] is `null` on the START tab.
  */
 @Composable
 fun CommandStrip(
@@ -146,8 +141,6 @@ private fun CmdTab(label: String, active: Boolean, onClick: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxHeight()
-            // Pin the tab to its intrinsic (label) width — without this the underline's
-            // fillMaxWidth makes the first tab swallow the whole strip.
             .width(IntrinsicSize.Max)
             .background(if (active) Krt.Orange.copy(alpha = 0.07f) else Color.Transparent)
             .hoverable(interaction)
@@ -167,10 +160,8 @@ private fun CmdTab(label: String, active: Boolean, onClick: () -> Unit) {
 }
 
 /**
- * One inline-stepper entry of the [CommandStrip]: a 19dp square carrying the step number (or a ✔
- * once done) plus a short UPPERCASE label. DONE = success-filled square with black check, ACTIVE
- * = orange, TODO = grey; [enabled] steps (back-navigation up to the furthest reached) react to
- * clicks and hover.
+ * One inline-stepper entry of the [CommandStrip]: a square with the step number or a check, plus a
+ * short uppercase label; [enabled] steps react to clicks and hover.
  */
 @Composable
 private fun StepPill(

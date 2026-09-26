@@ -48,7 +48,6 @@ class RefineryUiStateRescanTest {
         rescan(state, dir.absolutePath)
 
         assertEquals(listOf("a.png", "b.png", "c.png"), state.images.map { it.file.name })
-        // The deselected tile stays deselected; the new arrival is selected by default.
         assertEquals(listOf(false, true, true), state.images.map { it.selected })
     }
 

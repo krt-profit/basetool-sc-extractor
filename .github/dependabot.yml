@@ -1,21 +1,3 @@
-# Dependabot covers both ecosystems this repo has: the Gradle build (plugins and dependencies in
-# build.gradle.kts) and the SHA-pinned actions in .github/workflows (SIB-CI-03).
-#
-# Weekly for both. This app ships its own runtime inside an MSI that members install by hand, so a
-# bump reaches nobody until a release is cut anyway; weekly keeps the queue small enough to be read.
-#
-# Things Dependabot cannot keep in step on its own — check them on every Gradle bump PR (CLAUDE.md,
-# "Build & packaging gotchas"):
-#   * the three Kotlin plugins carry one version and move together;
-#   * `components-resources` tracks the `org.jetbrains.compose` plugin 1:1, while `material3`'s
-#     stable line lags it — they are NOT interchangeable;
-#   * a Kotlin plugin bump must stay within the Gradle wrapper's supported range.
-#
-# NOT maintained by Dependabot: the actionlint version + SHA-256 in ci.yml and
-# .github/requirements/zizmor.txt (hash-pinned) — bump those by hand, together.
-#
-# No `labels:` on purpose: Dependabot creates and applies its own `dependencies` label, while a
-# label named here that does not exist in the repo is silently dropped.
 version: 2
 updates:
   - package-ecosystem: gradle
@@ -27,8 +9,6 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     groups:
-      # kotlin("jvm"), kotlin("plugin.compose") and kotlin("plugin.serialization") must carry the
-      # same version; three separate PRs would each leave the build on mismatched plugins.
       kotlin:
         patterns:
           - "org.jetbrains.kotlin*"
@@ -45,8 +25,6 @@ updates:
     commit-message:
       prefix: "chore(actions)"
     groups:
-      # One PR per week for all action pins: they are reviewed the same way (release notes + the
-      # new SHA's tag), and the release path uses several of them in one run.
       github-actions:
         patterns:
           - "*"

@@ -9,12 +9,9 @@ import java.nio.file.Files
 import javax.imageio.ImageIO
 
 /**
- * Intake of refinery screenshots that do not come from the picked folder: clipboard pastes
- * (Strg+V, e.g. the Windows snipping tool) and external drag & drop. Both routes persist the
- * image into the picked folder when one is set, otherwise into a session temp folder that a JVM
- * shutdown hook removes again — the app must stay residue-free on disk (CLAUDE.md guardrail 2).
- *
- * Pure AWT/file logic, no Compose — [RefineryUiState.importTransferable] does the state glue.
+ * Intake of refinery screenshots from clipboard pastes and external drag and drop. Images are saved
+ * into the picked folder, or into a session temp folder removed by a shutdown hook. Pure AWT and file
+ * logic; [RefineryUiState.importTransferable] does the state glue.
  */
 object ImageIntake {
     /** The image file extensions the §5.2 folder loader accepts — intake mirrors it. */

@@ -1,52 +1,9 @@
-# Builds the Windows MSI installer with a modern WiX toolset (v4+) under JDK 25.
-#
-# Why this wrapper exists:
-#   jpackage supports WiX 4+ since JDK 24 (JDK-8319457): it runs the first `wix.exe`
-#   it finds on PATH and needs the WixToolset.Util.wixext + WixToolset.UI.wixext
-#   extensions in the global extension cache. Three pitfalls this script handles —
-#   without changing anything on the system (PATH edits are process-scoped only):
-#
-#   1. Mixed WiX majors. jpackage passes the extensions UNVERSIONED
-#      (`-ext WixToolset.Util.wixext`), and wix.exe resolves that to the HIGHEST
-#      version in the cache. If extensions of a newer major are cached (e.g. v7
-#      next to a v6 toolset), an older wix.exe picks them, can't load them, and
-#      dies with error WIX0144 / exit code 144 — long misread as a jpackage bug
-#      (JDK-8356592, closed as "Not an Issue"). => the build is PINNED to WiX 7
-#      (newest installed 7.x), which goes first on PATH.
-#   2. OSMF EULA. WiX v7+ refuses every real command (error WIX7015) until
-#      `wix eula accept wix<major>` was run once for the current user (creates
-#      ~\.wix\wix<major>-osmf-eula.txt). On a dev machine this script never accepts
-#      it silently — it tells you what to run. On CI ($env:CI = 'true') it accepts
-#      automatically (project decision, see issue krt-profit/basetool-sc-extractor#1).
-#   3. Bare machines / CI runners. If no WiX 7 is installed, WiX is bootstrapped
-#      as a LOCAL dotnet tool into a FRESH tools\wix on every run (gitignored;
-#      nothing system-wide), pinned to an exact version whose NuGet package must
-#      match a pinned SHA-512 before wix.exe is ever run. Missing Util/UI extensions
-#      are added to the user's extension cache, and every copy of them that wix.exe
-#      could load must match a pinned SHA-512 too. The GitHub runner image carries
-#      no WiX 7, so every release build takes this path - the pins are what verify
-#      the CI downloads too.
-#   4. The Compose plugin's own WiX 3.11 download is switched off in
-#      gradle.properties; build.gradle.kts makes packageMsi refuse to run unless a
-#      WiX 4+ is first on PATH - which is what this script arranges.
-#
-# Usage:  .\package-msi.ps1            # builds dist\...-<version>.msi
-#         .\package-msi.ps1 --info     # extra args are forwarded to Gradle
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
-# The build is pinned to WiX 7 (issue #1); bump deliberately (version AND hash together),
-# then re-verify the build.
 $wixRequiredMajor = 7
-$wixBootstrapVersion = "7.0.0"   # installed as a local dotnet tool when no WiX 7 is found
-# SHA-512 (base64) of wix.7.0.0.nupkg - the nuget.org catalog's `packageHash`, checked
-# 2026-09-23 against the package dotnet actually downloaded. Not the `.nupkg.sha512` file
-# NuGet writes beside it: that is NuGet's content hash, which leaves the repository
-# signature out and differs from the file's own hash.
+$wixBootstrapVersion = "7.0.0"
 $wixBootstrapSha512 = "4GbdoDWjm0QmBLyJ8PPiknXomjI5vHat4H27AB6NNGzFpbEhN9Xw0kiPQokZ3zH8F1RcjvDSn8yGDXwKxlW8Tg=="
-# SHA-512 (base64) of the two extension DLLs wix.exe loads for WiX $wixBootstrapVersion: the
-# wixext7\<id>.dll inside each nuget.org package, whose own catalog `packageHash` was checked
-# first (2026-09-23). The WiX 7.0.0 installer's machine-cache copies are byte-identical.
 $wixExtensionSha512 = @{
     'WixToolset.Util.wixext' = "JHl/qbyJsyzQbNUd4Jz30IHFUZHn48GfLEkRnfRZieeEp2DnAknVDvCLQgnV/mO8QaCH7ibUXtJ4/BGSDjsZ9A=="
     'WixToolset.UI.wixext'   = "prwMDQ+gIhtnH6jZVP3LDYnTnQFbJRo1WIJlTNx1ioc7lgUf1Q+uU2aOfS23f8TctuiDWAgVVJoU6aqh5KuG2g=="
@@ -56,7 +13,6 @@ $userExtRoot = Join-Path $env:USERPROFILE '.wix\extensions'
 $machineExtRoot = Join-Path $env:CommonProgramFiles 'WixToolset\extensions'
 
 function Get-WixInfo([string]$exe) {
-    # `wix --version` is not gated behind the OSMF EULA, so this works pre-acceptance.
     try { $raw = (& $exe --version 2>$null | Select-Object -First 1) } catch { return $null }
     if ($raw -match '^(\d+\.\d+\.\d+)') {
         [pscustomobject]@{ Exe = $exe; Dir = (Split-Path $exe); Version = [version]$Matches[1] }
@@ -64,15 +20,12 @@ function Get-WixInfo([string]$exe) {
 }
 
 function Get-FileSha512Base64([string]$path) {
-    # .NET directly rather than Get-FileHash: a Windows PowerShell 5.1 that inherits a
-    # PowerShell 7 PSModulePath cannot load Get-FileHash's module (#59).
     $sha = [System.Security.Cryptography.SHA512]::Create()
     $stream = [System.IO.File]::OpenRead($path)
     try { [Convert]::ToBase64String($sha.ComputeHash($stream)) } finally { $stream.Dispose(); $sha.Dispose() }
 }
 
 function Test-WixBootstrap {
-    # True only when tools\wix holds exactly the pinned version and its package matches the pin.
     $nupkg = Join-Path $wixToolDir ".store\wix\$wixBootstrapVersion\wix\$wixBootstrapVersion\wix.$wixBootstrapVersion.nupkg"
     if (-not (Test-Path $nupkg)) { return $false }
     $actual = Get-FileSha512Base64 $nupkg
@@ -84,18 +37,12 @@ function Test-WixBootstrap {
 }
 
 function Test-WixExtensionCopy([string]$dll, [string]$ext) {
-    # True when this copy of the extension DLL matches its pin.
     $actual = Get-FileSha512Base64 $dll
     if ($actual -eq $wixExtensionSha512[$ext]) { return $true }
     Write-Warning "$dll has SHA-512 $actual, expected $($wixExtensionSha512[$ext])."
     return $false
 }
 
-# --- 1. Pick WiX 7: the newest installed 7.x on PATH, else a fresh, verified bootstrap --
-# A tools\wix bootstrap never competes with an installed WiX, and it is never reused: the
-# pin covers the .nupkg, not the files dotnet unpacked beside it nor the wix.exe shim dotnet
-# generates, so an old tools\wix is deleted and the tool installed afresh on every run (a few
-# seconds from NuGet's cache), then verified before wix.exe runs.
 $wix = @($env:PATH -split ';' | Where-Object { $_ } | ForEach-Object { Join-Path $_ 'wix.exe' }) |
     Where-Object { Test-Path $_ } | ForEach-Object { Get-WixInfo $_ } |
     Where-Object { $_ -and $_.Version.Major -eq $wixRequiredMajor } |
@@ -123,8 +70,6 @@ if (-not $wix) {
 }
 Write-Host "Using WiX $($wix.Version) ($($wix.Exe))"
 
-# --- 2. OSMF EULA gate (WiX v7+) ------------------------------------------------------
-# `wix extension list` is a cheap gated command: exit 1 + WIX7015 means "not accepted".
 $gateOut = & $wix.Exe extension list --global 2>&1 | Out-String
 if ($LASTEXITCODE -ne 0 -and $gateOut -match 'WIX7015') {
     $eulaId = "wix$($wix.Version.Major)"
@@ -140,16 +85,6 @@ if ($LASTEXITCODE -ne 0 -and $gateOut -match 'WIX7015') {
     }
 }
 
-# --- 3. Ensure the two extensions jpackage needs exist for THIS major, verified ---------
-# Healthy cache entries are listed as e.g. "WixToolset.Util.wixext 7.0.0"; incompatible
-# ones carry "(damaged)". The versioned add below pins the extension to the toolset.
-# For the pinned WiX version, what wix.exe will load must be the pinned DLL: jpackage passes
-# the extension unversioned, wix.exe takes the HIGHEST cached version, so a newer 7.x copy
-# is refused, and every copy of the toolset's version in either cache must match its hash.
-# A mismatching copy in the user's cache (which this script fills) is replaced once; one in
-# the machine cache belongs to an installed WiX and is only reported. An installed WiX of
-# another 7.x version brings its own extensions and is trusted like that WiX itself - but
-# this script downloads no extension it has no pin for.
 $wixPinned = "$($wix.Version)" -eq $wixBootstrapVersion
 
 function Add-WixExtension([string]$ext) {
@@ -199,9 +134,6 @@ foreach ($ext in 'WixToolset.Util.wixext', 'WixToolset.UI.wixext') {
     }
 }
 
-# --- 4. Preflight: build a minimal MSI exactly like jpackage would ---------------------
-# Catches extension-resolution problems (WIX0144/144) in ~1s with a readable error
-# instead of deep inside the Gradle/jpackage output.
 $probeDir = Join-Path ([IO.Path]::GetTempPath()) "wix-preflight-$PID"
 New-Item -ItemType Directory -Force $probeDir | Out-Null
 try {
@@ -224,7 +156,6 @@ try {
     Remove-Item $probeDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# --- 5. Build: jpackage uses the first wix.exe on PATH -> ours ------------------------
 $env:PATH = "$($wix.Dir);$env:PATH"
 
 & "$PSScriptRoot\gradlew.bat" packageMsi @args

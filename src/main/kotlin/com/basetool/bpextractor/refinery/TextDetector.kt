@@ -13,19 +13,10 @@ import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /**
- * PP-OCRv3 text DETECTION (Differentiable Binarization / DBNet) run via ONNX Runtime — the
- * cell-finder that pairs with [DigitOcr] (recognition). On the refinery SETUP panel the table is a
- * clean axis-aligned grid of bright text on a dark interior, so the heavy opencv-only steps of the
- * reference post-process (findContours + minAreaRect + pyclipper unclip) are replaced with an
- * equivalent axis-aligned pipeline: binarize the probability map, dilate, label connected
- * components, take each component's bounding box, score it by mean probability, and expand it by
- * the DB "unclip" distance. That is faithful for axis-aligned boxes and needs no native CV.
- *
- * Pre/post parameters are the rapidocr `ch_PP-OCRv3_det` config verbatim (min-side resize to 736
- * snapped to /32; ImageNet mean/std on RGB; thresh 0.3, box_thresh 0.5, unclip 1.6, 2×2 dilation)
- * so the boxes match the reference detector that was ground-truthed on the golden panels.
- *
- * The ONNX session is heavyweight — construct once and reuse; [close] releases the native session.
+ * PP-OCRv3 text detection (DBNet) via ONNX Runtime, the cell finder paired with [DigitOcr]. Uses an
+ * axis-aligned post-process (binarize, dilate, connected components, bounding box, DB unclip) with
+ * the rapidocr `ch_PP-OCRv3_det` parameters. The ONNX session is heavyweight: construct once and
+ * reuse; [close] releases it.
  */
 class TextDetector private constructor(
     private val env: OrtEnvironment,
@@ -68,7 +59,7 @@ class TextDetector private constructor(
         val prob: Array<FloatArray> = OnnxTensor.createTensor(env, FloatBuffer.wrap(data), shape).use { tensor ->
             session.run(mapOf(inputName to tensor)).use { result ->
                 @Suppress("UNCHECKED_CAST")
-                (result[0].value as Array<Array<Array<FloatArray>>>)[0][0] // [H][W]
+                (result[0].value as Array<Array<Array<FloatArray>>>)[0][0]
             }
         }
         return boxesFromProb(prob, rw, rh, srcW, srcH)
@@ -86,7 +77,6 @@ class TextDetector private constructor(
             for (sx in 0 until mapW) {
                 val start = sy * mapW + sx
                 if (!mask[sy][sx] || labels[start] != -1) continue
-                // Flood-fill one component (8-connectivity), tracking its bounding box + prob sum.
                 var minX = sx; var maxX = sx; var minY = sy; var maxY = sy
                 stack.addLast(start)
                 labels[start] = start
@@ -109,18 +99,15 @@ class TextDetector private constructor(
                 val w = maxX - minX + 1
                 val h = maxY - minY + 1
                 if (min(w, h) < MIN_SIZE) continue
-                // box_score_fast: mean probability over the component's bounding box.
                 var sum = 0.0
                 for (y in minY..maxY) for (x in minX..maxX) sum += prob[y][x]
                 if (sum / (w * h) < BOX_THRESH) continue
-                // DB unclip: expand the box outward by area*ratio/perimeter (axis-aligned form).
                 val dist = (w.toDouble() * h * UNCLIP_RATIO / (2.0 * (w + h))).roundToInt()
                 val ex0 = (minX - dist).coerceAtLeast(0)
                 val ey0 = (minY - dist).coerceAtLeast(0)
                 val ex1 = (maxX + dist).coerceAtMost(mapW - 1)
                 val ey1 = (maxY + dist).coerceAtMost(mapH - 1)
                 if (min(ex1 - ex0, ey1 - ey0) < MIN_SIZE + 2) continue
-                // Scale the box from the resized-map space back to source pixels.
                 boxes += Box(
                     x0 = (ex0.toDouble() * srcW / mapW).roundToInt().coerceIn(0, srcW),
                     y0 = (ey0.toDouble() * srcH / mapH).roundToInt().coerceIn(0, srcH),
@@ -160,9 +147,9 @@ class TextDetector private constructor(
                 val g = ((rgb shr 8) and 0xFF) / 255f
                 val b = (rgb and 0xFF) / 255f
                 val i = y * w + x
-                data[i] = (r - MEAN_R) / STD_R               // channel 0 = R
-                data[plane + i] = (g - MEAN_G) / STD_G        // channel 1 = G
-                data[2 * plane + i] = (b - MEAN_B) / STD_B    // channel 2 = B
+                data[i] = (r - MEAN_R) / STD_R
+                data[plane + i] = (g - MEAN_G) / STD_G
+                data[2 * plane + i] = (b - MEAN_B) / STD_B
             }
         }
         return data

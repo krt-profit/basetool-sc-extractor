@@ -28,8 +28,6 @@ class FilePickerTest {
             File(dir, "dimmed.json").writeText("x")
             File(dir, "also-dimmed.txt").writeText("x")
 
-            // Directories first (case-insensitive), then every file — the UI dims files in
-            // FOLDER mode instead of hiding them (REDESIGN_IMPLEMENTATION.md §10).
             assertEquals(
                 listOf("alpha", "Beta", "Zeta", "also-dimmed.txt", "dimmed.json"),
                 namesOf(dir, PickerMode.FOLDER),
@@ -47,17 +45,14 @@ class FilePickerTest {
         val big = PickerEntry(File("big.json"), isDirectory = false, size = 999, modified = 100)
         val all = listOf(small, dirA, big, dirB)
 
-        // by name ascending: dirs (a-dir, b-dir) first, then files by name
         assertEquals(
             listOf("a-dir", "b-dir", "big.json", "small.json"),
             sortEntries(all, PickerSortKey.NAME, ascending = true).map { it.file.name },
         )
-        // by size descending: dirs stay first
         assertEquals(
             listOf("b-dir", "a-dir", "big.json", "small.json"),
             sortEntries(all, PickerSortKey.SIZE, ascending = false).map { it.file.name },
         )
-        // by modified ascending
         assertEquals(
             listOf("a-dir", "b-dir", "big.json", "small.json"),
             sortEntries(all, PickerSortKey.MODIFIED, ascending = true).map { it.file.name },
@@ -97,8 +92,8 @@ class FilePickerTest {
         try {
             File(dir, "sub").mkdirs()
             File(dir, "a.json").writeText("x")
-            File(dir, "B.JSON").writeText("x") // matches .json case-insensitively
-            File(dir, "c.txt").writeText("x")  // excluded
+            File(dir, "B.JSON").writeText("x")
+            File(dir, "c.txt").writeText("x")
 
             val names = namesOf(dir, PickerMode.SAVE_FILE, "json")
 
@@ -133,10 +128,10 @@ class FilePickerTest {
     fun `ensureExtension appends only when missing`() {
         assertEquals("a.json", ensureExtension("a", "json"))
         assertEquals("a.json", ensureExtension("a.json", "json"))
-        assertEquals("a.JSON", ensureExtension("a.JSON", "json")) // already has it (case-insensitive)
+        assertEquals("a.JSON", ensureExtension("a.JSON", "json"))
         assertEquals("a.txt.json", ensureExtension("a.txt", "json"))
-        assertEquals("a.json", ensureExtension("a", ".json")) // leading dot tolerated
-        assertEquals("a", ensureExtension("a", "")) // no extension configured
+        assertEquals("a.json", ensureExtension("a", ".json"))
+        assertEquals("a", ensureExtension("a", ""))
     }
 
     @Test
@@ -168,21 +163,15 @@ class FilePickerTest {
             val sub = File(dir, "sub").apply { mkdirs() }
             val file = File(dir, "out.json")
 
-            // a plain directory
             assertEquals(sub.absolutePath, resolveTypedPath(sub.absolutePath, PickerMode.FOLDER)?.dir?.absolutePath)
-            // Windows Explorer "Copy as path" wraps the path in quotes
             assertEquals(sub.absolutePath, resolveTypedPath("\"" + sub.absolutePath + "\"", PickerMode.FOLDER)?.dir?.absolutePath)
-            // a (possibly non-existent) file path in SAVE mode -> parent dir + filename
             val saved = resolveTypedPath(file.absolutePath, PickerMode.SAVE_FILE)
             assertEquals(dir.absolutePath, saved?.dir?.absolutePath)
             assertEquals("out.json", saved?.fileName)
-            // the same path in FOLDER mode -> parent dir, no filename
             val folder = resolveTypedPath(file.absolutePath, PickerMode.FOLDER)
             assertEquals(dir.absolutePath, folder?.dir?.absolutePath)
             assertNull(folder?.fileName)
-            // empty input -> drive roots (dir == null), not an error
             assertEquals(TypedPath(null, null), resolveTypedPath("   ", PickerMode.FOLDER))
-            // unknown path (parent doesn't exist either) -> null
             assertNull(resolveTypedPath(File(dir, "nope\\deeper").absolutePath, PickerMode.FOLDER))
         } finally {
             dir.deleteRecursively()
@@ -191,31 +180,22 @@ class FilePickerTest {
 
     @Test
     fun `resolveTypedPath normalizes pasted-path variants`() {
-        // canonicalFile so expected values can't differ from resolved ones via 8dot3 short names
         val dir = tempDir().canonicalFile
         try {
             val sub = File(dir, "sub").apply { mkdirs() }
             val expected = sub.absolutePath
 
-            // forward slashes (paths copied from configs / the web)
             assertEquals(expected, resolveTypedPath(expected.replace('\\', '/'), PickerMode.FOLDER)?.dir?.absolutePath)
-            // trailing separator
             assertEquals(expected, resolveTypedPath(expected + File.separator, PickerMode.FOLDER)?.dir?.absolutePath)
-            // single quotes (PowerShell-style copy)
             assertEquals(expected, resolveTypedPath("'$expected'", PickerMode.FOLDER)?.dir?.absolutePath)
-            // file:// URI (browser / Explorer address bar)
             assertEquals(expected, resolveTypedPath(sub.toURI().toString(), PickerMode.FOLDER)?.dir?.absolutePath)
-            // multi-line paste -> the first non-blank line wins
             assertEquals(expected, resolveTypedPath("\n$expected\nC:\\somewhere\\else", PickerMode.FOLDER)?.dir?.absolutePath)
-            // a bare drive letter means the drive root, not the process CWD on that drive
             val root = File.listRoots().first()
             assertEquals(root.absolutePath, resolveTypedPath(root.path.removeSuffix(File.separator), PickerMode.FOLDER)?.dir?.absolutePath)
-            // ~ -> user home
             assertEquals(
                 File(System.getProperty("user.home")).absolutePath,
                 resolveTypedPath("~", PickerMode.FOLDER)?.dir?.absolutePath,
             )
-            // pasting a directory in SAVE mode navigates without touching the filename
             val savedDir = resolveTypedPath(expected, PickerMode.SAVE_FILE)
             assertEquals(expected, savedDir?.dir?.absolutePath)
             assertNull(savedDir?.fileName)
@@ -229,12 +209,9 @@ class FilePickerTest {
         val dir = tempDir().canonicalFile
         try {
             val sub = File(dir, "sub").apply { mkdirs() }
-            // a bare folder name typed into the path bar
             assertEquals(sub.absolutePath, resolveTypedPath("sub", PickerMode.FOLDER, base = dir)?.dir?.absolutePath)
-            // dot segments canonicalize away (clean breadcrumb)
             assertEquals(dir.absolutePath, resolveTypedPath("..", PickerMode.FOLDER, base = sub)?.dir?.absolutePath)
             assertEquals(sub.absolutePath, resolveTypedPath("sub\\..\\sub", PickerMode.FOLDER, base = dir)?.dir?.absolutePath)
-            // without a base, a bare name is not resolvable
             assertNull(resolveTypedPath("no-such-dir-xyz", PickerMode.FOLDER))
         } finally {
             dir.deleteRecursively()

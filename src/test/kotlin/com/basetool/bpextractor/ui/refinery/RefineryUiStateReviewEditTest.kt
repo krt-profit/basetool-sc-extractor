@@ -79,12 +79,6 @@ class RefineryUiStateReviewEditTest {
 
     @Test
     fun `the send payload (reviewedExtract JSON) carries the manual correction`() {
-        // Order 14, the TUNGSTEN row: the VLM copied the QUALITY value (858) into the QTY cell,
-        // but the real input is 850. Before v2.4.0 the "send to basetool" CTA serialized
-        // result.extract (the raw machine read) instead of reviewedExtract(), so the basetool
-        // received 858 even after the user fixed the cell on the review screen (the JSON-save path
-        // already overlaid edits — only send was wrong). This pins the actual wire payload:
-        // reviewedExtract() AND its exact JSON bytes must carry the corrected value.
         val machine = good(rowIndex = 0, qty = 858).copy(rawMaterialName = "TUNGSTEN (ORE)", quality = 858)
         val state = stateWith(listOf(machine))
 
@@ -144,7 +138,6 @@ class RefineryUiStateReviewEditTest {
 
     @Test
     fun `correcting the offending quantity resolves the SUM_MISMATCH finding`() {
-        // The A10 shape after a manual fix: 483 exceeded the header, the corrected 403 lands it.
         val machine = good(rowIndex = 0, qty = 483)
         val state = stateWith(
             listOf(machine),
@@ -174,7 +167,6 @@ class RefineryUiStateReviewEditTest {
 
     @Test
     fun `correcting an implausible row resolves the IMPLAUSIBLE_CELL finding`() {
-        // A machine row whose yield cell did not parse (HUD bleed-through → null, confidence 0.4).
         val machine = good(rowIndex = 0, qty = 100, confidence = 0.4).copy(outputQuantity = null)
         val state = stateWith(listOf(machine), warnings = setOf(ExtractWarning.IMPLAUSIBLE_CELL))
 

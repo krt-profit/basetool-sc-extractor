@@ -64,8 +64,6 @@ fun FrameWindowScope.KrtTitleBar(
             modifier = Modifier.fillMaxWidth().height(40.dp).background(Krt.Gray4),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Draggable title region — move the OS window by tracking absolute mouse
-            // position (smooth even though the composable moves with the window).
             val win = window
             Row(
                 modifier = Modifier
@@ -100,8 +98,6 @@ fun FrameWindowScope.KrtTitleBar(
                 )
             }
 
-            // App-specific title-bar actions (e.g. the DE/EN language toggle) sit between
-            // the draggable title region and the window controls.
             actions()
 
             val maximized = state.placement == WindowPlacement.Maximized
@@ -115,8 +111,8 @@ fun FrameWindowScope.KrtTitleBar(
                 if (maximized) {
                     val w = size.width * 0.72f
                     val h = size.height * 0.72f
-                    drawRect(c, topLeft = Offset(size.width - w, 0f), size = Size(w, h), style = Stroke(s))      // back
-                    drawRect(c, topLeft = Offset(0f, size.height - h), size = Size(w, h), style = Stroke(s))     // front
+                    drawRect(c, topLeft = Offset(size.width - w, 0f), size = Size(w, h), style = Stroke(s))
+                    drawRect(c, topLeft = Offset(0f, size.height - h), size = Size(w, h), style = Stroke(s))
                 } else {
                     drawRect(c, style = Stroke(s))
                 }
@@ -127,7 +123,6 @@ fun FrameWindowScope.KrtTitleBar(
                 drawLine(c, Offset(size.width, 0f), Offset(0f, size.height), s)
             }
         }
-        // Orange accent hairline under the title bar.
         Box(Modifier.fillMaxWidth().height(1.dp).background(Krt.Orange))
     }
 }
@@ -155,7 +150,6 @@ private fun WindowControlButton(
     Box(
         modifier = Modifier
             .size(width = 46.dp, height = 40.dp)
-            // Inset ring (negative offset) keeps the focus outline inside the 40dp bar.
             .focusRing(focused, offset = (-7).dp)
             .background(bg)
             .hoverable(interaction)

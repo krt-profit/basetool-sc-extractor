@@ -56,14 +56,10 @@ data class PipelineResult(
 )
 
 /**
- * Orchestrates one extraction run (master plan §9 Phase 3): for each screenshot — strictly one at
- * a time, matching Ollama's default `OLLAMA_NUM_PARALLEL=1` and the resource-safety throttle —
- * Locate → Normalize → Read, then Stitch across images, Validate (Phase 0 confidence policy) and
- * assemble the frozen [RefineryExtract] contract. The refinery location is read once, from the
- * terminal-header strip of the first full-frame capture (pre-cropped input has none). The model
- * stays pinned (`keep_alive 10m`) across the batch; an explicit [OllamaApi.unload] releases each
- * model as soon as the run is done with it (the primary before the verify pass starts, the last
- * active model at the end — best-effort, a failed unload only logs).
+ * Orchestrates one extraction run: Locate, Normalize and Read for each screenshot strictly one at a
+ * time, then Stitch, Validate and assemble the [RefineryExtract]. The location is read once from the
+ * first full-frame capture's header strip; each model is released via [OllamaApi.unload] as soon as
+ * the run is done with it (best-effort).
  */
 class RefineryPipeline(
     private val ollama: OllamaApi,
@@ -101,9 +97,7 @@ class RefineryPipeline(
         val reads = mutableListOf<ImageRead>()
         val sourceImages = mutableListOf<RefineryExtractImage>()
         val outcomes = mutableListOf<ImageOutcome>()
-        // Prepared read images kept for the verify pass (name → base64 PNG); empty when off.
         val verifyQueue = mutableListOf<Pair<String, String>>()
-        // Prepared panels kept for the classical-OCR cross-check (name → normalized panel image).
         val panels = mutableMapOf<String, BufferedImage>()
         var location: String? = null
         var locationRead = false
@@ -131,23 +125,8 @@ class RefineryPipeline(
             listener.onLog("· Normalize — $name: ${prepared.readImage.width}×${prepared.readImage.height} (${prepared.cropMode})")
 
             listener.onStage(index, name, PipelineStage.READ)
-            // The location is read from the first capture that has a header strip. Model
-            // lifetime is NOT managed per call: every read pins for 10m and the explicit
-            // unload below releases as soon as the run is done with a model.
             var panelB64 = toBase64Png(prepared.readImage)
             var panel = reader.readPanel(panelB64)
-            // Empty-quantities rescue: the per-panel crop read material names but NO quantity in a
-            // single cell, so the number columns were clipped off the crop — the located box was too
-            // narrow (Auftrag 21: QTY/YIELD/REFINE cut off the right edge), landed on the wrong band
-            // (Auftrag 22: the STATION-PROFILE sidebar, no materials table), or the orange hull drove
-            // the per-panel search off on a 32:9 frame (Auftrag 16). Retry ONCE with the whole
-            // terminal extent, which the model reads the SETUP panel out of reliably — the same
-            // full-terminal layout the portrait terminal-area captures already work from (Auftrag
-            // 10/12/19). This was ultrawide-only originally; it fires on ANY frame now because the
-            // same "located box clips the number columns" failure hits small sub-HD portrait captures
-            // too. The per-panel crop stays PRIMARY where it works (its tighter, higher-resolution
-            // crop reads digits better), so the rescue fires only on an otherwise empty-handed read
-            // and only replaces it when the wider re-read actually recovered quantities.
             if (box != null && panel.lacksQuantities()) {
                 val extentBox = Locate.terminalExtentBox(input.image)
                 if (extentBox != null && extentBox != box) {
@@ -199,7 +178,7 @@ class RefineryPipeline(
 
         var stitched = Stitcher.stitch(reads)
         val crossCheck = if (verifyModel != null) {
-            unload(model, listener) // free the VRAM before the partner loads
+            unload(model, listener)
             runVerifyPass(verifyQueue, stitched, listener)
         } else {
             null
@@ -208,10 +187,6 @@ class RefineryPipeline(
         if (crossCheck != null) {
             stitched = stitched.copy(rows = crossCheck.rows)
         }
-        // Classical-OCR cross-check (a decorrelated third reader): a QUALITY/YIELD vote per row
-        // (matched by the QTY anchor), an OFF-row QTY review flag, and a TO_REFINE anchor cross-check.
-        // Runs only when the bundled models are available, on the FINAL stitched rows. Best-effort —
-        // any failure degrades to "no OCR" and the VLM result stands.
         val ocrResult = ocr()?.let { engine ->
             runCatching { OcrCrossCheck.read(stitched.rows, panels, engine, PanelValues.toQuantity(stitched.toRefine)) }
                 .onFailure { listener.onLog("⚠ OCR — cross-check failed (${it.message}), keeping the VLM read") }
@@ -302,13 +277,8 @@ class RefineryPipeline(
 
     companion object {
         /**
-         * Contract `tool` field (provenance).
-         *
-         * <p>**Contractual — do not change casually.** The ingest gateway checks this value against
-         * a server-side allowlist (`REQ-INGEST-011`, `APP_INGEST_CLIENT_IDENTITY_ALLOWED_TOOLS`) and
-         * answers {@code 403 CLIENT_NOT_ALLOWED} for anything else, so renaming it here silently
-         * breaks every send until the server list is updated to match. Change it only together with
-         * that list — the same discipline as [DeviceGrantClient.CLIENT_ID][com.basetool.bpextractor.net.auth.DeviceGrantClient.CLIENT_ID].
+         * Contract `tool` field (provenance). The ingest gateway accepts only allowlisted values
+         * (REQ-INGEST-011), so change it only together with that server-side list.
          */
         const val TOOL = "basetool-sc-extractor"
 
@@ -330,8 +300,7 @@ class RefineryPipeline(
 }
 
 /**
- * The clipped-crop signature: no row carries a quantity (or the read failed entirely). A correctly
- * framed SETUP panel always shows the QTY column, so this means the number columns were cut off —
- * the trigger for the ultrawide terminal-extent rescue ([RefineryPipeline.extract]).
+ * Whether no row carries a quantity or the read failed, meaning the number columns were cut off;
+ * triggers the ultrawide terminal-extent rescue in [RefineryPipeline.extract].
  */
 private fun PanelRead?.lacksQuantities(): Boolean = this == null || rows.none { it.qty != null }

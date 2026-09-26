@@ -32,14 +32,12 @@ import com.basetool.bpextractor.ui.i18n.LocalStrings
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * The "An Basetool senden" overlay (epic krt-profit/basetool#639): a KRT-styled scrim modal — never a
- * native dialog — that walks the user through consent → browser approval (device grant) → sending →
- * result, driven by [SendController.state]. Hidden when the state is [SendState.Idle].
+ * The "An Basetool senden" scrim modal that walks the user through consent, browser approval, sending
+ * and result, driven by [SendController.state]; hidden in [SendState.Idle].
  *
- * @param controller the send state machine + actions
+ * @param controller the send state machine and actions
  * @param appScope the UI scope the flow runs on
- * @param onSaveLocally optional "save the export as JSON instead" fallback shown on the error
- *     screen (the workflow's local-write action); null → no fallback button
+ * @param onSaveLocally optional save-as-JSON fallback shown on the error screen; `null` hides it
  */
 @Composable
 fun SendOverlay(
@@ -128,8 +126,6 @@ fun SendOverlay(
                         )
                     is SendState.Authenticating -> {
                         if (state.keyUpgrade) {
-                            // The one-time re-login after the stored login was discarded for still
-                            // carrying an exportable DPoP key — say why before asking for the code.
                             Text(
                                 strings.send.authKeyUpgrade,
                                 style = MaterialTheme.typography.bodyMedium,
@@ -166,11 +162,6 @@ fun SendOverlay(
                         )
                     is SendState.Error ->
                         Text(
-                            // Three failures are worth naming instead of echoing a server sentence
-                            // that reads like something a retry could fix: the gateway refusing this
-                            // client software outright (REQ-INGEST-011), a server demanding a nonce
-                            // handshake this build does not speak, and a system clock far enough off
-                            // that no proof of ours can land inside the server's window.
                             when {
                                 state.code == IngestProblem.CLIENT_NOT_ALLOWED ->
                                     strings.send.errorClientNotAllowed(state.message)
@@ -221,7 +212,6 @@ fun SendOverlay(
                         CtaButton(strings.send.openInBasetool, onClick = { controller.openResult() })
                     }
                     is SendState.Error -> {
-                        // Send failed → offer the local-write fallback (if the caller supplied one).
                         if (onSaveLocally != null) {
                             GhostButton(
                                 strings.send.saveLocally,

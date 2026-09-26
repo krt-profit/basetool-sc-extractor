@@ -92,7 +92,7 @@ fun HelpOverlay(onClose: () -> Unit) {
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = onClose, // click on the scrim = close
+                onClick = onClose,
             )
             .padding(24.dp),
         contentAlignment = Alignment.Center,
@@ -103,7 +103,6 @@ fun HelpOverlay(onClose: () -> Unit) {
                 .widthIn(max = 760.dp)
                 .fillMaxWidth()
                 .drawBehind {
-                    // The brand's only "shadow": a restrained orange bloom around the panel.
                     val grow = 28.dp.toPx()
                     drawRect(
                         brush = Brush.radialGradient(
@@ -127,9 +126,8 @@ fun HelpOverlay(onClose: () -> Unit) {
                     drawLine(Krt.Orange, Offset(size.width - o, size.height - o), Offset(size.width - len, size.height - o), w)
                     drawLine(Krt.Orange, Offset(size.width - o, size.height - o), Offset(size.width - o, size.height - len), w)
                 }
-                .clickable(interactionSource = swallow, indication = null, onClick = {}), // swallow panel clicks
+                .clickable(interactionSource = swallow, indication = null, onClick = {}),
         ) {
-            // Header: orange bottom edge, title + subtitle + close X.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -146,7 +144,6 @@ fun HelpOverlay(onClose: () -> Unit) {
                 HelpCloseButton(onClose)
             }
 
-            // Scrollable body with the four numbered sections.
             Column(
                 modifier = Modifier
                     .weight(1f, fill = false)
@@ -236,7 +233,6 @@ fun HelpOverlay(onClose: () -> Unit) {
                 }
             }
 
-            // Pinned footer: hint left, the one orange CTA right.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()

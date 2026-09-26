@@ -29,7 +29,7 @@ class BlueprintExtractorTest {
             val backups = File(channel, "logbackups").apply { mkdirs() }
             File(backups, "Game Build(1) 05 Dec 25 (15 44 14).log").writeText("x")
             File(backups, "Game Build(2) 06 Dec 25 (08 55 41).log").writeText("x")
-            File(backups, "notes.txt").writeText("x") // ignored: not a .log
+            File(backups, "notes.txt").writeText("x")
 
             val files = BlueprintExtractor.findLogFiles(channel)
 
@@ -59,7 +59,7 @@ class BlueprintExtractorTest {
     fun `empty when neither Game_log nor logbackups present`() {
         val channel = tempChannel()
         try {
-            File(channel, "build_manifest.id").writeText("x") // unrelated file
+            File(channel, "build_manifest.id").writeText("x")
             assertTrue(BlueprintExtractor.findLogFiles(channel).isEmpty())
         } finally {
             channel.deleteRecursively()
@@ -68,8 +68,6 @@ class BlueprintExtractorTest {
 
     @Test
     fun `a label the built-in list has never heard of is read from the installation`() {
-        // The whole point of reading global.ini: a rewording, or a language we never shipped,
-        // works without a release here.
         val channel = tempChannel()
         try {
             val lang = File(channel, "data/Localization/klingon").apply { mkdirs() }
@@ -87,7 +85,6 @@ class BlueprintExtractorTest {
             assertEquals("Attrition-5 Repeater", result.export.blueprints.single().productName)
             assertEquals("klingon", result.localization.activeLanguage)
             assertTrue(result.formatsUsed.contains("wa' Bauplan {qImHa'}: %s"))
-            // The built-ins stay in play — old logs in another language sit in the same folder.
             assertTrue(result.formatsUsed.containsAll(BlueprintParser.BUILT_IN_FORMATS))
         } finally {
             channel.deleteRecursively()
@@ -119,7 +116,7 @@ class BlueprintExtractorTest {
         try {
             File(archive, "Game Build(1) 05 Dec 25 (15 44 14).log").writeText("x")
             File(archive, "Game Build(2) 06 Dec 25 (08 55 41).log").writeText("x")
-            File(archive, "notes.txt").writeText("x") // ignored: not a .log
+            File(archive, "notes.txt").writeText("x")
 
             val files = BlueprintExtractor.findLogFiles(archive)
 
@@ -132,7 +129,6 @@ class BlueprintExtractorTest {
 
     @Test
     fun `loose logs are ignored once the folder is a real channel folder`() {
-        // The fallback must never widen a normal scan: a stray .log next to Game.log stays out.
         val channel = tempChannel()
         try {
             File(channel, "Game.log").writeText("x")
@@ -149,7 +145,6 @@ class BlueprintExtractorTest {
 
     @Test
     fun `the archive fallback does not recurse`() {
-        // Pointing at a StarCitizen root must not walk every channel below it.
         val root = tempChannel()
         try {
             val live = File(root, "LIVE/logbackups").apply { mkdirs() }
@@ -184,7 +179,6 @@ class BlueprintExtractorTest {
             File(hotfixBackups, "Game Build(9) a.log").writeText("x")
 
             assertEquals("HOTFIX", BlueprintExtractor.siblingHotfixFolder(live)?.name)
-            // LIVE Game.log + HOTFIX Game.log + HOTFIX backup
             assertEquals(3, BlueprintExtractor.findLogFiles(live).size)
         } finally {
             root.deleteRecursively()
@@ -215,7 +209,7 @@ class BlueprintExtractorTest {
             File(hotfix, "Game.log").writeText("x")
 
             assertNull(BlueprintExtractor.siblingHotfixFolder(ptu))
-            assertEquals(1, BlueprintExtractor.findLogFiles(ptu).size) // only PTU's own log
+            assertEquals(1, BlueprintExtractor.findLogFiles(ptu).size)
         } finally {
             root.deleteRecursively()
         }
@@ -227,7 +221,7 @@ class BlueprintExtractorTest {
         try {
             val live = File(root, "LIVE").apply { mkdirs() }
             File(live, "Game.log").writeText("x")
-            File(root, "HOTFIX").mkdirs() // exists but carries no Game.log / logbackups
+            File(root, "HOTFIX").mkdirs()
 
             assertNull(BlueprintExtractor.siblingHotfixFolder(live))
             assertEquals(1, BlueprintExtractor.findLogFiles(live).size)
@@ -243,7 +237,6 @@ class BlueprintExtractorTest {
             val lines = loginLine("tester") + "\n" +
                 blueprintLine("Yubarev Pistol", 19, "2026-03-26T16:49:31.050Z")
             File(channel, "Game.log").writeText(lines)
-            // The same log content scanned again (e.g. a manually copied file).
             val backups = File(channel, "logbackups").apply { mkdirs() }
             File(backups, "copy.log").writeText(lines)
 
@@ -284,7 +277,6 @@ class BlueprintExtractorTest {
             val withHotfix = BlueprintExtractor.extract(live).export
             assertEquals(listOf(hotfix.absolutePath), withHotfix.additionalSourceFolders)
 
-            // Without a sibling the field stays null (and is still serialized, encodeDefaults).
             val alone = BlueprintExtractor.extract(hotfix).export
             assertNull(alone.additionalSourceFolders)
             assertTrue(BlueprintExtractor.toJson(alone).contains("\"additionalSourceFolders\": null"))
@@ -305,8 +297,7 @@ class BlueprintExtractorTest {
             locked.writeText("some content that will be locked")
 
             java.io.RandomAccessFile(locked, "rw").use { raf ->
-                raf.channel.lock() // mandatory on Windows: other handles can't read
-                // Only meaningful where the OS actually enforces the lock against new readers.
+                raf.channel.lock()
                 val lockEnforced = runCatching { locked.inputStream().use { it.read() } }.isFailure
                 org.junit.jupiter.api.Assumptions.assumeTrue(lockEnforced)
 
@@ -314,7 +305,7 @@ class BlueprintExtractorTest {
 
                 assertEquals(listOf("locked.log"), result.skippedFiles)
                 assertEquals(1, result.export.blueprintCount)
-                assertEquals(1, result.export.logFilesScanned) // skipped file not counted as scanned
+                assertEquals(1, result.export.logFilesScanned)
             }
         } finally {
             channel.deleteRecursively()

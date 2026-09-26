@@ -5,21 +5,13 @@ import kotlinx.serialization.json.Json
 import java.io.File
 
 /**
- * Non-secret app configuration (epic krt-profit/basetool#639): the ingest base URL, whether the
- * user has accepted the one-time send consent, and the last channel folder. Written by two holders
- * (the blueprint run and the send flow), so every write is load → `copy(…)` → save. Besides the
- * credential vault this is the app's **only** persisted state — it
- * lives under {@code %APPDATA%\Basetool SC Extractor\config.json} (the Roaming per-user data dir),
- * deliberately **outside** the {@code %LOCALAPPDATA%\Basetool SC Extractor\} install dir so the
- * install dir stays stateless and the MSI uninstall remains restloss (CLAUDE.md guardrail 2). It
- * holds **no secret** — the refresh token is stored separately in Windows Credential Manager (#648).
+ * Non-secret app configuration, persisted in `%APPDATA%\Basetool SC Extractor\config.json` outside
+ * the install directory. Two flows write it, so every write is load, `copy(…)`, save.
  *
  * @param ingestBaseUrl base URL of the ingest gateway the export is sent to
- * @param consentGiven {@code true} once the user accepted the first-send consent
- * @param lastChannelFolder the channel/archive folder the last successful extraction ran against,
- *   pre-filled on the next start; {@code null} until the first run. A convenience only — the
- *   blueprint step re-validates the path, so a stale or since-deleted folder just falls back to
- *   the standard install path.
+ * @param consentGiven `true` once the user accepted the first-send consent
+ * @param lastChannelFolder the folder of the last successful extraction, pre-filled on the next
+ *   start; `null` until the first run
  */
 @Serializable
 data class AppConfig(
@@ -72,7 +64,6 @@ class AppConfigStore(private val dir: File = defaultDir()) {
             if (!dir.isDirectory && !dir.mkdirs()) return
             file.writeText(json.encodeToString(AppConfig.serializer(), config))
         } catch (_: Exception) {
-            // Best effort — a config write must never break the app (CLAUDE.md statelessness).
         }
     }
 

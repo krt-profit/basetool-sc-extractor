@@ -75,7 +75,7 @@ class RefineryPipelineTest {
             now = fixedNow,
             isActive = isActive,
             verifyModel = verifyModel,
-            ocr = { null }, // unit tests stay offline — no ONNX models loaded
+            ocr = { null },
         )
 
     /** A dark full frame (no colour anchors → verified fallback geometry, still a full frame). */
@@ -166,7 +166,6 @@ class RefineryPipelineTest {
         assertEquals(48928.0, order.expenses)
         assertEquals(20L * 60 + 58, order.durationMinutes)
         assertTrue(order.quoted)
-        // Overlap-stitched: LINDINIUM, TUNGSTEN (shared), INERT — in on-screen order.
         assertEquals(
             listOf("LINDINIUM (ORE)", "TUNGSTEN (ORE)", "INERT MATERIALS"),
             order.goods.map { it.rawMaterialName },
@@ -175,7 +174,6 @@ class RefineryPipelineTest {
         assertEquals(2, order.sourceImages.size)
         assertEquals(listOf("vlm", "vlm"), order.sourceImages.map { it.cropMode })
         assertEquals(1920, order.sourceImages[0].width)
-        // capturedAt flows per image, truncated to seconds; an unknown capture stays null.
         assertEquals(listOf("2026-06-01T21:38:23Z", null), order.sourceImages.map { it.capturedAt })
     }
 
@@ -236,9 +234,6 @@ class RefineryPipelineTest {
 
     @Test
     fun `a per-panel crop that reads no quantities is rescued via the terminal extent`() {
-        // Auftrag 21/22: the located box clipped the number columns (or landed on the sidebar), so
-        // the first read returns material names but no quantity in any cell. The rescue re-reads the
-        // whole terminal extent — now on ANY frame, not just ultrawide — and its numbers win.
         val noQuantities = """
             METHOD: DINYX SOLVENTATION
             QUOTED: YES
@@ -255,12 +250,10 @@ class RefineryPipelineTest {
 
         val result = pipeline(ollama).extract(listOf(PipelineInput("clipped.png", frameWithTextBand())))
 
-        // The rescue read (upperAnswer) supplied the quantities; the clipped first read was dropped.
         val order = result.extract.orders.single()
         assertEquals(listOf("LINDINIUM (ORE)", "TUNGSTEN (ORE)"), order.goods.map { it.rawMaterialName })
         assertEquals(listOf(957L, 1104L), order.goods.map { it.inputQuantity })
         assertEquals(32295L, order.rawToRefineTotal)
-        // Two panel reads (primary + rescue), then the single location read, then the unload.
         assertEquals(
             listOf("panel" to "10m", "panel" to "10m", "location" to "10m", "unload" to "qwen3-vl:8b-instruct"),
             ollama.calls,
@@ -288,7 +281,6 @@ class RefineryPipelineTest {
                 listOf(PipelineInput("a.png", fullFrame()), PipelineInput("b.png", fullFrame())),
             )
         }
-        // The first image ran; the second never started a read.
         assertEquals(listOf("panel" to "10m", "location" to "10m"), ollama.calls)
     }
 
@@ -365,8 +357,6 @@ class RefineryPipelineTest {
 
     @Test
     fun `the verify pass arbitrates a digit disagreement via the TO REFINE checksum`() {
-        // Primary reads 483, the verify model 403; only 403 lands Σ QTY(ON) on the header
-        // (46+403 = 449) — the Auftrag 10 class, auto-corrected instead of just flagged.
         val ollama = FakeOllama(listOf(verifyPrimaryAnswer), verifyAnswers = listOf(verifySecondaryAnswer))
 
         val result = pipeline(ollama, verifyModel = VERIFY_MODEL)
@@ -377,8 +367,6 @@ class RefineryPipelineTest {
         assertEquals(Validation.CONFIDENCE_VERIFY_CORRECTED, goods[1].confidence)
         assertTrue(ExtractWarning.VERIFY_CORRECTED in result.validated.warnings)
         assertTrue(ExtractWarning.VERIFY_MISMATCH !in result.validated.warnings)
-        // The primary unloads BEFORE the partner loads (12-GB tier: both never resident at once);
-        // the verify model unloads at the end of the run.
         assertEquals(
             listOf(
                 "panel" to "10m",
@@ -415,10 +403,6 @@ class RefineryPipelineTest {
             .extract(listOf(PipelineInput("a.png", fullFrame())))
 
         val goods = result.extract.orders.single().goods
-        // The verify pass degraded (no cross-check). The single-model checksum repair does NOT fire:
-        // BORASE is the only row of its material, so there is no leave-one-out yield-rate witness to
-        // tie the checksum landing to it (and checksum-landing alone could corrupt a correct row), so
-        // the read honestly stands and the order stays flagged for review.
         assertEquals(483L, goods[1].inputQuantity, "no single-model repair without a yield-rate witness")
         assertTrue(ExtractWarning.CHECKSUM_REPAIRED !in result.validated.warnings)
         assertTrue(ExtractWarning.VERIFY_CORRECTED !in result.validated.warnings)
@@ -454,7 +438,6 @@ class RefineryPipelineTest {
 
             val decoded = Json.decodeFromString<RefineryExtract>(target.readText())
             assertEquals(result.extract, decoded)
-            // Frozen-contract keys must be present literally even when null-valued.
             assertTrue(target.readText().contains("\"totalYieldScu\""))
         } finally {
             target.delete()

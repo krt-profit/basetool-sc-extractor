@@ -28,23 +28,14 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Exercises the DPoP proof construction (RFC 9449) the ingest gateway validates
- * (`REQ-INGEST-012`). The reference is the basetool's own `DpopResourceServerTest`, which builds the
- * same proof server-side with Nimbus and asserts what Spring Security accepts; this suite checks the
- * hand-rolled JDK-crypto producer against that shape **from the outside** — every assertion is made
- * by decoding the emitted compact JWT and re-deriving the answer independently, never by asking the
- * producer what it thinks it wrote.
- *
- * <p>The decisive one is [proofSignatureVerifiesUnderTheEmbeddedJwk]: it rebuilds the public key
- * from the `jwk` header alone and verifies the signature over the actual signing input — exactly the
- * chain a resource server walks, so a wrong signature format, a mis-encoded coordinate or a
- * header/payload the signature does not cover all fail here.
+ * Checks the DPoP proof construction (RFC 9449, REQ-INGEST-012) from the outside, by decoding the
+ * emitted JWT and re-deriving every answer independently.
+ * [proofSignatureVerifiesUnderTheEmbeddedJwk] verifies the signature under the key rebuilt from the
+ * `jwk` header alone.
  */
 class DpopTest {
 
     private val key = DpopKey.generate()
-
-    // --- helpers: decode the compact JWT the way a server would --------------------------------
 
     private fun decode(part: String): ByteArray = Base64.getUrlDecoder().decode(part)
 
@@ -78,8 +69,6 @@ class DpopTest {
 
     private fun sha256(bytes: ByteArray): ByteArray = MessageDigest.getInstance("SHA-256").digest(bytes)
 
-    // --- the proof itself -----------------------------------------------------------------------
-
     @Test
     fun proofSignatureVerifiesUnderTheEmbeddedJwk() {
         val proof = key.proof("POST", "https://ingest.example/v1/refinery-extract")
@@ -99,8 +88,6 @@ class DpopTest {
 
     @Test
     fun aProofIsRejectedOnceAnyByteOfItIsTampered() {
-        // Guards the assertion above against passing vacuously: verification must actually depend on
-        // the signed bytes, so flipping a claim has to break it.
         val proof = key.proof("POST", "https://ingest.example/v1/refinery-extract")
         val (headerPart, claimsPart, signaturePart) = proof.split('.')
         val forged = base64Url(claims(proof).toString().replace("POST", "GET_").toByteArray())
@@ -125,15 +112,11 @@ class DpopTest {
         val jwk = header["jwk"]!!.jsonObject
         assertEquals("EC", jwk["kty"]!!.jsonPrimitive.content)
         assertEquals("P-256", jwk["crv"]!!.jsonPrimitive.content)
-        // Public members only — a private `d` here would ship the secret in every request.
         assertEquals(setOf("crv", "kty", "x", "y"), jwk.keys)
     }
 
     @Test
     fun jwkCoordinatesAreAlwaysTheFullFieldWidth() {
-        // A raw BigInteger.toByteArray() is 33 bytes when the high bit is set and short when the
-        // value has leading zero bytes — either way the thumbprint (and the whole binding) breaks.
-        // ~1 key in 128 hits one of those, so a handful of keys makes it a real check.
         repeat(64) {
             val jwk = header(DpopKey.generate().proof("POST", "https://x/y"))["jwk"]!!.jsonObject
             assertEquals(32, decode(jwk["x"]!!.jsonPrimitive.content).size, "x must be 32 bytes")
@@ -145,8 +128,6 @@ class DpopTest {
     fun thumbprintIsTheRfc7638HashOfTheCanonicalJwk() {
         val proof = key.proof("POST", "https://ingest.example/v1/refinery-extract")
         val jwk = header(proof)["jwk"]!!.jsonObject
-        // RFC 7638: required members only, lexicographic order, no whitespace. Rebuilt by hand so a
-        // silent reordering in the producer cannot hide behind the producer's own serialization.
         val canonical =
             """{"crv":"P-256","kty":"EC","x":"${jwk["x"]!!.jsonPrimitive.content}",""" +
                 """"y":"${jwk["y"]!!.jsonPrimitive.content}"}"""
@@ -164,7 +145,6 @@ class DpopTest {
 
     @Test
     fun athIsAbsentWhenNoTokenIsPresentedYet() {
-        // The token endpoint gets a proof before any token exists; an `ath` there would hash nothing.
         val proof = key.proof("POST", "https://keycloak.example/realms/iri/protocol/openid-connect/token")
 
         assertNull(claims(proof)["ath"], "no access token ⇒ no ath claim")
@@ -184,18 +164,14 @@ class DpopTest {
 
     @Test
     fun everyProofGetsAFreshJti() {
-        // A repeated jti is indistinguishable from a replay to a server that caches them.
         val ids = (1..200).map { claim(key.proof("POST", "https://ingest.example/v1/x"), "jti") }
 
         assertEquals(200, ids.toSet().size, "each proof needs its own jti")
         assertTrue(ids.all { !it.isNullOrBlank() })
     }
 
-    // --- htu normalisation ----------------------------------------------------------------------
-
     @Test
     fun htuDropsQueryAndFragment() {
-        // RFC 9449 §4.2. The gateway compares against the URI it reconstructs, which carries neither.
         assertEquals(
             "https://ingest.example/v1/refinery-extract",
             DpopKey.htu(URI.create("https://ingest.example/v1/refinery-extract?handoff=1#top")),
@@ -221,27 +197,19 @@ class DpopTest {
         assertEquals("https://ingest.example", DpopKey.htu(URI.create("https://ingest.example")))
     }
 
-    // --- no exportable key material (SIB-SEC-04) --------------------------------------------------
-
     @Test
     fun aDpopKeyOffersNoWayToGetItsPrivateHalfOut() {
-        // The whole point of the non-exportable key: nothing in the key's public surface returns key
-        // material or a serialized form of it. Earlier builds had `encoded()`, which is how the key
-        // ended up in the same Credential Manager record as the token it protects.
         val keyTypes = setOf(java.security.PrivateKey::class.java, java.security.KeyPair::class.java)
         val methods = DpopKey::class.java.methods
         assertFalse(methods.any { it.name == "encoded" || it.name == "getEncoded" })
         assertFalse(methods.any { it.returnType in keyTypes })
         assertFalse(methods.any { m -> m.returnType == ByteArray::class.java && m.parameterCount == 0 })
-        // A generated key is an in-memory session key: it has no name and is not persistent.
         assertNull(key.keyName)
         assertFalse(key.persistent)
     }
 
     @Test
     fun aLegacyExportedKeyIsStillReadableForTheOneRevocationItIsKeptFor() {
-        // Records written by earlier builds carry the exported pair; the migration revokes their
-        // refresh token with a proof from exactly that key before destroying the record.
         val pair =
             java.security.KeyPairGenerator.getInstance("EC")
                 .apply { initialize(ECGenParameterSpec("secp256r1")) }
@@ -265,14 +233,11 @@ class DpopTest {
 
     @Test
     fun anUnreadableLegacyKeyYieldsNullRatherThanThrowing() {
-        // Fail-safe: the migration then just deletes the record without the revocation.
         assertNull(DpopKey.fromLegacyExport(""))
         assertNull(DpopKey.fromLegacyExport("not-base64"))
         assertNull(DpopKey.fromLegacyExport("bm90LWEta2V5.bm90LWEta2V5"))
         assertNull(DpopKey.fromLegacyExport("bm90LWEta2V5"))
     }
-
-    // --- the server clock -------------------------------------------------------------------------
 
     @Test
     fun serverClockLearnsTheOffsetFromAnHttpDateAndAppliesItToIat() {
@@ -293,8 +258,6 @@ class DpopTest {
 
     @Test
     fun serverClockIgnoresAnAbsentOrUnparseableDate() {
-        // A server that omits Date, or a proxy that mangles it, must leave the local clock in charge
-        // rather than throw the offset to some garbage value.
         val clock = ServerClock()
         clock.observe(DateTimeFormatter.RFC_1123_DATE_TIME.format(ZonedDateTime.now(ZoneOffset.UTC).plusSeconds(600)), Instant.now())
         val learned = clock.offsetSeconds()
@@ -302,15 +265,13 @@ class DpopTest {
         clock.observe(null, Instant.now())
         clock.observe("", Instant.now())
         clock.observe("not-a-date", Instant.now())
-        clock.observe("2026-08-03T12:00:00Z", Instant.now()) // ISO, not the RFC 1123 HTTP form
+        clock.observe("2026-08-03T12:00:00Z", Instant.now())
 
         assertEquals(learned, clock.offsetSeconds(), "a bad Date must not disturb what was learned")
     }
 
     @Test
     fun theNonceHandshakeIsDetectableButDeliberatelyUnimplemented() {
-        // Kept honest: the constants exist purely so a challenge can be recognised and named. If a
-        // `nonce` claim ever appears in a proof again, this change of mind should be deliberate.
         assertEquals("DPoP-Nonce", DpopNonce.HEADER)
         assertEquals("use_dpop_nonce", DpopNonce.USE_DPOP_NONCE)
         assertNull(claims(key.proof("POST", "https://x/y"))["nonce"])

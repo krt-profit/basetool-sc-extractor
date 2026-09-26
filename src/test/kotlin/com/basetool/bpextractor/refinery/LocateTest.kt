@@ -26,10 +26,8 @@ class LocateTest {
     private fun paintPanel(img: BufferedImage, x: Int, y: Int, panelWidth: Int, panelHeight: Int) {
         val g = img.createGraphics()
         try {
-            // Tab strip: left part of the panel, a few dozen native rows tall.
             g.color = maroon
             g.fillRect(x, y, (panelWidth * 0.55).toInt(), 36)
-            // CTA button: right-aligned near the panel bottom.
             g.color = cta
             g.fillRect(x + (panelWidth * 0.55).toInt(), y + panelHeight - 60, (panelWidth * 0.4).toInt(), 40)
         } finally {
@@ -58,7 +56,6 @@ class LocateTest {
 
         assertEquals(1, boxes.size)
         val box = boxes.single()
-        // The strip anchors the left edge; tolerances cover the 1/4-scale rounding + margins.
         assertTrue(box.x in 900..1010, "x=${box.x}")
         assertTrue(box.y in 250..410, "y=${box.y}")
         assertTrue(box.x + box.width >= 1850, "right=${box.x + box.width}")
@@ -67,7 +64,6 @@ class LocateTest {
 
     @Test
     fun `with two panels side by side the LEFTMOST is the extraction target`() {
-        // Auftrag 2 layout: the newest order's SETUP panel sits LEFT of a running second panel.
         val img = frame()
         paintPanel(img, x = 700, y = 400, panelWidth = 800, panelHeight = 1400)
         paintPanel(img, x = 2100, y = 400, panelWidth = 800, panelHeight = 1400)
@@ -79,7 +75,6 @@ class LocateTest {
         assertTrue(boxes[0].x < boxes[1].x, "candidates must come back left to right")
         assertEquals(boxes[0], target, "owner rule: leftmost = newest = target")
         assertTrue(target.x in 600..710)
-        // The left panel's box must not bleed into the right panel.
         assertTrue(target.x + target.width < 2100, "right edge ${target.x + target.width} bleeds into the neighbour")
     }
 
@@ -91,7 +86,6 @@ class LocateTest {
         val fallback = Locate.locatePanel(img)
 
         assertTrue(boxes.isEmpty())
-        // 4K geometry (950, 350, 920, 1500) at half scale.
         assertEquals(475, fallback.x)
         assertEquals(175, fallback.y)
         assertEquals(460, fallback.width)
@@ -102,8 +96,6 @@ class LocateTest {
     fun `the fallback geometry keeps the 16-9 panel size on ultrawide frames`() {
         val fallback = Locate.fallbackPanel(frame(5120, 1440))
 
-        // Position scales per axis; the SIZE scales with the height only (fy = 2/3) — the game
-        // renders the panel at its 16:9 size, width-proportional scaling would distort the crop.
         assertEquals((950 * 5120 / 3840.0).toInt(), fallback.x)
         assertEquals((350 * 2 / 3.0).toInt(), fallback.y)
         assertEquals((920 * 2 / 3.0).toInt(), fallback.width)
@@ -121,17 +113,15 @@ class LocateTest {
 
     @Test
     fun `the terminal-extent box spans the widest text band full height, ignoring a stray console`() {
-        // The ultrawide rescue crop: the whole terminal, isolated by its bright-UI-text columns.
-        // The orange hull (no bright text) and a stray narrow wall console must be excluded.
         val img = frame(5120, 1440)
         val g = img.createGraphics()
         try {
-            g.color = Color(150, 80, 40) // orange hull wings — not bright UI text, must be ignored
+            g.color = Color(150, 80, 40)
             g.fillRect(0, 0, 1200, 1440)
             g.fillRect(3000, 0, 2120, 1440)
-            g.color = Color(230, 235, 240) // dense bright UI text across the terminal band
+            g.color = Color(230, 235, 240)
             for (y in 200 until 1300 step 12) g.fillRect(1500, y, 1100, 4)
-            for (y in 300 until 900 step 12) g.fillRect(4800, y, 200, 4) // stray wall console (narrower)
+            for (y in 300 until 900 step 12) g.fillRect(4800, y, 200, 4)
         } finally {
             g.dispose()
         }
@@ -165,8 +155,6 @@ class LocateTest {
 
     @Test
     fun `locatePanels is unchanged on non-ultrawide frames`() {
-        // The per-panel colour search is the primary path for every capture; ultrawide handling now
-        // lives in the pipeline rescue + the header strip, NOT here, so this must still locate.
         val img = frame(2800, 1440)
         paintPanel(img, x = 900, y = 250, panelWidth = 720, panelHeight = 1000)
 
@@ -183,24 +171,19 @@ class LocateTest {
         assertTrue(Locate.isPrecropped(518, 934), "Auftrag 3: narrow portrait panel-only crop")
         assertFalse(Locate.isPrecropped(3840, 2160), "a full 4K frame")
         assertFalse(Locate.isPrecropped(990, 700), "small but landscape is not a panel crop")
-        // Squarer portrait crops of the whole terminal area carry the header + a locatable
-        // panel — they must go through Locate, not the precropped shortcut.
         assertFalse(Locate.isPrecropped(914, 1053), "Auftrag 12: terminal-area crop")
         assertFalse(Locate.isPrecropped(969, 1090), "Auftrag 10: terminal-area crop")
     }
 
     @Test
     fun `terminal-area crop - panel located despite a strip wider than the full-frame ceiling`() {
-        // The Auftrag 10/12 class: a ~914×1053 portrait crop of the terminal area. The panel's
-        // tab strip spans nearly the full panel width — more than 45% of the IMAGE width (the
-        // full-frame ceiling), so this only locates with the portrait ceiling (75%).
         val img = frame(914, 1053)
         val g = img.createGraphics()
         try {
             g.color = maroon
-            g.fillRect(430, 100, 470, 36) // tab strip across the whole panel width
+            g.fillRect(430, 100, 470, 36)
             g.color = cta
-            g.fillRect(640, 870, 240, 40) // CONFIRM, right-aligned near the panel bottom
+            g.fillRect(640, 870, 240, 40)
         } finally {
             g.dispose()
         }
@@ -216,12 +199,9 @@ class LocateTest {
 
     @Test
     fun `a short sidebar look-alike left of the panel is not the extraction target`() {
-        // Auftrag 10 layout: the MATERIAL SELECTION box (dark-red strip + orange SETUP WORK
-        // ORDER button, well under half the panel height) sits LEFT of the work-order panel —
-        // it must not win the leftmost-is-newest rule.
         val img = frame(969, 1090)
-        paintPanel(img, x = 16, y = 620, panelWidth = 360, panelHeight = 400) // sidebar box
-        paintPanel(img, x = 400, y = 90, panelWidth = 460, panelHeight = 900) // the panel
+        paintPanel(img, x = 16, y = 620, panelWidth = 360, panelHeight = 400)
+        paintPanel(img, x = 400, y = 90, panelWidth = 460, panelHeight = 900)
 
         val target = Locate.locatePanel(img)
 
@@ -237,7 +217,6 @@ class LocateTest {
 
         assertEquals("vlm", prepared.cropMode)
         val loc = assertNotNull(prepared.locationImage, "a terminal-area crop carries the header")
-        // Top-left strip (2/3 width × ~h/10), 2× upscaled and snapped to /32.
         assertTrue(loc.width % 32 == 0 && loc.height % 32 == 0)
         assertTrue(loc.width in (914 * 2 * 2 / 3 - 64)..(914 * 2 * 2 / 3 + 64), "width=${loc.width}")
         assertTrue(loc.height in (1053 / 10 * 2 - 64)..(1053 / 10 * 2 + 64), "height=${loc.height}")
@@ -245,19 +224,16 @@ class LocateTest {
 
     @Test
     fun `headerNameRight keeps a long station name that runs past 2-3 width, dropping a right-side title`() {
-        // Regression for Auftrag 19–22: "MIC-L1 SHALLOW FRONTIER STATION" runs past 2/3 of the
-        // crop and the old fixed cut clipped it to "…STAT". The leftmost bright-text run must be
-        // kept whole; a REFINEMENT title after the wide dark gap must still be dropped.
         val w = 600
         val strip = BufferedImage(w, 60, BufferedImage.TYPE_INT_RGB)
         val g = strip.createGraphics()
         try {
             g.color = dark
             g.fillRect(0, 0, w, 60)
-            g.color = Color(230, 235, 240) // bright UI text (the station name), word-spaced glyphs
+            g.color = Color(230, 235, 240)
             var x = 20
-            while (x < 470) { g.fillRect(x, 20, 14, 20); x += 22 } // ends ~468, past 2/3 (= 400)
-            g.fillRect(540, 20, 50, 20) // a right-side title after a wide dark gap — must be excluded
+            while (x < 470) { g.fillRect(x, 20, 14, 20); x += 22 }
+            g.fillRect(540, 20, 50, 20)
         } finally {
             g.dispose()
         }
@@ -270,8 +246,6 @@ class LocateTest {
 
     @Test
     fun `headerNameRight falls back to the given width when no bright text stands out`() {
-        // A blank / synthetic strip (no readable name) keeps the historical 2/3-width crop — this
-        // is what pins the existing terminal-area location-strip test at fallback width.
         val strip = BufferedImage(600, 60, BufferedImage.TYPE_INT_RGB)
         val g = strip.createGraphics()
         try {
@@ -286,8 +260,6 @@ class LocateTest {
 
     @Test
     fun `portrait location strip widens to hold a long station name`() {
-        // End-to-end through prepare: a portrait terminal-area crop whose header name runs past
-        // 2/3 width must yield a location strip wider than the pre-fix 2/3 cut (× the 2× upscale).
         val w = 850
         val h = 1000
         val img = frame(w, h)
@@ -295,7 +267,7 @@ class LocateTest {
         try {
             g.color = Color(230, 235, 240)
             var x = 20
-            val nameEnd = (w * 0.72).toInt() // past 2/3 (= 566)
+            val nameEnd = (w * 0.72).toInt()
             while (x < nameEnd) { g.fillRect(x, 30, 16, 26); x += 24 }
         } finally {
             g.dispose()
@@ -358,8 +330,6 @@ class LocateTest {
         assertTrue(prepared.readImage.width % 32 == 0)
     }
 
-    // ---- The C47 refinery UI (the skin the game switched to on 2026-07-20) -------------------
-
     /** The C47 CONFIRM fill, bright capture. */
     private val c47Confirm = Color(154, 182, 59)
 
@@ -416,10 +386,6 @@ class LocateTest {
 
     @Test
     fun `C47 skin - the hatched strip and green CTA locate the panel, not the system banner`() {
-        // The 2026-07-20 refinery UI: the tab strip is a diagonal hatch (only its AREA MEAN is
-        // maroon, which is why Locate downscales with a box filter — bicubic point-samples the
-        // stripes away) and CONFIRM is green. Above both sits the terminal's own system banner,
-        // a wide dark-red bar at the capture's top edge that must never win the leftmost rule.
         val img = frame(800, 950)
         val g = img.createGraphics()
         try {
@@ -441,18 +407,14 @@ class LocateTest {
 
     @Test
     fun `an orange-lit scenery patch with both anchors is not a panel candidate`() {
-        // Auftrag 9: on a 32:9 frame a rock face under the refinery work lights matches maroon
-        // AND has orange highlights below it, and it sits LEFT of the real panel — where the
-        // leftmost-is-newest rule would hand it to the model. The terminal interior is a
-        // desaturated dark UI; the world is not.
         val img = frame()
         val g = img.createGraphics()
         try {
-            g.color = Color(140, 70, 25) // lit rock: far too saturated to be terminal chrome
+            g.color = Color(140, 70, 25)
             g.fillRect(200, 500, 1200, 1400)
-            g.color = Color(90, 45, 25) // a maroon-matching band across it
+            g.color = Color(90, 45, 25)
             g.fillRect(300, 520, 600, 36)
-            g.color = cta // an orange highlight low on the rock
+            g.color = cta
             g.fillRect(900, 1800, 300, 40)
         } finally {
             g.dispose()
@@ -466,9 +428,6 @@ class LocateTest {
 
     @Test
     fun `a capture that cuts the CTA row off still locates the panel from its strip`() {
-        // Auftrag 23: the screenshot ends just above CANCEL/CONFIRM, so no CTA can confirm the
-        // strip. The fixed 4K geometry is a far worse guess than the strip we did find, so the
-        // rescue takes the panel down to the capture's bottom edge.
         val img = frame(800, 950)
         paintC47Panel(img, x = 340, y = 88, panelWidth = 450, panelHeight = 860, confirm = null)
 
@@ -480,8 +439,6 @@ class LocateTest {
 
     @Test
     fun `the CTA-less rescue ignores a strip low in the capture`() {
-        // A tab strip sits at the TOP of a panel that then fills the capture; a maroon run down
-        // in the sidebar cannot stand in for one, so this falls back rather than crop the sidebar.
         val img = frame(800, 950)
         paintC47Panel(img, x = 40, y = 700, panelWidth = 260, panelHeight = 240, confirm = null)
 
@@ -492,7 +449,7 @@ class LocateTest {
     fun `gap-tolerant runs bridge text holes in the strip`() {
         val matches = BooleanArray(40)
         for (x in 0..10) matches[x] = true
-        for (x in 14..30) matches[x] = true // a 3-px hole (strip text) must not split the run
+        for (x in 14..30) matches[x] = true
 
         val runs = Locate.runs(matches, maxGap = 6)
 
