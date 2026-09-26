@@ -7,7 +7,8 @@ import kotlin.test.Test
 /**
  * Manual smoke harness for [PanelOcr] ([TextDetector] + [DigitOcr]) that prints the recovered numeric
  * grid of real normalized panels. Trivially green unless `OCR_DET_MODEL`, `OCR_REC_MODEL` and
- * `PANEL_DIR` are all set.
+ * `PANEL_DIR` are all set; `OCR_DICT` names the dictionary of a model without ONNX `character`
+ * metadata.
  */
 class PanelOcrSmokeTest {
 
@@ -28,7 +29,8 @@ class PanelOcrSmokeTest {
 
         val gridOut = System.getenv("OCR_GRID_OUT")?.takeUnless { it.isBlank() }?.let(::File)
         val json = StringBuilder("{\n")
-        PanelOcr(detPath.toPath(), recPath.toPath()).use { ocr ->
+        val dictionary = System.getenv("OCR_DICT")?.takeUnless { it.isBlank() }?.let { OcrModels.readDictionary(File(it).readText()) }
+        PanelOcr(detPath.toPath(), recPath.toPath(), dictionary = dictionary).use { ocr ->
             panels.forEachIndexed { pi, f ->
                 println("\n===== ${f.name} =====")
                 val grid = ocr.readNumericGrid(ImageIO.read(f))

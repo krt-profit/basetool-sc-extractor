@@ -1,5 +1,6 @@
 package com.basetool.bpextractor.refinery
 
+import java.nio.file.Files
 import java.nio.file.Path
 
 /**
@@ -7,17 +8,21 @@ import java.nio.file.Path
  * first refinery extraction that asks for it and never closed; callers must not close it.
  *
  * Resolution order:
- * 1. the `OCR_MODELS_DIR` environment override, a folder holding the two
- *    `ch_PP-OCRv3_{det,rec}_infer.onnx` files;
+ * 1. the `OCR_MODELS_DIR` environment override, a folder holding [DET_FILE], [REC_FILE] and
+ *    [DICT_FILE];
  * 2. the bundled classpath resources under `/ocr/`. When absent, [get] returns `null` and the
  *    pipeline runs without the OCR cross-check.
  */
 object OcrModels {
 
-    private const val DET_RES = "/ocr/ch_PP-OCRv3_det_infer.onnx"
-    private const val REC_RES = "/ocr/ch_PP-OCRv3_rec_infer.onnx"
-    private const val DET_FILE = "ch_PP-OCRv3_det_infer.onnx"
-    private const val REC_FILE = "ch_PP-OCRv3_rec_infer.onnx"
+    /** The bundled PP-OCRv6 small detection model. */
+    const val DET_FILE = "PP-OCRv6_small_det.onnx"
+
+    /** The bundled PP-OCRv6 small recognition model. */
+    const val REC_FILE = "PP-OCRv6_small_rec.onnx"
+
+    /** The recognition dictionary, one entry per line; the model carries none in its metadata. */
+    const val DICT_FILE = "PP-OCRv6_small_rec_dict.txt"
 
     @Volatile
     private var loaded = false
@@ -38,10 +43,24 @@ object OcrModels {
 
     private fun load(): PanelOcr? {
         System.getenv("OCR_MODELS_DIR")?.takeUnless { it.isBlank() }?.let { dir ->
-            PanelOcr.fromFiles(Path.of(dir, DET_FILE), Path.of(dir, REC_FILE))?.let { return it }
+            val dict = Path.of(dir, DICT_FILE)
+            if (Files.isRegularFile(dict)) {
+                PanelOcr.fromFiles(Path.of(dir, DET_FILE), Path.of(dir, REC_FILE), readDictionary(Files.readString(dict)))
+                    ?.let { return it }
+            }
         }
-        val det = OcrModels::class.java.getResourceAsStream(DET_RES)?.use { it.readBytes() } ?: return null
-        val rec = OcrModels::class.java.getResourceAsStream(REC_RES)?.use { it.readBytes() } ?: return null
-        return PanelOcr(det, rec)
+        val det = resource(DET_FILE) ?: return null
+        val rec = resource(REC_FILE) ?: return null
+        val dict = resource(DICT_FILE) ?: return null
+        return PanelOcr(det, rec, TextDetector.Params.PP_OCR_V6_SMALL, readDictionary(dict.toString(Charsets.UTF_8)))
     }
+
+    private fun resource(name: String): ByteArray? =
+        OcrModels::class.java.getResourceAsStream("/ocr/$name")?.use { it.readBytes() }
+
+    /** Splits a dictionary file into its entries, keeping entries that are themselves whitespace. */
+    internal fun readDictionary(text: String): List<String> =
+        text.removePrefix("﻿").split('\n').map { it.removeSuffix("\r") }.let { lines ->
+            if (lines.lastOrNull() == "") lines.dropLast(1) else lines
+        }
 }

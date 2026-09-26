@@ -3,6 +3,7 @@ package com.basetool.bpextractor.refinery
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import ai.onnxruntime.TensorInfo
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.nio.FloatBuffer
@@ -10,8 +11,8 @@ import java.nio.file.Path
 import kotlin.math.ceil
 
 /**
- * Classical-OCR digit reader (PP-OCRv3 recognition, CRNN + CTC, via ONNX Runtime), a decorrelated
- * second opinion on numeric cells the VLM misreads.
+ * Classical-OCR digit reader (PP-OCR recognition, CTC, via ONNX Runtime), a decorrelated second
+ * opinion on numeric cells the VLM misreads.
  *
  * Reads a single cropped cell only and is never used standalone; the result is filtered to `0-9`.
  * The ONNX session is heavyweight: construct once and reuse; [close] releases it.
@@ -19,30 +20,47 @@ import kotlin.math.ceil
 class DigitOcr private constructor(
     private val env: OrtEnvironment,
     private val session: OrtSession,
+    dictionary: List<String>?,
 ) : AutoCloseable {
 
-    /** Load from a model file on disk (smoke harnesses / dev). */
-    constructor(modelPath: Path) : this(
+    /**
+     * Load from a model file on disk (smoke harnesses / dev).
+     *
+     * @param dictionary the recognition dictionary, one entry per line; null reads it from the model's
+     *   ONNX `character` metadata.
+     */
+    constructor(modelPath: Path, dictionary: List<String>? = null) : this(
         OrtEnvironment.getEnvironment(),
         OrtEnvironment.getEnvironment().createSession(modelPath.toString(), OrtSession.SessionOptions()),
+        dictionary,
     )
 
     /** Load from in-memory model bytes (the bundled classpath resource — no temp file needed). */
-    constructor(modelBytes: ByteArray) : this(
+    constructor(modelBytes: ByteArray, dictionary: List<String>? = null) : this(
         OrtEnvironment.getEnvironment(),
         OrtEnvironment.getEnvironment().createSession(modelBytes, OrtSession.SessionOptions()),
+        dictionary,
     )
 
-    /** CTC labels: index 0 = blank, then the model's dictionary, then a trailing space (PP-OCR order). */
+    /**
+     * CTC labels: index 0 = blank, then the model's dictionary, then a trailing space (PP-OCR order).
+     * Must match the model's output class count, or every digit would shift.
+     */
     private val labels: List<String> = buildList {
         add("blank")
-        val dict = session.metadata.customMetadata["character"]
+        val dict = dictionary
+            ?: session.metadata.customMetadata["character"]?.split("\n")
             ?: error("rec model carries no 'character' metadata")
-        dict.split("\n").forEach { add(it.trimEnd('\r')) }
+        dict.forEach { add(it.trimEnd('\r')) }
         add(" ")
+    }.also { labels ->
+        val classes = (session.outputInfo.values.first().info as? TensorInfo)?.shape?.lastOrNull() ?: -1L
+        check(classes < 0 || classes == labels.size.toLong()) {
+            "rec model has $classes output classes but the dictionary yields ${labels.size} labels"
+        }
     }
 
-    /** The model's single input name (PP-OCRv3 rec uses `x`); read it rather than hard-coding. */
+    /** The model's single input name (PP-OCR rec uses `x`); read it rather than hard-coding. */
     private val inputName: String = session.inputNames.first()
 
     /** Recognize the digits in a single-line cell crop; "" when no digit is read. */
@@ -112,7 +130,7 @@ class DigitOcr private constructor(
     override fun close() = session.close()
 
     companion object {
-        /** PP-OCRv3 rec fixed input height (`rec_img_shape = [3, 48, 320]`). */
+        /** PP-OCR rec fixed input height (`rec_img_shape = [3, 48, 320]`). */
         private const val IMG_HEIGHT = 48
     }
 }

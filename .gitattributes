@@ -7,3 +7,4 @@
 *.otf binary
 *.ttf binary
 *.log binary
+*.onnx binary

@@ -17,10 +17,20 @@ class PanelOcr private constructor(
 ) : AutoCloseable {
 
     /** Load both models from files on disk (smoke harnesses / dev). */
-    constructor(detModel: Path, recModel: Path) : this(TextDetector(detModel), DigitOcr(recModel))
+    constructor(
+        detModel: Path,
+        recModel: Path,
+        detParams: TextDetector.Params = TextDetector.Params.PP_OCR_V6_SMALL,
+        dictionary: List<String>? = null,
+    ) : this(TextDetector(detModel, detParams), DigitOcr(recModel, dictionary))
 
     /** Load both models from in-memory bytes (the bundled classpath resources). */
-    constructor(detBytes: ByteArray, recBytes: ByteArray) : this(TextDetector(detBytes), DigitOcr(recBytes))
+    constructor(
+        detBytes: ByteArray,
+        recBytes: ByteArray,
+        detParams: TextDetector.Params,
+        dictionary: List<String>?,
+    ) : this(TextDetector(detBytes, detParams), DigitOcr(recBytes, dictionary))
 
     /** One recognized numeric cell: its detected box and the digits read from it. */
     data class NumCell(val box: TextDetector.Box, val digits: String) {
@@ -159,10 +169,10 @@ class PanelOcr private constructor(
         /** Max distance (px) from a column centre for a cell to be assigned to that column. */
         private const val COL_TOLERANCE = 45
 
-        /** Load from two model files on disk; null when either is missing. */
-        fun fromFiles(detModel: Path, recModel: Path): PanelOcr? =
+        /** Load from two model files on disk with the bundled detector parameters; null when either is missing. */
+        fun fromFiles(detModel: Path, recModel: Path, dictionary: List<String>? = null): PanelOcr? =
             if (Files.isRegularFile(detModel) && Files.isRegularFile(recModel)) {
-                PanelOcr(detModel, recModel)
+                PanelOcr(detModel, recModel, dictionary = dictionary)
             } else {
                 null
             }

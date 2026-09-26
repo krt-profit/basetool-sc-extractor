@@ -234,7 +234,7 @@ uninstalling removes **everything**:
 
 | Artefact | after uninstall |
 |---|---|
-| Program folder `%LOCALAPPDATA%\Basetool SC Extractor\` (bundled JRE, ~220 files, ~183 MB) | removed |
+| Program folder `%LOCALAPPDATA%\Basetool SC Extractor\` (bundled JRE, ~225 files, ~194 MB) | removed |
 | Start-menu group "Basetool" including the shortcut | removed |
 | Desktop shortcut | removed |
 | "Apps & features" / registry entry | removed |
@@ -429,13 +429,13 @@ In [`build.gradle.kts`](build.gradle.kts) under `windows { … }`:
 | `upgradeUuid` | stable id so new versions replace the old one |
 | `iconFile` | custom icon (place it at `src/main/resources/app.ico`) |
 
-> The MSI is ~108 MB and installs to ~183 MB. What gets bundled is a **slim** JDK 25
+> The MSI is ~135 MB and installs to ~194 MB. What gets bundled is a **slim** JDK 25
 > runtime — only the modules actually needed: `modules("java.instrument",
 > "jdk.unsupported", "java.net.http", "jdk.management")` (HTTP client for Ollama,
 > memory probe for the hardware preflight) plus the ones the Compose plugin detects
 > automatically (`java.desktop` etc.), determined via `gradlew suggestRuntimeModules`.
-> The user still needs no Java of their own. On top of that sit the two **PP-OCRv3
-> ONNX models** (~13 MB) of the classical-OCR cross-reader; ONNX Runtime itself needs
+> The user still needs no Java of their own. On top of that sit the two **PP-OCRv6 small
+> ONNX models** (~31 MB) of the classical-OCR cross-reader; ONNX Runtime itself needs
 > **no** extra jlink module, and its native libraries extract to `%TEMP%`, never into
 > the installation folder.
 > (`jvmArgs += "--enable-native-access=ALL-UNNAMED"` silences the JDK 25 "native
@@ -469,7 +469,7 @@ basetool-sc-extractor/
 │   │   ├── Stitcher.kt / Validation.kt    # row stitching + confidence policy
 │   │   ├── CrossModelVerify.kt       #   second VLM as a decorrelated reader
 │   │   ├── TextDetector/DigitOcr/PanelOcr/OcrCrossCheck/OcrModels.kt
-│   │   │                             #   classical-OCR cross-reader (PP-OCRv3 via ONNX Runtime)
+│   │   │                             #   classical-OCR cross-reader (PP-OCRv6 small via ONNX Runtime)
 │   │   ├── CaptureTime.kt            #   capturedAt from the file name, else mtime
 │   │   ├── RefineryPipeline.kt       #   orchestration + JSON export
 │   │   ├── Preflight.kt              #   hardware probes + tier decision
@@ -558,7 +558,7 @@ will be useful, but WITHOUT ANY WARRANTY.
 | Skia (via Skiko) | BSD-3-Clause |
 | Bundled Java runtime (OpenJDK 25) | GPLv2 **with Classpath Exception** |
 | ONNX Runtime (the classical-OCR cross-reader) | MIT |
-| The bundled **PP-OCRv3** detection/recognition models (PaddleOCR, ONNX packaging by RapidOCR) | Apache-2.0 |
+| The bundled **PP-OCRv6 small** detection/recognition models and dictionary (PaddleOCR, ONNX export by the PaddlePaddle authors) | Apache-2.0 |
 | The **Lato** typeface | SIL Open Font License 1.1 |
 
 The OFL licence text of the typeface sits under

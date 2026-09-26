@@ -3,7 +3,7 @@
 > **Doc type:** Spike report **plus a running measurement log.** §1–§10 are the Phase 0
 > report, frozen when Phase 0 closed (2026-06-10); Phase 3 (#436) consumed its artifacts.
 > The dated **addenda** below record every later measurement that changed or confirmed a
-> pipeline decision (bake-off rounds, `num_ctx`, cross-model verify, the C47 terminal skin)
+> pipeline decision (bake-off rounds, `num_ctx`, cross-model verify, the C47 terminal skin, the OCR model)
 > and are still appended to — a new measurement gets a new dated addendum, never an edit of
 > §1–§10. Code cites both halves by section. *(Header corrected 2026-09-22: it used to say
 > the whole file was frozen, which the addenda through 2026-09-05 contradicted.)*
@@ -576,3 +576,66 @@ exactly one cell against the primary-only run: a18's LARANITE quality, whose mis
 physical row into two across five scrolled captures. That is worth having — it is a stitching
 failure, not just a digit — but the round-2 claim that verify auto-corrects the open digit misreads
 no longer has anything left to correct here.
+
+## Addendum 2026-09-26 — OCR cross-reader: PP-OCRv3 → PP-OCRv6 small (#55)
+
+The classical-OCR cross-reader moved from PP-OCRv3 (RapidOCR's ONNX packaging) to **PP-OCRv6
+small** (PaddlePaddle's own ONNX export on Hugging Face). Unlike an ONNX Runtime bump this is not
+a digest question — the digest is guaranteed to change — so the round compared candidates on the
+**pipeline outcome**: the VLM stage ran once (primary `qwen3-vl:8b-instruct`, verify
+`qwen3-vl:4b-instruct`, 34 orders / 52 images, matching the expected file 34/34, reproduced
+byte-identically in a second run), then `OcrCandidateEval` validated every OCR candidate against
+those same reads, with and without the verify model.
+
+**Candidates** (all Apache-2.0, SHA-256 checked against the publishing hub): v4 mobile (RapidOCR),
+v5 mobile, English v5 mobile rec, v6 tiny / small / medium; each as a pair, plus every detector
+and every recognizer swapped against v3 to separate the two halves.
+
+**What the exports need** — the four points #55 asked to check:
+
+| | v3 / v4 (RapidOCR) | v5 / v6 (PaddlePaddle) |
+| --- | --- | --- |
+| Dictionary in ONNX `character` metadata | yes | **no** — `PostProcess.character_dict` in `inference.yml` only |
+| CTC order blank · dict · space | holds (6625 classes) | holds (dict + 2 classes for every model) |
+| Recognition input height | 48 | 48 (`rec_img_shape [3, 48, 320]`) |
+| Detector parameters | 736 min side, 0.3 / 0.5 / 1.6 | per model: v6 0.2 / 0.40–0.45 / 1.4 at PaddleOCR's default 736 min side; v5 mobile 0.3 / 0.6 / 1.5 |
+
+**Result, every disputed cell settled against the pixels of the capture:**
+
+| Candidate (det+rec) | Size | With verify | Without verify: wrong cells flagged / false alarms | Witness errors |
+| --- | --- | --- | --- | --- |
+| v3 | 13 MB | 1 cell corrected | 1 / 1 | 4 |
+| v4 | 15.6 MB | same as v3 | same as v3 | 3 |
+| v5 mobile | 21.4 MB | same as v3, +1 QTY flag | same as v3, +1 flag | 5 |
+| **v6 small** | **31 MB** | **same as v3** (expected file byte-identical) | **3 / 1** | **2** |
+| v6 tiny | 6.2 MB | 2 cells corrected | 4 / 4, plus dropped digits | 6 |
+| v6 medium | 139 MB | **1 regression** (a slashed 0 read as 8) | — | — |
+
+"Witness errors" counts the QUALITY/YIELD cells the reader itself gets wrong on rows it anchors,
+against the pixel-settled truth. Detection barely matters on this clean grid; the recognizer decides.
+
+- **v6 small reads correctly the two cells the addendum of 2026-09-05 recorded as misread by both
+  VLMs and by v3.** With the verify model the two agreeing VLMs outvote it silently (the 2-of-3
+  QUALITY majority), so the GPU tier is unchanged. Without it — the minimum and CPU tiers, where
+  only two votes exist — both become `OCR_CONTESTED` review flags. That is the decorrelation the
+  reader exists for, on exactly the 0/8 glyph class.
+- **v6 tiny** is the only candidate that changes a value on the GPU tier for the better, but it is
+  the noisiest witness: several 0/8 misreads and dropped digits, each a false review flag on the
+  lower tiers.
+- **v6 medium** reads a slashed 0 as 8 — the VLMs' own confusion — and breaks a cell v3 leaves
+  alone. The trap #55 warned about, measured.
+
+**Decision (owner, 2026-09-26): PP-OCRv6 small.** It meets #55's bar — more wrong cells surfaced,
+nothing v3 rescued lost — at +13.6 MB of MSI (121.2 MB for v2.9.1 → 134.8 MB; ~194 MB installed) and a dictionary file. `suggestRuntimeModules` is unchanged, and the OCR path was run on the bundled module set from the app image. New `OcrDigestTest`
+baseline: **1355 cells, SHA-256 `42ed8407…`** (v3: 1366, `464d8c3a…`).
+
+**The expected file carries more misreads than recorded.** Besides the two QUALITY digits of
+2026-09-05, a duplicated INERT row (stitched twice under a garbled and a clean name) carries a
+wrong QUALITY and YIELD, and one YIELD differs from what every OCR candidate reads and from the
+material's own yield rate on the neighbouring row. They are left as the pipeline's output — the
+file records a run, not the truth — and none of them discriminates between candidates.
+
+**Harness:** `OcrCandidateEval`, reached through `PromptSmokeTest` with
+`PROMPT_SMOKE_OCR_CANDIDATES`. Each candidate is a folder with `det.onnx`, `rec.onnx`, optional
+`dict.txt` and `det.properties`; the defaults are the bundled model's, so a v3 candidate needs
+`thresh=0.3`, `boxThresh=0.5`, `unclipRatio=1.6`.
