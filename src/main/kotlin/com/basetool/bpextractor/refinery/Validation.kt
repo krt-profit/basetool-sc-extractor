@@ -15,9 +15,8 @@ enum class ExtractWarning {
     IMPLAUSIBLE_CELL,
 
     /**
-     * A REFINE toggle read contradicted the YIELD column of a quoted order and was corrected
-     * (the toggle shows an orange knob in BOTH states — left = OFF, right = ON — which VLMs
-     * misread as "filled = ON"; the yield cell is the reliable signal: `--` = OFF, > 0 = ON).
+     * A REFINE toggle read contradicted the YIELD column of a quoted order and was corrected; the yield
+     * cell is the reliable signal (`--` is OFF, > 0 is ON).
      */
     REFINE_CORRECTED,
 
@@ -57,44 +56,29 @@ enum class ExtractWarning {
     STITCH_CONTESTED,
 
     /**
-     * A QTY digit was DETERMINISTICALLY corrected ([Validation.checksumRepair]): a unique
-     * confusable single-digit edit of one over-reading ON row simultaneously lands the sum of ON-row
-     * QTY on the TO REFINE header AND matches that row's own YIELD via the material's rate. The
-     * export carries the corrected value (the only read-time fix that recovers truth from arithmetic,
-     * not from pixels that don't contain it).
+     * A QTY digit was corrected by [Validation.checksumRepair]: a unique confusable single-digit edit
+     * lands the ON-row QTY sum on the TO REFINE header and matches the row's YIELD via the material's
+     * rate.
      */
     CHECKSUM_REPAIRED,
 
     /**
-     * A YIELD digit was DETERMINISTICALLY corrected ([Validation.yieldRepair]): a refine-ON row's
-     * read yield deviated GROSSLY from the material's per-row yield rate (from ≥ 2 sibling rows of
-     * the same material), and a UNIQUE confusable single-digit edit of it lands back on the
-     * rate-implied yield while staying ≤ qty (physics). Recovers an OUTPUT mis-read the qty checksum
-     * cannot — yield is not in the TO-REFINE sum. Abstains when the read is within the rate's
-     * few-percent noise floor: a within-noise last-digit flip (e.g. 2720↔2728) is NOT recoverable
-     * from arithmetic, only from a better read.
+     * A YIELD digit was corrected by [Validation.yieldRepair]: a unique confusable single-digit edit of a
+     * grossly deviating refine-ON yield lands back on the material's rate-implied yield while staying
+     * ≤ qty.
      */
     YIELD_REPAIRED,
 
     /**
-     * A YIELD cell was corrected by the classical-OCR cross-reader ([Validation.ocrYieldRepair]):
-     * the VLM read a yield that [yieldRepair] could NOT fix arithmetically (the deviation is inside
-     * the rate's few-percent noise floor), but OCR read a single CONFUSABLE-digit alternative that
-     * is ≤ qty (physics) AND lands STRICTLY closer to the material's per-row yield rate than the VLM
-     * read. This is exactly the "recoverable only from a better read" case [YIELD_REPAIRED]'s
-     * docstring names — OCR is that better read, here corroborated by physics + the rate before it
-     * overwrites. A correct yield sits ON the rate, so a confusable OCR misread of it is strictly
-     * FARTHER and is rejected: a correct cell can never be flipped (the safety crux).
+     * A YIELD cell was corrected by the OCR cross-reader ([Validation.ocrYieldRepair]): a confusable
+     * single-digit alternative that is ≤ qty and strictly closer to the material's rate-implied yield
+     * than the VLM read.
      */
     YIELD_OCR_REPAIRED,
 
     /**
-     * A QUALITY cell was corrected by 8b/4b/OCR MAJORITY ([Validation.resolveQuality]): the
-     * classical-OCR cross-reader ([OcrCrossCheck]) is a third, decorrelated vote on the QUALITY
-     * column, which has no arithmetic anchor (the cross-model verify could only FLAG it). When the
-     * verify model and OCR agree on a value the primary VLM mis-read, that majority value wins. The
-     * lone column where a better READ — not arithmetic — is the only recovery; needs the verify
-     * model on for a third vote (without it a 1-1 primary/OCR split only flags, never corrects).
+     * A QUALITY cell was corrected by primary/verify/OCR majority ([Validation.resolveQuality]); needs
+     * the verify model for a third vote.
      */
     OCR_CORRECTED,
 
@@ -107,12 +91,8 @@ enum class ExtractWarning {
     OCR_CONTESTED,
 
     /**
-     * A refine-OFF row's QTY disagrees with the classical-OCR read ([OcrCrossCheck]): OFF rows are in
-     * no checksum and (often) carry no quality cell, so neither the TO-REFINE arithmetic nor the
-     * quality majority can witness their qty — this OCR cross-check is the only signal that surfaces
-     * such a mis-read (e.g. an INERT qty both VLMs read identically wrong). FLAG-ONLY: the export
-     * keeps the VLM value (auto-correcting an OFF qty from a lone OCR read over an agreeing VLM pair is
-     * deliberately rejected); review decides.
+     * A refine-OFF row's QTY disagrees with the OCR read ([OcrCrossCheck]); flag-only, the export keeps
+     * the VLM value.
      */
     QTY_OCR_CONTESTED,
 
@@ -139,27 +119,16 @@ data class ValidatedOrder(
 )
 
 /**
- * Turns a [StitchResult] into contract-ready goods with DERIVED per-row confidence — the Phase 0
- * confidence policy (`docs/refinery-extractor/PHASE0_FINDINGS.md` §6). The planned two-pass
- * agreement was rejected by the golden-set data (it caught 0/5 systematic errors and introduced
- * digit errors of its own); confidence comes from deterministic validation instead:
+ * Turns a [StitchResult] into contract-ready goods with per-row confidence derived from deterministic
+ * validation:
  *
- * 1. numeric plausibility — QTY / QUALITY / YIELD must parse as numbers (or be the un-quoted
- *    `--`); a non-numeric read (e.g. `2.1KM` HUD bleed-through) drops the row to
- *    [CONFIDENCE_IMPLAUSIBLE];
- * 2. the REFINE toggle must read `ON` or `OFF`; anything else defaults to ON at low confidence
- *    so the backend drafts the row and the review forces a look. In a QUOTED order the YIELD
- *    column overrides the toggle read entirely (`--` ⇒ OFF, > 0 ⇒ ON): the terminal quotes a
- *    yield for exactly the refine-ON rows, while the toggle glyph carries an orange knob in
- *    both states (only its position differs) and is the documented VLM misread class. A
- *    contradicting toggle read is corrected at [CONFIDENCE_REFINE_CORRECTED] + warning;
- * 3. the one-sided header checksum (verified semantics: TO REFINE = Σ QTY of refine-ON rows,
- *    ±1 display rounding per row; the list is a ~6-row scrolling viewport, so only
- *    "visible Σ EXCEEDS the header" is flaggable);
- * 4. the optional cross-model verify ([CrossModelVerify]): rows whose QTY the checksum
- *    arbitration replaced cap at [CONFIDENCE_VERIFY_CORRECTED]; rows the two models read
- *    differently without a deterministic arbiter cap at [CONFIDENCE_VERIFY_CONTESTED];
- * 5. the model's verbalized self-confidence is never used.
+ * 1. QTY, QUALITY and YIELD must parse as numbers (or be `--`), else [CONFIDENCE_IMPLAUSIBLE];
+ * 2. the REFINE toggle must read `ON` or `OFF`, else ON at low confidence; in a quoted order the
+ *    YIELD column overrides the toggle (`--` is OFF, > 0 is ON) at [CONFIDENCE_REFINE_CORRECTED];
+ * 3. the one-sided header checksum flags a visible ON-row QTY sum exceeding TO REFINE;
+ * 4. the optional cross-model verify ([CrossModelVerify]) caps rows at [CONFIDENCE_VERIFY_CORRECTED]
+ *    or [CONFIDENCE_VERIFY_CONTESTED];
+ * 5. the model's self-reported confidence is never used.
  *
  * The order's `layoutConfidence` is the mean row confidence, dampened when the checksum flags.
  */
@@ -232,12 +201,8 @@ object Validation {
     private const val SUM_MISMATCH_DAMPENING = 0.9
 
     /**
-     * The YIELD column's deterministic refine signal: in a QUOTED read the terminal quotes a
-     * yield for exactly the refine-ON rows and renders `--` for OFF rows, while the toggle glyph
-     * shows an orange knob in BOTH states (left = OFF, right = ON) and is the known VLM misread
-     * class. Gated on the ROW's surviving read having seen the quoted state — in a mixed capture
-     * set a row visible only in a pre-GET-QUOTE capture shows `--` legitimately. A yield of
-     * exactly 0 stays ambiguous (INERT MATERIALS shows 0 while OFF) ⇒ null = no signal.
+     * The YIELD column's refine signal for a row whose surviving read saw the quoted state: a positive
+     * yield is ON, `--` is OFF. `null` for an un-quoted read or a yield of exactly 0.
      */
     fun yieldRefineSignal(row: StitchedRow): Boolean? = when {
         !row.quotedRead -> null
@@ -259,13 +224,8 @@ object Validation {
     }
 
     /**
-     * Refine-ON rows whose YIELD/QTY ratio deviates from the SAME material's other rows — the
-     * refinery method's per-material yield rate is constant within an order, so a divergent ratio
-     * is a likely digit mis-read in the QTY or YIELD cell. Each row is judged against the
-     * leave-one-out median of its material's other rows, so a single gross outlier in a 2-row
-     * material flags BOTH rows as inconsistent (a median-of-two would sit halfway and hide it)
-     * rather than picking the wrong one. Needs ≥ 2 rows of the material with positive QTY and
-     * YIELD. Public so the review screen could re-check it against user-corrected rows.
+     * Refine-ON rows whose YIELD/QTY ratio deviates from the leave-one-out median of the same material's
+     * other rows, a likely digit misread. Needs ≥ 2 rows of the material with positive QTY and YIELD.
      */
     fun yieldRatioOutliers(goods: List<RefineryExtractGood>): Set<Int> {
         val groups = goods
@@ -298,37 +258,21 @@ object Validation {
     }
 
     /**
-     * Deterministic single-digit QTY repair from the TO-REFINE checksum + per-material yield rate.
-     * Returns rowIndex -> corrected QTY, or an empty map when nothing is UNIQUELY determined (it
-     * abstains rather than guess). Fires only when Σ QTY(ON) EXCEEDS the header — the one direction
-     * the sum can never legally take (a complete or scrolled-out capture is at most header + per-row
-     * rounding), so an over-shoot is a guaranteed over-read. A candidate is one CONFUSABLE-digit
-     * edit of one ON row's QTY that simultaneously: (a) lands Σ QTY(ON) back inside the ±1/row
-     * rounding band of TO REFINE — a tight landing that doubles as a completeness check, since a
-     * scrolled-out order's corrected sum stays short of the band and the repair abstains;
-     * (b) keeps YIELD <= QTY (physics); and (c) matches the row's own YIELD via the material's
-     * REQUIRED row-specific witness — its own YIELD, via the material's rate from OTHER rows
-     * (leave-one-out), must predict the corrected qty. Checksum-landing ALONE is never enough: the
-     * over-read proves some row is wrong but not which, so a confusable edit on an innocent row could
-     * otherwise land the band and corrupt a correct cell. A row with no yield or no same-material
-     * sibling has no witness and is never repaired (it stays flagged). Applies only when exactly one
-     * candidate survives.
+     * Deterministic single-digit QTY repair from the TO REFINE checksum and the per-material yield rate,
+     * firing only when the ON-row QTY sum exceeds the header. A candidate is one confusable-digit edit of
+     * one ON row's QTY that lands the sum inside the ±1-per-row band, keeps YIELD ≤ QTY, and is predicted
+     * by the row's own YIELD via the material's leave-one-out rate. Returns rowIndex to corrected QTY
+     * when exactly one candidate survives, else an empty map.
      */
     fun checksumRepair(goods: List<RefineryExtractGood>, toRefineTotal: Long?): Map<Int, Long> {
         if (toRefineTotal == null) return emptyMap()
         val on = goods.filter { it.refine && it.inputQuantity != null }
         val sumOn = on.sumOf { it.inputQuantity!! }
         val tol = goods.size.toLong()
-        if (sumOn <= toRefineTotal + tol) return emptyMap() // not an over-read — nothing to repair
+        if (sumOn <= toRefineTotal + tol) return emptyMap()
         val candidates = mutableSetOf<Pair<Int, Long>>()
         for (row in on) {
             val qty = row.inputQuantity!!
-            // MANDATORY row-specific witness: the over-read direction proves SOME row is wrong, but
-            // checksum-landing alone does not say WHICH — a confusable edit on an innocent row can
-            // uniquely land the band and corrupt a correct cell. So a row is only repairable when its
-            // OWN yield, via the material's rate from OTHER rows (leave-one-out, so the over-read
-            // can't pollute its own gate), independently predicts the corrected qty. No yield or no
-            // same-material sibling ⇒ no witness ⇒ this row is never repaired (it stays flagged).
             val yieldQ = row.outputQuantity ?: continue
             if (yieldQ <= 0L) continue
             val siblingRatios = on.filter {
@@ -342,10 +286,10 @@ object Validation {
             val implied = yieldQ / rate
             if (implied <= 0.0) continue
             for (newQty in confusableEdits(qty)) {
-                if (newQty < yieldQ) continue // physics: yield <= qty
+                if (newQty < yieldQ) continue
                 val newSum = sumOn - qty + newQty
-                if (newSum < toRefineTotal - tol || newSum > toRefineTotal + tol) continue // checksum band
-                if (kotlin.math.abs(newQty - implied) / implied > REPAIR_YIELD_TOLERANCE) continue // yield witness
+                if (newSum < toRefineTotal - tol || newSum > toRefineTotal + tol) continue
+                if (kotlin.math.abs(newQty - implied) / implied > REPAIR_YIELD_TOLERANCE) continue
                 candidates += row.rowIndex to newQty
             }
         }
@@ -353,17 +297,10 @@ object Validation {
     }
 
     /**
-     * Deterministic single-digit YIELD repair from the per-material yield rate (the OUTPUT-cell
-     * analogue of [checksumRepair]). The refinery method's yield rate is constant within an order, so
-     * a refine-ON row whose READ yield deviates GROSSLY from the rate — taken from its material's
-     * OTHER rows (leave-one-out, so the mis-read can't pollute its own gate) — is a likely output
-     * mis-read. Returns rowIndex -> corrected yield when a UNIQUE confusable single-digit edit of the
-     * read yield lands back within [YIELD_REPAIR_LANDING] of the rate-implied yield AND stays ≤ qty
-     * (physics: output never exceeds input); abstains otherwise. Requires ≥ 2 same-material sibling
-     * rows for a trustworthy rate, and fires only when the read is beyond [YIELD_REPAIR_TRIGGER] of
-     * the implied yield — a within-noise last-digit flip (2720↔2728) is NOT recoverable from
-     * arithmetic (the rate's few-percent noise hides it) and is left to a better read. Yield is not
-     * in the TO-REFINE checksum, so this is the only deterministic recovery for an output cell.
+     * Deterministic single-digit YIELD repair from the per-material yield rate. A refine-ON row whose
+     * yield deviates beyond [YIELD_REPAIR_TRIGGER] from its leave-one-out rate is corrected when a unique
+     * confusable single-digit edit lands within [YIELD_REPAIR_LANDING] of the implied yield and stays
+     * ≤ qty. Needs ≥ 2 same-material siblings; returns rowIndex to corrected yield.
      */
     fun yieldRepair(goods: List<RefineryExtractGood>): Map<Int, Long> {
         val on = goods.filter { it.refine && (it.inputQuantity ?: 0L) > 0L && (it.outputQuantity ?: 0L) > 0L }
@@ -375,14 +312,11 @@ object Validation {
                 it.rowIndex != row.rowIndex &&
                     foldMaterial(it.rawMaterialName) == foldMaterial(row.rawMaterialName)
             }.map { it.outputQuantity!!.toDouble() / it.inputQuantity!! }
-            if (siblingRates.size < 2) continue // a single sibling's rounding noise is not a trustworthy rate
+            if (siblingRates.size < 2) continue
             val rate = median(siblingRates)
             if (rate <= 0.0) continue
             val implied = qty * rate
             if (implied <= 0.0) continue
-            // Trigger only on a deviation beyond BOTH the relative rate noise AND a small absolute
-            // floor — a tiny-qty row's ±0.5 display rounding is a large RELATIVE swing that must not
-            // look like a mis-read (e.g. yield 12 on qty 26).
             if (kotlin.math.abs(yieldQ - implied) <= maxOf(2.0, implied * YIELD_REPAIR_TRIGGER)) continue
             val candidates = confusableEdits(yieldQ).filter { cand ->
                 cand in 1..qty && kotlin.math.abs(cand - implied) / implied <= YIELD_REPAIR_LANDING
@@ -393,20 +327,10 @@ object Validation {
     }
 
     /**
-     * OCR-WITNESSED single-digit YIELD correction — the recovery [yieldRepair] abstains on.
-     * [yieldRepair] fires only on GROSS deviations (beyond the rate's few-percent noise floor); a
-     * within-noise last-digit flip (e.g. STILERON 2720 vs the rate-implied 2728) is invisible to
-     * arithmetic and "recoverable only from a better read". The classical-OCR cross-reader
-     * ([OcrCrossCheck]) IS that read. A refine-ON row's VLM yield is replaced by the OCR yield when
-     * ALL hold: the OCR value is a single CONFUSABLE-digit edit of the VLM value (same number bar one
-     * ambiguous glyph); it is ≤ qty (physics — output never exceeds input); and, using the per-material
-     * rate from ≥ 2 same-material ON siblings (leave-one-out), it lands within [YIELD_REPAIR_LANDING]
-     * of AND STRICTLY CLOSER to the rate-implied yield than the VLM value. The strict-closer test is
-     * the safety crux: a correct yield already sits ON the rate, so any confusable misread of it is
-     * strictly FARTHER and is rejected — only an off-the-rate VLM read is ever overwritten, never a
-     * correct one. Rows already corrected by the arithmetic [yieldRepair] ([alreadyFixed]) are skipped.
-     * Gated on rows that HAVE an OCR reading, so a build/run with no OCR models is byte-for-byte
-     * unchanged.
+     * OCR-witnessed single-digit YIELD correction for rows [yieldRepair] abstains on. A refine-ON row's
+     * VLM yield is replaced by the OCR yield when that is a single confusable-digit edit of it, ≤ qty,
+     * and within [YIELD_REPAIR_LANDING] of and strictly closer to the leave-one-out rate-implied yield.
+     * Rows in [alreadyFixed] and rows without an OCR reading are skipped.
      */
     fun ocrYieldRepair(
         goods: List<RefineryExtractGood>,
@@ -423,19 +347,19 @@ object Validation {
             val vlmYield = good.outputQuantity ?: continue
             if (qty <= 0L || vlmYield <= 0L) continue
             val ocrYield = reading.yield_ ?: continue
-            if (ocrYield == vlmYield || ocrYield !in 1L..qty) continue          // physics: 1 ≤ yield ≤ qty
-            if (ocrYield !in confusableEdits(vlmYield)) continue                // one confusable-digit edit only
+            if (ocrYield == vlmYield || ocrYield !in 1L..qty) continue
+            if (ocrYield !in confusableEdits(vlmYield)) continue
             val siblingRates = on.filter {
                 it.rowIndex != good.rowIndex &&
                     foldMaterial(it.rawMaterialName) == foldMaterial(good.rawMaterialName)
             }.map { it.outputQuantity!!.toDouble() / it.inputQuantity!! }
-            if (siblingRates.size < 2) continue                                // need a trustworthy rate witness
+            if (siblingRates.size < 2) continue
             val rate = median(siblingRates)
             if (rate <= 0.0) continue
             val implied = qty * rate
             if (implied <= 0.0) continue
-            if (kotlin.math.abs(ocrYield - implied) / implied > YIELD_REPAIR_LANDING) continue   // OCR lands on the rate
-            if (kotlin.math.abs(ocrYield - implied) >= kotlin.math.abs(vlmYield - implied)) continue // STRICTLY closer
+            if (kotlin.math.abs(ocrYield - implied) / implied > YIELD_REPAIR_LANDING) continue
+            if (kotlin.math.abs(ocrYield - implied) >= kotlin.math.abs(vlmYield - implied)) continue
             result[i] = ocrYield
         }
         return result
@@ -445,17 +369,9 @@ object Validation {
     data class QualityResolution(val corrected: Map<Int, Int>, val contested: Set<Int>)
 
     /**
-     * 8b/4b/OCR MAJORITY on the QUALITY column — the one numeric column with no arithmetic anchor,
-     * so a better READ (not a checksum) is the only recovery. For each row that has an OCR reading
-     * ([OcrCrossCheck], gated so rows/builds with no OCR see ZERO behaviour change), the votes are
-     * the primary VLM quality, the verify model's quality (when comparable) and OCR's quality:
-     * - unanimous ⇒ nothing;
-     * - a strict majority (≥ 2 of 3 agree, no top tie) that DIFFERS from the primary ⇒ corrected to
-     *   it (the primary was outvoted); a majority that EQUALS the primary ⇒ confirmed, no flag;
-     * - otherwise (no majority — three different values, or only two votes that differ) ⇒ contested.
-     *
-     * Conservative by construction: a lone OCR error (its ~1% rate on the golden set) is outvoted by
-     * an agreeing 8b+4b and never reaches the export; it can only ever raise a review flag.
+     * Majority vote of primary VLM, verify model and OCR on the QUALITY column, for rows with an OCR
+     * reading ([OcrCrossCheck]). A strict majority differing from the primary corrects it, one equal to
+     * the primary confirms it, and no majority marks the row contested.
      */
     fun resolveQuality(
         goods: List<RefineryExtractGood>,
@@ -466,20 +382,19 @@ object Validation {
         val contested = mutableSetOf<Int>()
         for ((i, reading) in ocr) {
             val good = goods.getOrNull(i) ?: continue
-            val primary = good.quality ?: continue                   // no primary quality (INERT) ⇒ skip
-            val ocrQuality = reading.quality?.toInt() ?: continue     // OCR read no quality here ⇒ skip
+            val primary = good.quality ?: continue
+            val ocrQuality = reading.quality?.toInt() ?: continue
             val verify = secondaryRows.getOrNull(i)?.let { PanelValues.toQuality(it.quality) }
             val votes = listOfNotNull(primary, verify, ocrQuality)
             val counts = votes.groupingBy { it }.eachCount()
-            if (counts.size == 1) continue                            // unanimous
+            if (counts.size == 1) continue
             val maxCount = counts.values.max()
             val top = counts.filterValues { it == maxCount }.keys
             if (maxCount >= 2 && top.size == 1) {
                 val winner = top.first()
-                if (winner != primary) corrected[i] = winner          // primary outvoted ⇒ correct
-                // winner == primary ⇒ majority confirms the primary, no flag
+                if (winner != primary) corrected[i] = winner
             } else {
-                contested += i                                        // no majority ⇒ flag
+                contested += i
             }
         }
         return QualityResolution(corrected, contested)
@@ -527,17 +442,8 @@ object Validation {
             val refine = refineFromYield ?: refineFromToggle
             val refineCorrected = refineKnown && refineFromYield != null && refineFromYield != refineFromToggle
 
-            // Plausibility: QTY and QUALITY must parse whenever the cell carried a value;
-            // YIELD must parse when the cell carried a value other than the `--` marker.
-            // YIELD > QTY is physically impossible (refining removes impurities, the output is
-            // always less than the input) — a guaranteed digit misread in one of the two cells.
             val qtyImplausible = row.qty != null && qty == null
             val qualityImplausible = row.quality != null && quality == null
-            // QUALITY is bounded 0..1000 (RefineryExtract contract). A value outside it is a digit
-            // mis-read no reader can have produced legitimately (dropped/doubled digit, HUD bleed) —
-            // flag it. Deterministic, needs no OCR/verify, so it also guards the rows resolveQuality
-            // never reaches. NEVER auto-corrected: a digit-count repair is non-unique (5180 could be
-            // 518 or 158) and quality has no arithmetic anchor to pick among candidates.
             val qualityOutOfRange = quality != null && quality !in 0..1000
             val yieldImplausible = row.yield_ != null && row.yield_ != "--" && yieldQty == null
             val yieldExceedsQty = yieldQty != null && qty != null && yieldQty > qty
@@ -550,9 +456,6 @@ object Validation {
                 refineCorrected -> CONFIDENCE_REFINE_CORRECTED
                 else -> CONFIDENCE_OK
             }
-            // Cross-model verify (PHASE0 addendum 2026-06-12): the merge marks rows whose QTY the
-            // checksum arbitration replaced and rows the two models read differently without a
-            // deterministic arbiter — both cap the confidence (min: an implausible row stays 0.4).
             if (crossCheck != null) {
                 if (index in crossCheck.corrected) {
                     confidence = minOf(confidence, CONFIDENCE_VERIFY_CORRECTED)
@@ -563,7 +466,6 @@ object Validation {
                     warnings += ExtractWarning.VERIFY_MISMATCH
                 }
             }
-            // Consensus across overlapping captures: a cell the captures disagreed on is unsafe.
             if (row.contested) {
                 confidence = minOf(confidence, CONFIDENCE_STITCH_CONTESTED)
                 warnings += ExtractWarning.STITCH_CONTESTED
@@ -587,11 +489,6 @@ object Validation {
             )
         }
 
-        // Yield/QTY ratio cross-check: the refinery method's per-material yield rate is constant
-        // within an order, so a refine-ON row whose ratio diverges from its material's siblings is
-        // a likely digit mis-read — cap its confidence for review. Catches gross errors a single
-        // header checksum can miss (a yield mis-read, or a divergent 2-row material); subtle
-        // ±1-digit flips that barely move the ratio are left to the contested-cell signal above.
         val ratioOutliers = yieldRatioOutliers(goods)
         if (ratioOutliers.isNotEmpty()) {
             warnings += ExtractWarning.YIELD_RATIO_OUTLIER
@@ -602,20 +499,11 @@ object Validation {
             }
         }
 
-        // The load-bearing TO_REFINE anchor: contested when OCR ([OcrCrossCheck]) and/or the verify
-        // model ([CrossModelVerify]) read a different total than the primary VLM. Every checksum
-        // trusts this one number, so when it is suspect the qty checksum-repair ABSTAINS (it must not
-        // repair a qty against a possibly-wrong total) and the order is flagged for review.
         val anchorContested = toRefineContested || (crossCheck?.headerToRefineContested ?: false)
         if (anchorContested) {
             warnings += ExtractWarning.TO_REFINE_CONTESTED
         }
 
-        // Deterministic checksum repair: a unique confusable single-digit edit that lands Σ QTY(ON)
-        // on TO REFINE and matches the row's yield is APPLIED — the export carries the corrected
-        // value. Runs after the flags so it upgrades a contested/outlier cell to corrected, and
-        // before the sum check below so a repaired order stops flagging SUM_MISMATCH. Abstains when
-        // the TO_REFINE anchor itself is contested (do not repair a qty against a suspect total).
         val repair = if (anchorContested) emptyMap() else checksumRepair(goods, PanelValues.toQuantity(stitch.toRefine))
         if (repair.isNotEmpty()) {
             warnings += ExtractWarning.CHECKSUM_REPAIRED
@@ -626,11 +514,6 @@ object Validation {
             }
         }
 
-        // Deterministic yield repair: a refine-ON row whose READ yield grossly deviates from its
-        // material's per-row rate, where a unique confusable digit edit lands back on the implied
-        // yield (≤ qty), carries the corrected OUTPUT. Runs after the qty checksum repair so the
-        // rate is taken from already-corrected sibling qtys. Recovers gross output mis-reads the
-        // checksum cannot (yield is not in the TO-REFINE sum); within-noise flips are left flagged.
         val yieldFix = yieldRepair(goods)
         if (yieldFix.isNotEmpty()) {
             warnings += ExtractWarning.YIELD_REPAIRED
@@ -641,12 +524,6 @@ object Validation {
             }
         }
 
-        // OCR-witnessed yield correction: the WITHIN-NOISE flips yieldRepair abstained on (e.g.
-        // STILERON 2720 -> rate-implied 2728), recovered from the classical-OCR read when its
-        // confusable single-digit alternative is ≤ qty AND lands STRICTLY closer to the material
-        // rate than the VLM value. Runs after yieldRepair (skips rows it already fixed); minOf so a
-        // row already capped lower (ratio-outlier 0.6, stitch-contested 0.75) is never RAISED — the
-        // warning still forces review. No-op when no OCR reading exists for the row.
         val ocrYieldFix = ocrYieldRepair(goods, ocr, yieldFix.keys)
         if (ocrYieldFix.isNotEmpty()) {
             warnings += ExtractWarning.YIELD_OCR_REPAIRED
@@ -660,12 +537,6 @@ object Validation {
             }
         }
 
-        // Classical-OCR third vote on the QUALITY column (the only numeric column with no
-        // arithmetic anchor — the cross-model verify can only flag it). 8b/4b/OCR majority
-        // auto-corrects a primary mis-read both other readers outvote; a no-majority disagreement
-        // is flagged for review. Gated on rows that actually have an OCR reading, so a build/run
-        // with no OCR models is byte-for-byte unchanged. Runs last so it overrides on the final
-        // (already qty/yield-repaired) goods. Row indices here equal goods[i].rowIndex (== i).
         val qualityFix = resolveQuality(goods, crossCheck?.secondaryRows ?: emptyList(), ocr)
         if (qualityFix.corrected.isNotEmpty()) {
             warnings += ExtractWarning.OCR_CORRECTED
@@ -687,11 +558,6 @@ object Validation {
             }
         }
 
-        // OCR-witnessed QTY review flag for refine-OFF rows ([OcrCrossCheck.qtyContested]): an OFF
-        // row's qty is in no checksum and (often) has no quality cell, so neither arithmetic nor the
-        // quality majority can witness it — an OCR confusable disagreement is the only signal (e.g.
-        // an INERT qty both VLMs read identically wrong). FLAG-ONLY: the value is NEVER changed (the
-        // export keeps the VLM read); only the confidence is capped and the order flagged for review.
         val qtyContestedOff = goods.filter { it.rowIndex in qtyOcrContested && !it.refine }.map { it.rowIndex }.toSet()
         if (qtyContestedOff.isNotEmpty()) {
             warnings += ExtractWarning.QTY_OCR_CONTESTED
@@ -702,19 +568,14 @@ object Validation {
             }
         }
 
-        // Un-quoted order: no read saw the quoted state — every yield is `--` by definition.
         if (!stitch.quoted) {
             warnings += ExtractWarning.UNQUOTED_ORDER
         }
 
-        // Cross-model verify ran but the row sets did not align (e.g. a ghost row in one read):
-        // no cell comparison was possible — that itself is a disagreement worth a look.
         if (crossCheck != null && !crossCheck.comparable) {
             warnings += ExtractWarning.VERIFY_MISMATCH
         }
 
-        // CTA cross-check: the button label is a redundant read of the quoted state — a
-        // contradiction means one of the two header cells was misread.
         val ctaQuoted = stitch.cta?.uppercase()?.let { cta ->
             when {
                 "CONFIRM" in cta -> true
@@ -726,12 +587,7 @@ object Validation {
             warnings += ExtractWarning.CTA_MISMATCH
         }
 
-        // One-sided header checksum (PHASE0_FINDINGS §7): the visible refine-ON quantities may
-        // legitimately fall SHORT of TO REFINE (scrolled-out rows), but can never exceed it
-        // beyond the ±1-per-row display rounding.
         val toRefineTotal = PanelValues.toQuantity(stitch.toRefine)
-        // Skip the sum check when the anchor itself is contested — TO_REFINE_CONTESTED already covers
-        // the order, and a sum compared against a suspect total would only be a confusing false flag.
         if (!anchorContested && sumMismatch(goods, toRefineTotal)) {
             warnings += ExtractWarning.SUM_MISMATCH
         }

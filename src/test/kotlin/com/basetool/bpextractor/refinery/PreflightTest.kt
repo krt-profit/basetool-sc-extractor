@@ -7,10 +7,8 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
- * Pins the pure preflight decision logic against the measured Phase 0 hardware tiers
- * (`PHASE0_FINDINGS.md` §5): VRAM → tier/model/ETA, the explicit-override ETA table, the
- * authoritative `ollama ps` fit verdict, and the snapshot's tolerance for failing probes —
- * all with mocked probes, as the master plan demands ("all behind interfaces").
+ * Pins the pure preflight decision logic with mocked probes: VRAM to tier, model and ETA, the override
+ * ETA table, the `ollama ps` fit verdict, and tolerance for failing probes.
  */
 class PreflightTest {
 
@@ -53,8 +51,6 @@ class PreflightTest {
 
     @Test
     fun `unknown VRAM decides CPU conservatively`() {
-        // No nvidia-smi and no registry value (e.g. some AMD/Intel setups): never silently
-        // overload — the ollama-ps fit check after the probe load corrects the picture.
         assertEquals(HardwareTier.CPU, Preflight.decide(null).tier)
     }
 
@@ -90,7 +86,6 @@ class PreflightTest {
     @Test
     fun `fit is null when the model is not loaded`() {
         assertNull(Preflight.fit(emptyList(), "qwen3-vl:8b-instruct"))
-        // A different loaded model does not answer for the probed one.
         val other = listOf(OllamaModel("gemma4:12b", sizeBytes = 8 * GIB, sizeVramBytes = 8 * GIB))
         assertNull(Preflight.fit(other, "qwen3-vl:8b-instruct"))
     }

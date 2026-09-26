@@ -1,11 +1,9 @@
 package com.basetool.bpextractor.refinery
 
 /**
- * The Read stage: drives one VLM call per image through [OllamaApi] using the Phase 0 frozen
- * strategy — freeform markdown answer + deterministic reformat ([MarkdownPanelParser]), never
- * schema-forcing (the "Format Tax" cost 0.5 pp accuracy and added the only semantic-class errors,
- * `PHASE0_FINDINGS.md` §2/§4). Temperature 0 and the output budget live in the client; this class
- * adds the one retry at a doubled budget when generation stopped on `length` (truncated table).
+ * The Read stage: one VLM call per image through [OllamaApi], asking for a freeform markdown answer
+ * that [MarkdownPanelParser] reformats deterministically. Retries once at a doubled output budget
+ * when generation stopped on `length`.
  */
 class PanelReader(
     private val ollama: OllamaApi,
@@ -50,8 +48,6 @@ class PanelReader(
             .bufferedReader()
             .readText()
 
-        // No example location in the prompt: with an empty/dark strip the model parrots the
-        // example instead of NONE (hallucinated LEVSKI on the Auftrag 8/9 ultrawide captures).
         private val LOCATION_PROMPT = """
             This is the header area of a Star Citizen refinement terminal.
             It shows the station/outpost name as the most prominent text on the left.

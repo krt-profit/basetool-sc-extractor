@@ -101,7 +101,6 @@ class DeviceGrantClientTest {
 
     @Test
     fun rejectsForeignIssuersDisguisedAsLocalhost() {
-        // SIB-SEC-09: the old `startsWith("http://localhost")` admitted both of these.
         assertFailsWith<IllegalArgumentException> { DeviceGrantClient(issuer = "http://localhost.attacker.tld/realms/x") }
         assertFailsWith<IllegalArgumentException> { DeviceGrantClient(issuer = "http://127.0.0.1@attacker.tld/") }
         assertFailsWith<IllegalArgumentException> { DeviceGrantClient(issuer = "http://localhost@attacker.tld/realms/x") }
@@ -138,8 +137,6 @@ class DeviceGrantClientTest {
         assertTrue(captured.get().contains("token_type_hint=refresh_token"))
     }
 
-    // --- DPoP (RFC 9449, REQ-INGEST-012) -------------------------------------------------------
-
     /** Records the `DPoP` header of every request that reaches a context, in order. */
     private val proofs = mutableListOf<String?>()
 
@@ -162,7 +159,6 @@ class DeviceGrantClientTest {
         val proof = assertNotNull(proofs.single(), "the refresh must carry a proof")
         assertEquals("POST", DpopProofs.claim(proof, "htm"))
         assertEquals("$issuer/protocol/openid-connect/token", DpopProofs.claim(proof, "htu"))
-        // Nothing is presented yet at the token endpoint, so there is no token to hash.
         assertNull(DpopProofs.claims(proof)["ath"])
         assertNull(DpopProofs.claims(proof)["nonce"])
     }
@@ -181,9 +177,6 @@ class DeviceGrantClientTest {
 
     @Test
     fun `a nonce challenge fails loudly and by name instead of being answered`() {
-        // RFC 9449 §8 is deliberately NOT implemented: neither Keycloak nor the gateway ever issues
-        // a challenge, and carrying an untested handshake for it would only guarantee that the first
-        // real one is answered by code nobody has watched run. It is named so it needs a release.
         tokenEndpointRecording { ex, _ ->
             ex.responseHeaders.add(DpopNonce.HEADER, "N-1")
             respond(ex, 400, """{"error":"use_dpop_nonce","error_description":"nonce required"}""")
@@ -201,8 +194,6 @@ class DeviceGrantClientTest {
 
     @Test
     fun `an ordinary rejection is never retried, even when a nonce rides along`() {
-        // A dead refresh token must fail fast into a fresh login; re-posting a grant in a loop is
-        // exactly what the at-most-one-retry rule exists to prevent.
         tokenEndpointRecording { ex, _ ->
             ex.responseHeaders.add(DpopNonce.HEADER, "N-1")
             respond(ex, 400, """{"error":"invalid_grant"}""")
@@ -217,13 +208,8 @@ class DeviceGrantClientTest {
         assertEquals(1, proofs.size, "nothing about this answer earns a second request")
     }
 
-    // --- clock correction ------------------------------------------------------------------------
-
     @Test
     fun `an iat written from a drifting clock is corrected from the server's Date and retried once`() {
-        // Keycloak accepts iat only in -25s..+15s and checks the proof BEFORE the grant, so a clock
-        // a few tens of seconds off breaks authentication outright — where the plain-bearer builds,
-        // which send no timestamp at all, were immune. The server's own Date header is the fix.
         val skew = 600L
         RawHttpServer { attempt, _ ->
             if (attempt == 1) {
@@ -249,7 +235,6 @@ class DeviceGrantClientTest {
                 val sent = raw.received.map { assertNotNull(it.header("DPoP")) }
                 val shift =
                     DpopProofs.claim(sent[1], "iat")!!.toLong() - DpopProofs.claim(sent[0], "iat")!!.toLong()
-                // The first proof used the raw local clock; the second is pulled onto the server's.
                 assertTrue(
                     shift in (skew - 5)..(skew + 5),
                     "the retry's iat must be shifted onto the server's clock, was ${shift}s",
@@ -264,7 +249,6 @@ class DeviceGrantClientTest {
 
     @Test
     fun `a rejection with the clock already in step is not retried`() {
-        // Nothing was learned, so a second identical proof would only repeat the first rejection.
         RawHttpServer { _, _ ->
             RawHttpServer.response(
                 "400 Bad Request",
@@ -296,8 +280,6 @@ class DeviceGrantClientTest {
                         DeviceGrantClient(issuer = raw.baseUrl).refreshAccessToken("OLD-RT", DpopKey.generate())
                     }
 
-                // Reported only after the corrected retry ALSO failed — never blame a clock that the
-                // correction already dealt with.
                 assertEquals(2, raw.received.size)
                 assertTrue(
                     failure.clockOffsetSeconds in (skew - 5)..(skew + 5),

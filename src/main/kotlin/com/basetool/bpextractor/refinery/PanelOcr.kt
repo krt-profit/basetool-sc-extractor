@@ -7,13 +7,9 @@ import kotlin.math.abs
 
 /**
  * Classical-OCR cross-reader for the refinery SETUP panel: [TextDetector] finds the text boxes,
- * [DigitOcr] reads the numeric ones, and the boxes are clustered back into the table's rows
- * (top→bottom) and columns (left→right). It is a DECORRELATED second opinion on the numeric cells
- * the VLM mis-reads — never a standalone reader (it has no understanding of names, toggles or the
- * quoted state). The pipeline pairs each cell with the VLM's structured read and resolves
- * disagreements deterministically (qty checksum, yield rate, or model/OCR majority on quality).
- *
- * Both ONNX sessions are heavyweight — construct once and reuse; [close] releases them.
+ * [DigitOcr] reads the numeric ones, and the boxes are clustered into the table's rows and columns.
+ * A second opinion on numeric cells, never a standalone reader. Both ONNX sessions are heavyweight:
+ * construct once and reuse; [close] releases them.
  */
 class PanelOcr private constructor(
     private val detector: TextDetector,
@@ -36,11 +32,8 @@ class PanelOcr private constructor(
     data class RowReading(val quality: Long?, val qty: Long?, val yield_: Long?)
 
     /**
-     * Everything one panel yields in a SINGLE detect+recognize pass: the per-row [RowReading]s (as
-     * [readRows]), the QTY-column values INCLUDING lone cells [readRows] drops (an OFF row like INERT
-     * has a qty but no quality, so it forms no RowReading — yet its qty is a real qty-column value),
-     * and every numeric value anywhere on the panel (header totals, cost, balance, …) for the
-     * header-anchor cross-check. Run once per panel and reuse — the ONNX passes are the cost.
+     * Everything one panel yields in a single detect-and-recognize pass: the per-row [RowReading]s, the
+     * QTY-column values including lone cells [readRows] drops, and every numeric value on the panel.
      */
     data class PanelNumbers(
         val rows: List<RowReading>,
@@ -74,7 +67,6 @@ class PanelOcr private constructor(
                 readings += RowReading(quality = assign[0], qty = assign[1], yield_ = assign[2])
             }
         }
-        // Every numeric cell (incl. lone ones like INERT's qty) whose nearest column is QTY (centre 1).
         val qtyColumn = cells.filter { cell ->
             cell.digits.toLongOrNull() != null &&
                 (0..2).minByOrNull { abs(cell.cx - cols[it]) } == 1 && abs(cell.cx - cols[1]) < COL_TOLERANCE
@@ -90,13 +82,9 @@ class PanelOcr private constructor(
         clusterRows(numericCells(panel)).map { row -> row.sortedBy { it.box.x0 } }
 
     /**
-     * Read the panel into per-row QUALITY/QTY/YIELD readings. The three data columns are found from
-     * the cells themselves: among rows with ≥ 2 cells, cell x-centres cluster into columns by large
-     * gaps, and the three most-populated clusters (left→right = QUALITY, QTY, YIELD) are the data
-     * columns — this isolates them from the header totals (IN MANIFEST / TO REFINE, different x) and
-     * the single-cell title/total/balance rows. A row is a data row when it carries QUALITY and QTY.
-     * Returns one [RowReading] per data row, top→bottom; the caller matches them to the VLM rows by
-     * the QTY anchor (OCR's most reliable column), so a missing/extra row never shifts the others.
+     * Reads the panel into per-row QUALITY/QTY/YIELD readings, one [RowReading] per data row from top to
+     * bottom. The data columns are the three most-populated x-clusters (left to right QUALITY, QTY,
+     * YIELD); a data row carries QUALITY and QTY.
      */
     fun readRows(panel: BufferedImage): List<RowReading> = readPanel(panel).rows
 

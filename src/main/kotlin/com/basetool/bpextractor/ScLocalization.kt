@@ -3,29 +3,17 @@ package com.basetool.bpextractor
 import java.io.File
 
 /**
- * Reads Star Citizen's own localisation files so the blueprint label does not have to be guessed.
- *
- * The log only ever carries the *rendered* notification text, and that text is translated. What is
- * invariant is the localisation **key**: `crafting_hud_notification_received_blueprint`. Its value
- * is a format string whose `%s` is the item name:
+ * Reads Star Citizen's own localisation files for the blueprint notification format, looked up by the
+ * invariant key `crafting_hud_notification_received_blueprint` in
+ * `<channel>\data\Localization\<language>\global.ini`:
  *
  * ```
  * crafting_hud_notification_received_blueprint=Received Blueprint: %s
  * crafting_hud_notification_received_blueprint,P=Bauplan erhalten: %s
  * ```
  *
- * That mapping sits in a plain file inside the very folder the user already picks —
- * `<channel>\data\Localization\<language>\global.ini` — whenever a language pack is installed
- * (which is exactly the case where the label is not English). So instead of shipping a guess per
- * language, we read the string the game will actually write. A rewording by CIG or by the
- * translation team is then picked up on the next run, with no release on our side.
- *
- * Vanilla English installs keep `global.ini` inside `Data.p4k` and have no loose file; that costs
- * nothing, because English is a built-in format anyway
- * ([BlueprintParser.BUILT_IN_FORMATS]).
- *
- * Everything here is best-effort and read-only: a missing folder, an unreadable file or a missing
- * key yields an empty result, never an exception. Nothing is ever written.
+ * Best-effort and read-only: a missing folder, unreadable file or missing key yields an empty result,
+ * never an exception.
  */
 object ScLocalization {
 
@@ -102,13 +90,8 @@ object ScLocalization {
         }.getOrElse { emptyList() }
 
     /**
-     * The [BLUEPRINT_KEY] value from one `global.ini`, or `null` if the file is unreadable or the
-     * key is absent (a language pack older than the crafting feature has neither).
-     *
-     * The file is ~11 MB, so it is streamed and abandoned the moment the key is found, behind a
-     * literal substring guard — the same shape as the log hot path in [BlueprintParser].
-     * `useLines` with UTF-8 covers the BOM these files carry, because the BOM sits on line 1 and
-     * the key never does.
+     * The [BLUEPRINT_KEY] value from one `global.ini`, or `null` if the file is unreadable or lacks the
+     * key. The file is streamed and abandoned as soon as the key is found.
      */
     fun blueprintFormatIn(globalIni: File): String? =
         runCatching {
@@ -120,15 +103,9 @@ object ScLocalization {
             }
         }.getOrNull()
 
-    // --- Pure parsing (unit-testable without touching a disk) -------------------
-
     /**
-     * The value of a `global.ini` line for exactly [BLUEPRINT_KEY], or `null` for anything else.
-     *
-     * Both shapes occur in the wild — the shipped file writes `key=value`, the translation repo
-     * writes `key,P=value` where the suffix is a CIG-side flag. Matching the key exactly (rather
-     * than by prefix) is what keeps a longer key that merely *starts* with ours from being picked
-     * up.
+     * The value of a `global.ini` line whose key is exactly [BLUEPRINT_KEY], in either the `key=value` or
+     * `key,P=value` shape; `null` for any other line.
      */
     fun parseIniLine(line: String): String? {
         val eq = line.indexOf('=')

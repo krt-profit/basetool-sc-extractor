@@ -58,12 +58,9 @@ class JmxRamProbe : RamProbe {
 }
 
 /**
- * Production [GpuProbe]: `nvidia-smi` first (exact dedicated VRAM + adapter name), then the
- * display-class registry value `HardwareInformation.qwMemorySize` via `reg query` as the
- * vendor-neutral fallback (a QWORD, so it does not lie above 4 GB the way
- * `Win32_VideoController.AdapterRAM` does). Deliberately NEVER `wmic` — removed from current
- * Windows 11 builds. Both probes are best-effort: any failure yields null and the preflight
- * falls back to the authoritative `ollama ps` fit check after the probe load.
+ * Production [GpuProbe]: `nvidia-smi` first, then the display-class registry value
+ * `HardwareInformation.qwMemorySize` via `reg query`. Best-effort: any failure yields `null`, and
+ * the `ollama ps` fit check after the probe load decides.
  */
 class WindowsGpuProbe : GpuProbe {
     override fun probe(): GpuInfo? = nvidiaSmi() ?: registryQwMemorySize()
@@ -155,11 +152,9 @@ enum class GpuFit {
 }
 
 /**
- * The pure preflight decision logic (master plan Phase 3 resource safety; measured values from
- * `PHASE0_FINDINGS.md` §5). Kept free of probing side effects so it is unit-testable with mocked
- * probes: VRAM picks the tier and the auto-selected model; the per-image ETA comes from the
- * Phase 0 measurements (RTX-4080-class GPU ~4–5 s, Ryzen-9950X3D-class CPU ~53 s / ~27 s); the
- * `ollama ps` split after the probe load is the final "does it actually fit" arbiter.
+ * Pure preflight decision logic, free of probing side effects: VRAM picks the tier and the
+ * auto-selected model, the per-image ETA comes from measured values, and the `ollama ps` split after
+ * the probe load is the final fit arbiter.
  */
 object Preflight {
 
@@ -173,11 +168,8 @@ object Preflight {
     const val MODEL_MINIMUM = "qwen3-vl:4b-instruct"
 
     /**
-     * Cross-model verify partner ([CrossModelVerify]): a differently-sized vision encoder whose
-     * misreads are decorrelated from the primary's (golden set 2026-06-12: no cell where both
-     * read the same wrong value). Used on the recommended tier only, and only when already
-     * installed — the verify pass is an accuracy bonus, never a reason for an extra multi-GB
-     * download or a below-tier slowdown.
+     * Cross-model verify partner ([CrossModelVerify]), a differently sized vision encoder. Used on the
+     * recommended tier only, and only when already installed.
      */
     const val MODEL_VERIFY = "qwen3-vl:4b-instruct"
 
@@ -200,9 +192,8 @@ object Preflight {
     const val ETA_CPU_RECOMMENDED_S = 55
 
     /**
-     * Pick the tier + model from probed dedicated VRAM. Unknown VRAM (null — no NVIDIA tool, no
-     * registry value, e.g. some AMD/Intel setups) decides CPU conservatively; the UI still offers
-     * the GPU models as a manual override and [fit] corrects the picture after the probe load.
+     * Picks the tier and model from probed dedicated VRAM; unknown VRAM (`null`) decides CPU. [fit]
+     * corrects the picture after the probe load.
      */
     fun decide(vramBytes: Long?): TierDecision = when {
         vramBytes != null && vramBytes >= VRAM_RECOMMENDED_BYTES ->
@@ -222,10 +213,9 @@ object Preflight {
     }
 
     /**
-     * Interpret the `ollama ps` answer (after a probe chat loaded [model]) — the authoritative,
-     * vendor-neutral fit signal: `size_vram >= size` means fully GPU-resident; a smaller
-     * `size_vram` means partial CPU offload; zero/absent means CPU-only. Null when the model is
-     * not loaded at all (probe failed or was skipped).
+     * Interprets the `ollama ps` answer after a probe chat loaded [model]: `size_vram >= size` is fully
+     * GPU-resident, a smaller `size_vram` is partial offload, zero or absent is CPU-only. `null` when the
+     * model is not loaded.
      */
     fun fit(loaded: List<OllamaModel>, model: String): GpuFit? {
         val entry = loaded.firstOrNull { it.name == model || it.name.startsWith("$model:") } ?: return null

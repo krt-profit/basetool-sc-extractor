@@ -5,14 +5,9 @@ import javax.imageio.ImageIO
 import kotlin.test.Test
 
 /**
- * Dev scaffolding (NOT a behaviour test): writes the NORMALIZED panel image for every golden
- * order — exactly the `Locate.prepare(...).readImage` the in-app OCR cross-check will run on — so
- * the classical-OCR cell-finder can be ground-truthed against the same pixels the pipeline feeds.
- *
- * Trivially green unless `PANEL_DUMP_DIR` (a folder of order folders, e.g. the golden set) AND
- * `PANEL_DUMP_OUT` (an output dir) are both set. Output goes to `<out>/<order>__<image>.png`. The
- * inputs are PRIVATE captures (guardrail 1a); the dumped panels are derived from them — they are
- * written OUTSIDE the repo and must never be committed.
+ * Dev scaffolding, not a behaviour test: writes the normalized panel image (`Locate.prepare(...)`) of
+ * every order to `<out>/<order>__<image>.png`. Trivially green unless `PANEL_DUMP_DIR` and
+ * `PANEL_DUMP_OUT` are both set; the output is private and must stay outside the repo.
  */
 class PanelDumpTest {
 

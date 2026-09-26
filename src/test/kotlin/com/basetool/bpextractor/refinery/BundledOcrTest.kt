@@ -5,11 +5,8 @@ import javax.imageio.ImageIO
 import kotlin.test.Test
 
 /**
- * Validates the PRODUCTION OCR loading path end to end: [OcrModels] loads the BUNDLED classpath
- * resources (the `/ocr/` .onnx files) via `getResourceAsStream` + ONNX `createSession(bytes)` — no temp file,
- * no env override — and reads a real normalized panel. Gated on `PANEL_DIR` (a folder of panels,
- * e.g. the [PanelDumpTest] output); run it WITHOUT `OCR_MODELS_DIR` so the bundled path (not the
- * dev file override) is exercised. Reads a local folder only — no private data committed.
+ * Validates the production OCR loading path: [OcrModels] loads the bundled `/ocr/` resources and reads
+ * a real normalized panel. Gated on `PANEL_DIR`; run without `OCR_MODELS_DIR`.
  */
 class BundledOcrTest {
 

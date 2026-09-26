@@ -54,11 +54,8 @@ import kotlinx.coroutines.delay
 import java.io.File
 
 /**
- * §5.2 Bilder laden on the [StepScaffold]: the "1 folder = 1 order" framing, a folder bar, the
- * mini-stats row and the thumbnail grid (each tile with resolution chip, file name, crop tag and
- * a remove ×) filling the remaining height; back + "Extraktion starten" live in the pinned
- * footer. The whole step is a drop target for external image files/images (same intake as the
- * window-level Strg+V paste); while a drag hovers, an orange border marks the step.
+ * The Bilder laden step: folder bar, stats row and thumbnail grid, with back and "Extraktion starten"
+ * in the pinned footer. The whole step is a drop target for external image files.
  */
 @OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -80,7 +77,6 @@ fun ImagesStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
 
             override fun onDrop(event: DragAndDropEvent): Boolean {
                 dragOver = false
-                // A foreign Transferable can throw on access — never let that crash the UI.
                 return runCatching { state.importTransferable(appScope, event.awtTransferable) }
                     .getOrDefault(false)
             }
@@ -105,9 +101,6 @@ private fun ImagesStepContent(
 ) {
     val strings = LocalStrings.current
 
-    // Mirror the file-picker for typed/pasted paths: once the path settles on an existing
-    // directory it loads automatically (debounced so we don't rescan on every keystroke).
-    // loadedFolder guards against re-scanning a path the picker just loaded.
     LaunchedEffect(state.folder) {
         val path = state.folder
         if (path.isNotBlank() && path != state.loadedFolder && File(path).isDirectory) {
@@ -116,9 +109,6 @@ private fun ImagesStepContent(
         }
     }
 
-    // §5.2 folder watch: while this step is on screen and a folder is loaded, poll it once per
-    // second so screenshots dropped into the folder afterwards appear by themselves. The tick
-    // diffs instead of reloading — checkbox choices and ✕-removed tiles survive every rescan.
     LaunchedEffect(state.loadedFolder) {
         val path = state.loadedFolder ?: return@LaunchedEffect
         while (true) {
@@ -142,7 +132,6 @@ private fun ImagesStepContent(
             )
         },
     ) {
-        // Folder bar: mono-style path + browse.
         Column {
             Text(
                 strings.rfFolderLabel.uppercase(),
@@ -174,16 +163,11 @@ private fun ImagesStepContent(
                     },
                 )
             }
-            // Intake hint: clipboard paste (Strg+V) and drag & drop both add images here.
             Spacer(Modifier.height(6.dp))
             Text(strings.rfPasteDropHint, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
         }
         Spacer(Modifier.height(12.dp))
 
-        // Capture-quality warning, deliberately prominent (full-width alert block): the
-        // terminal's chromatic aberration is the proven root cause of digit misreads and is NOT
-        // removable after capture (PHASE0_FINDINGS 2026-06-12 addendum) — the user must turn it
-        // off in the game before taking the screenshots.
         AlertBox(Krt.Warning) {
             Text(
                 strings.rfCaptureAberrationTitle.uppercase(),
@@ -208,7 +192,6 @@ private fun ImagesStepContent(
                 style = MaterialTheme.typography.bodySmall,
                 color = Krt.Gray1,
             )
-            // Best-effort gate: flag loaded captures below full-HD before the slow run wastes on them.
             val lowRes = state.images.count { it.lowResolution }
             if (lowRes > 0) {
                 Spacer(Modifier.height(8.dp))
@@ -221,7 +204,6 @@ private fun ImagesStepContent(
         }
         Spacer(Modifier.height(12.dp))
 
-        // Mini-stats row (Bilder · Ausgewählt · Auftrag · Auflösung · Modell).
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             KrtChip("${strings.rfStatImages}: ${state.images.size}")
             val selectedCount = state.selectedImages.size
@@ -253,7 +235,6 @@ private fun ImagesStepContent(
                     Text(strings.rfNoImagesInFolder, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
                 }
             }
-            // Pasted/dropped images without a picked folder live in the session temp dir.
             state.hasTempImages -> {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     StatusDot(Krt.Orange)
@@ -264,9 +245,6 @@ private fun ImagesStepContent(
         }
         Spacer(Modifier.height(10.dp))
 
-        // Bulk selection: every tile is ticked by default, so running only a few images of a big
-        // folder would mean unticking each one — one click empties the selection instead. With
-        // nothing ticked the button flips to re-fill, so the bulk action is never a dead end.
         if (state.images.isNotEmpty()) {
             val anySelected = state.selectedImages.isNotEmpty()
             Row(modifier = Modifier.fillMaxWidth()) {
@@ -279,7 +257,6 @@ private fun ImagesStepContent(
             Spacer(Modifier.height(10.dp))
         }
 
-        // Thumbnail grid — fills the remaining height (the grid itself scrolls on overflow).
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 200.dp),
             modifier = Modifier.weight(1f).fillMaxWidth(),
@@ -301,7 +278,6 @@ private fun ImagesStepContent(
 private fun ImageTile(image: RefineryImage, onToggle: () -> Unit, onRemove: () -> Unit) {
     val strings = LocalStrings.current
     Column(modifier = Modifier.hudBox().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        // Thumbnail click toggles selection too; deselected tiles render dimmed.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -323,7 +299,6 @@ private fun ImageTile(image: RefineryImage, onToggle: () -> Unit, onRemove: () -
                 StatusDot(Krt.Gray2)
             }
         }
-        // Checkbox + file name in one line: ticked = part of the extraction run.
         KrtCheckbox(
             checked = image.selected,
             onCheckedChange = { onToggle() },

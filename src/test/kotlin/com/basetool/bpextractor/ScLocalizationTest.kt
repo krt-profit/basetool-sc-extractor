@@ -33,8 +33,6 @@ class ScLocalizationTest {
         File(dir, "global.ini").writeText("﻿" + lines.joinToString("\n"), Charsets.UTF_8)
     }
 
-    // --- pure line parsing --------------------------------------------------
-
     @Test
     fun `reads the plain key=value form the game ships`() {
         assertEquals(
@@ -69,11 +67,8 @@ class ScLocalizationTest {
         assertNull(ScLocalization.parseUserCfgLanguage("r_displayInfo = 0"))
     }
 
-    // --- reading a real folder layout ---------------------------------------
-
     @Test
     fun `picks up every installed language, not just the active one`() {
-        // A scan spans months of logs; the player may have switched language in between.
         writeLanguage("english", "irrelevant=x", "crafting_hud_notification_received_blueprint=Received Blueprint: %s")
         writeLanguage("german_(germany)", "crafting_hud_notification_received_blueprint,P=Bauplan erhalten: %s")
         File(channel, "user.cfg").writeText("g_language = english\n")
@@ -87,7 +82,6 @@ class ScLocalizationTest {
 
     @Test
     fun `a language pack older than the crafting feature contributes nothing`() {
-        // Verified against a real install: the German pack from March carries no crafting_hud key.
         writeLanguage("german_(germany)", "some_other_key=Irgendwas")
 
         val detected = ScLocalization.detect(channel)

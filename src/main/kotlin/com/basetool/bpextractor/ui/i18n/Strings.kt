@@ -6,12 +6,7 @@ import kotlin.math.abs
 /** The two UI languages: German is the default, English has full parity (design spec §6). */
 enum class Lang { DE, EN }
 
-/**
- * Strings for the one-click "An Basetool senden" flow (epic krt-profit/basetool#639). A cohesive
- * sub-surface kept in its own holder (accessed via `strings.send`). Originally extracted to shrink
- * the old flat [Strings] constructor; now that [Strings] is a constructor-less interface the
- * grouping is optional, but it stays for organisation.
- */
+/** Strings for the one-click "An Basetool senden" flow, grouped under `strings.send`. */
 class SendStrings(
     val button: String,
     val consentTitle: String,
@@ -22,9 +17,8 @@ class SendStrings(
     val authCode: (String) -> String,
     val authOpenBrowser: String,
     /**
-     * Shown under the code on the one-time re-login after an update discarded a stored login that
-     * still carried an exportable DPoP key (`CredentialRecord.LegacyExportedKey`): tells the member
-     * why they are asked to sign in again although "remember me" was on.
+     * Shown on the one-time re-login after a stored login with an exportable DPoP key
+     * (`CredentialRecord.LegacyExportedKey`) was discarded, explaining why the member signs in again.
      */
     val authKeyUpgrade: String,
     val waiting: String,
@@ -47,17 +41,13 @@ class SendStrings(
      */
     val errorDpopNonceRequired: (String) -> String,
     /**
-     * The system clock is too far off for a DPoP proof to be accepted, and correcting for it did not
-     * help. Takes the *measured* deviation in seconds (negative = the machine runs fast), so the
-     * message can state a fact rather than guess.
+     * Error shown when the clock is too far off for a DPoP proof even after correction; takes the
+     * measured deviation in seconds (negative when the machine runs fast).
      */
     val errorClockSkew: (Long, String) -> String,
 )
 
-/**
- * Strings for the "remember me" account surface (epic krt-profit/basetool#639, sub-issue #648).
- * An optional organisational holder like [SendStrings] (accessed via `strings.account`).
- */
+/** Strings for the "remember me" account surface, grouped under `strings.account`. */
 class AccountStrings(
     val connected: String,
     val disconnected: String,
@@ -68,29 +58,14 @@ class AccountStrings(
 )
 
 /**
- * Every user-facing UI string of the app, one property (or formatter) per string. The design spec
- * (DESIGN_SC_EXTRACTOR.md §6) demands German default with full English parity and a title-bar
- * DE/EN toggle, so strings live in this lightweight catalogue instead of being hardcoded at the
- * call sites. Parameterised messages are lambdas so call sites stay type-safe without a template
- * engine. Brand names (app title, workflow product names) stay identical across languages.
+ * Every user-facing UI string of the app, one property or formatter per string, German by default
+ * with full English parity ([StringsDe], [StringsEn]). Parameterised messages are lambdas.
  *
- * **Why an interface, not a data class — do NOT change this back.** A single constructor (or any
- * method) may take at most 254 value parameters; a flat `class Strings(val …: String, …)` exceeds
- * that once the catalogue grows, and the JVM rejects the class at LOAD time with
- * `ClassFormatError: Too many arguments` — which the compiler and unit tests do NOT catch (only
- * launching the GUI does). Modelling the catalogue as an interface with abstract vals removes the
- * constructor entirely, so that limit can never be hit; each [StringsDe]/[StringsEn] `object`
- * initialises its fields in `<init>`, bounded only by the 64 KB method-size limit (thousands of
- * strings away). The earlier [SendStrings]/[AccountStrings] grouping was a stop-gap for the old
- * constructor and is no longer required — keep it only if a sub-surface is genuinely cohesive.
- *
- * **To add a string:** add `val name: Type` here, then provide `override val name = "…"` in BOTH
- * [StringsDe] and [StringsEn] (full parity is the contract). Function-typed entries need the
- * explicit type on the override, e.g. `override val foo: (Int) -> String = { n -> "…" }`, because
- * Kotlin will not infer a lambda's parameter types from the overridden member.
+ * An interface rather than a class, because a constructor with more than 254 parameters fails at
+ * class-load time. To add a string, declare it here and override it in both [StringsDe] and
+ * [StringsEn]; function-typed overrides need an explicit type.
  */
 interface Strings {
-    // --- tabs / shell ---
     val tabStart: String
     val tabBlueprints: String
     val tabRefinery: String
@@ -100,7 +75,6 @@ interface Strings {
     val close: String
     val footerManual: String
 
-    // --- start screen (launcher) ---
     val startTitle: String
     val startSubtitle: String
     val startChooseWorkflow: String
@@ -116,7 +90,6 @@ interface Strings {
     val rfCardBullets: List<String>
     val unofficialChip: String
 
-    // --- update check (start-screen banner) ---
     val updTitle: String
     val updBody: (String, String) -> String
     val updSize: (String) -> String
@@ -127,7 +100,6 @@ interface Strings {
     val updFailed: (String) -> String
     val updRetry: String
 
-    // --- blueprint workflow ---
     val bpSteps: List<String>
     val bpAgain: String
     val bpCtaExport: String
@@ -191,11 +163,9 @@ interface Strings {
     val bpSummaryByCategory: String
     val bpSummaryRecent: String
 
-    // --- refinery workflow ---
     val rfSteps: List<String>
     val back: String
 
-    // §5.1 Vorprüfung
     val rfPreflightTitle: String
     val rfPreflightSubtitle: String
     val rfOllamaCardTitle: String
@@ -232,7 +202,6 @@ interface Strings {
     val rfEtaPerImage: (Int) -> String
     val rfCtaToImages: String
 
-    // §4.3a Hilfeseite (Vorprüfung)
     val help: String
     val helpTitle: String
     val helpSubtitle: String
@@ -255,7 +224,6 @@ interface Strings {
     val helpMore: String
     val helpGotIt: String
 
-    // §5.2 Bilder
     val rfImagesTitle: String
     val rfImagesSubtitle: String
     val rfFolderLabel: String
@@ -281,7 +249,6 @@ interface Strings {
     val rfTempNote: String
     val rfCtaStartExtraction: String
 
-    // §5.3 Extraktion
     val rfExtractTitle: String
     val rfImageOf: (Int, Int) -> String
     val rfConsoleTitle: String
@@ -294,7 +261,6 @@ interface Strings {
     val rfCtaToReview: String
     val rfCtaToExport: String
 
-    // §5.4 Review
     val rfReviewTitle: String
     val rfReviewSubtitle: String
     val rfBadgeLayout: (Int) -> String
@@ -330,7 +296,6 @@ interface Strings {
     val rfPickerExportConfirm: String
     val rfExportFailed: (String) -> String
 
-    // §5.5 Export
     val rfExportTitle: String
     val rfExportSuccess: (String) -> String
     /** Blocks the send when rows carry no quantity (the basetool ingest edge rejects a null qty). */
@@ -350,7 +315,6 @@ interface Strings {
     val rfProvGenerated: String
     val rfNewExtraction: String
 
-    // --- KRT file picker (§10) ---
     val pickerComputer: String
     val pickerParentFolder: String
     val pickerFilter: String
@@ -379,7 +343,6 @@ interface Strings {
     val pickerPathPlaceholder: String
     val pickerPathNotFound: String
     val pickerClearPath: String
-    // --- grouped holders: kept off the flat constructor to stay under the JVM 255-arg limit ---
     val send: SendStrings
     val account: AccountStrings
 }

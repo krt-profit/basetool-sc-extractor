@@ -9,16 +9,9 @@ import java.time.format.DateTimeFormatter
 import java.util.concurrent.CopyOnWriteArrayList
 
 /**
- * A hand-written HTTP/1.1 stand-in for the tests that need to control the `Date` response header.
- *
- * <p>[com.sun.net.httpserver.HttpServer] cannot serve those: it overwrites `Date` with its own clock
- * unconditionally (verified — a handler that sets the header is simply ignored), so it can never
- * impersonate a server whose clock differs from this machine's, which is the whole subject of the
- * DPoP clock-correction tests. Writing the response bytes by hand can. Everything else still uses
- * the JDK server; this exists for the one thing it cannot express.
- *
- * <p>Every response closes its connection, so each request arrives on its own socket and the order
- * the tests assert on is unambiguous. Binds to loopback only — no listener is exposed off-machine.
+ * A hand-written HTTP/1.1 test server that controls the `Date` response header, which
+ * [com.sun.net.httpserver.HttpServer] always overwrites. Every response closes its connection, and it
+ * binds to loopback only.
  *
  * @param handler builds the complete response text for the n-th request (1-based)
  */

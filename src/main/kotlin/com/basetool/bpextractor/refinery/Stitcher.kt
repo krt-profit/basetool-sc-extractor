@@ -19,12 +19,8 @@ data class StitchedRow(
      */
     val quotedRead: Boolean,
     /**
-     * True when this row was re-read across OVERLAPPING captures with a DISAGREEING numeric cell
-     * (quality/qty/yield): the merge kept one read, but at least one other capture saw the same
-     * physical row differently, so the value is consensus-unsafe. [Validation] lowers the row's
-     * confidence so the review surfaces it — the cross-capture analogue of the cross-model
-     * `contested` signal, and the only check that catches the single-digit flips (Auftrag 14: the
-     * same TUNGSTEN row read 850 in one capture and 858 in the next) that no checksum can.
+     * `true` when overlapping captures read this row with a disagreeing numeric cell, so the kept value
+     * is not consensus-safe; [Validation] lowers the row's confidence.
      */
     val contested: Boolean = false,
 )
@@ -43,67 +39,34 @@ data class StitchResult(
 )
 
 /**
- * Merges the per-image panel reads of ONE order into a single row list (master plan §9 Phase 3,
- * corrected stitch rules):
+ * Merges the per-image panel reads of one order into a single row list.
  *
- * - **Row identity is the full triple** (material name, quality, qty) — duplicate materials at
- *   different qualities are normal (Auftrag 1 has LINDINIUM at four qualities) and must never
- *   collapse.
- * - **Rows co-visible in the same screenshot never merge**, even when their triple is identical:
- *   the merge step only aligns ACROSS images (suffix/prefix overlap), it never folds within one.
- * - **A single QTY disagreement does not break the overlap**: when no exact suffix-prefix
- *   overlap exists, a loose pass re-aligns on (name, quality) alone — the same physical row
- *   mis-read in ONE capture must not export twice (Auftrag 10: 105 vs 185). The surviving QTY
- *   comes from the read that saw the row farther from its viewport edges (edge rows render
- *   half-cut/glowing and are the unreliable ones — same rationale as the partial-row drop).
- * - **The quoted variant wins**: when the same row appears once with a yield (quoted) and once as
- *   `--` (captured before GET QUOTE), the quoted cells survive.
- * - **On-screen order is reconstructed from scroll overlap** (consecutive captures overlap by
- *   ~one row; file timestamps are NOT capture order): greedy fragment assembly by the longest
- *   suffix-prefix identity overlap. Sequences that share no overlap (a scroll gap) are appended
- *   in input order — the header-total checksum then flags the possible hole downstream.
- * - **Partial rows are dropped before stitching**: a viewport-edge-cut row is an unreliable
- *   duplicate of the full row in the adjacent capture.
+ * - Row identity is the triple (material name, quality, qty); rows co-visible in one screenshot never
+ *   merge.
+ * - Captures are ordered by the longest suffix-prefix row overlap; a loose pass on (name, quality)
+ *   tolerates one QTY disagreement, keeping the read farther from its viewport edges. Sequences
+ *   without overlap are appended in input order.
+ * - The quoted variant of a row wins; partial viewport-edge rows are dropped before stitching.
  *
- * Header fields merge as "first non-null across reads"; `quoted` is true when ANY read saw the
- * quoted state (the quoted capture is authoritative for cost/time too, so those prefer quoted
- * reads).
+ * Header fields take the first non-null value; `quoted` is true when any read saw the quoted state.
  */
 object Stitcher {
 
     /**
-     * Row identity for cross-image alignment. Quality and qty must match exactly; the name folds
-     * case/whitespace and bracket style — the VLM transcribes the suffix inconsistently as
-     * `(ORE)`/`[ORE]` across reads of the same panel, which must not break the overlap detection
-     * (the exported name stays verbatim; only the comparison folds). On top, a SINGLE-character
-     * name garble (`LINDINIMUM` vs `LINDINIUM`, a real run-to-run artefact) is tolerated when
-     * BOTH numeric cells are present and equal — duplicate materials always differ in
-     * quality/qty, so the numbers disambiguate; basetool fuzzy-matches names downstream anyway.
+     * Row identity for cross-image alignment: quality and qty match exactly, and the name matches after
+     * folding case, whitespace and bracket style. A single-character name difference is tolerated when
+     * both numeric cells are present and equal.
      */
     private fun sameRow(a: PanelRow, b: PanelRow, loose: Boolean = false): Boolean {
         val an = foldName(a.name)
         val bn = foldName(b.name)
 
-        // Exact identity: same QUALITY and QTY. The name folds bracket/whitespace style, or
-        // tolerates a single-character garble (LINDINIMUM vs LINDINIUM) when BOTH numeric cells
-        // are present to disambiguate.
         if (a.quality == b.quality && a.qty == b.qty) {
             if (an == bn) return true
             return a.quality != null && a.qty != null && withinOneEdit(an, bn)
         }
         if (!loose) return false
 
-        // Loose cross-image re-alignment — the SAME physical row mis-read in ONE capture must not
-        // export twice. The name must fold-match exactly; then ONE of two anchors stands in for the
-        // full triple:
-        //  (a) QUALITY matches and only a single QTY digit disagrees (Auftrag 10: 105 vs 185); or
-        //  (b) a POSITIVE YIELD matches but the QTY does NOT — "same yield, different qty" can only
-        //      be ONE physical row mis-read across the overlap (Auftrag 14 TUNGSTEN: 958|950 in one
-        //      capture, 858|858 in the next, yield 413 in both); a real sibling row sharing the
-        //      yield would share the qty too (yield scales with qty). A `--` / 0 yield is ambiguous
-        //      (every OFF row shows it) and is NOT an anchor; rows with equal qty+yield differing
-        //      ONLY in quality stay UNMERGED (could be two real tiers of an equal amount) so the
-        //      review dedupes them rather than silently dropping a row.
         if (an != bn) return false
         val qtyTolerance = a.quality == b.quality && a.quality != null && a.qty != null && b.qty != null
         val yieldAnchor = a.qty != b.qty && hasQuotedYield(a) && a.yield_ == b.yield_ &&
@@ -154,12 +117,9 @@ object Stitcher {
     private val CONFUSABLE_HUD_DIGITS = setOf('0', '6', '8', '9')
 
     /**
-     * Whether two boundary rows are the SAME physical seam row re-read across the scroll overlap,
-     * for the case overlap() cannot detect: a refine-OFF row (no positive yield to anchor on) whose
-     * quality AND/OR qty were mis-read. Requires the folded names to match, BOTH reads to be OFF
-     * (a positive yield is the yieldAnchor's job, and an ON row's qty feeds the checksum and must
-     * not be guessed at), and each numeric cell to be equal or a single confusable-digit edit
-     * apart — with at least one cell actually differing (an exact match is overlap()'s job).
+     * Whether two boundary rows are the same refine-OFF seam row re-read across the scroll overlap with a
+     * misread quality or qty: folded names match, both reads are OFF, and each numeric cell is equal or
+     * one confusable digit apart, with at least one differing.
      */
     private fun seamReconcilable(a: PanelRow, b: PanelRow): Boolean {
         if (foldName(a.name) != foldName(b.name)) return false
@@ -196,7 +156,6 @@ object Stitcher {
     fun stitch(reads: List<ImageRead>): StitchResult {
         require(reads.isNotEmpty()) { "stitch() needs at least one read" }
 
-        // Header merge: quoted reads are authoritative for the quote-dependent fields.
         val quotedReads = reads.filter { it.panel.quoted }
         val anyQuoted = quotedReads.isNotEmpty()
         val headerOrder = quotedReads + reads.filterNot { it.panel.quoted }
@@ -207,7 +166,6 @@ object Stitcher {
         val processingTime = headerOrder.firstNotNullOfOrNull { it.panel.processingTime }
         val cta = headerOrder.firstNotNullOfOrNull { it.panel.cta }
 
-        // Fragments = per-image row sequences, partial rows dropped.
         var fragments = reads.map { read ->
             val rows = read.panel.rows.filterNot { it.partial }
             Fragment(
@@ -218,10 +176,6 @@ object Stitcher {
             )
         }.filter { it.rows.isNotEmpty() }
 
-        // Greedy assembly. Two merge moves, tried in this order each round:
-        // 1. containment fold — a capture whose whole row sequence appears inside another
-        //    (e.g. an identical re-capture of the same viewport) folds into it in place;
-        // 2. the pair with the largest suffix-prefix overlap chains into one fragment.
         outer@ while (fragments.size > 1) {
             for (a in fragments.indices) {
                 for (b in fragments.indices) {
@@ -238,9 +192,6 @@ object Stitcher {
             var bestB = -1
             var bestK = 0
             var bestLoose = false
-            // Exact overlap first; only when nothing chains, retry tolerating a single-cell QTY
-            // disagreement (loose) — otherwise one mis-read digit in the overlap zone makes the
-            // whole capture pair "share no overlap" and every overlap row exports TWICE.
             for (loose in listOf(false, true)) {
                 for (a in fragments.indices) {
                     for (b in fragments.indices) {
@@ -254,15 +205,6 @@ object Stitcher {
                 if (bestK > 0) break
             }
             if (bestK == 0) {
-                // Seam reconciliation (last resort): consecutive scroll captures overlap by ~1
-                // row by construction, but a refine-OFF seam row (no positive-yield anchor) whose
-                // quality AND qty are both mis-read in ONE capture defeats overlap() entirely and
-                // would export twice (Auftrag 15 TARANITE: 310/290 in one capture, 318/298 in the
-                // next). Align the boundary pair (last row of A, first of B) on the folded name
-                // when each numeric cell is equal or a single CONFUSABLE-digit edit apart; merge
-                // with k=1 and let cellsContested mark it so the review looks. The OFF-row analogue
-                // of the positive-yield seam anchor in sameRow() — gated to the no-overlap case so
-                // it can never re-merge rows a real overlap already aligned.
                 var reconciled = false
                 seam@ for (a in fragments.indices) {
                     for (b in fragments.indices) {
@@ -282,7 +224,6 @@ object Stitcher {
             fragments = fragments.filterIndexed { i, _ -> i != bestA && i != bestB } + merged
         }
 
-        // No-overlap leftovers: keep input order, concatenated.
         val rows = mutableListOf<StitchedRow>()
         for (fragment in fragments) {
             fragment.rows.forEachIndexed { i, row ->
@@ -302,11 +243,8 @@ object Stitcher {
     }
 
     /**
-     * Whether the [incoming] duplicate of an overlap row should replace the [existing] one:
-     * a quoted READ beats an un-quoted READ even when its yield cell is the `--` marker — for a
-     * refine-OFF row `--` IS the quoted information ([Validation.yieldRefineSignal] may only fire
-     * on rows whose surviving read saw the quoted state). Among reads of the same quoted-ness the
-     * numeric yield wins (a quoted capture can still show `--` rows pre-GET-QUOTE leftovers).
+     * Whether the [incoming] duplicate of an overlap row replaces the [existing] one: a quoted read beats
+     * an un-quoted one even with a `--` yield, and among equally quoted reads a numeric yield wins.
      */
     private fun prefersIncoming(
         existing: PanelRow,
@@ -373,9 +311,6 @@ object Stitcher {
             val ai = a.rows.size - k + i
             contested[ai] = contested[ai] || b.contested[i] || cellsContested(rows[ai], b.rows[i])
             val replace = if (loose && rows[ai].qty != b.rows[i].qty && quoted[ai] == b.quoted[i]) {
-                // QTY disagreement on the same physical row (loose overlap): trust the read
-                // that saw the row farther from its viewport edges — the edge row of one
-                // capture re-appears mid-table in the next, where the glyphs render clean.
                 edgeDistance(i, b.rows.size) > edgeDistance(ai, a.rows.size)
             } else {
                 prefersIncoming(rows[ai], quoted[ai], b.rows[i], b.quoted[i])

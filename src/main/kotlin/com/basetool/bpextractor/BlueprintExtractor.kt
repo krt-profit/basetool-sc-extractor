@@ -30,10 +30,9 @@ data class ExtractionResult(
     val export: BlueprintExport,
     val skippedFiles: List<String>,
     /**
-     * What the picked folder said about its own localisation, and which notification formats the
-     * run actually matched with. Kept out of the export JSON — it is a diagnosis for the user, not
-     * part of the contract. [ScLocalization.Detected.NONE] when the folder holds no game install
-     * (an archive folder), in which case only the built-in formats were used.
+     * The localisation the picked folder declared and the notification formats the run matched with;
+     * not part of the export JSON. [ScLocalization.Detected.NONE] for a folder without a game install,
+     * in which case only the built-in formats were used.
      */
     val localization: ScLocalization.Detected = ScLocalization.Detected.NONE,
     val formatsUsed: List<String> = BlueprintParser.BUILT_IN_FORMATS,
@@ -46,16 +45,11 @@ data class ExtractionResult(
  */
 object BlueprintExtractor {
 
-    // Rebranded for the multi-workflow app (epic #439 Phase 3). The blueprint import in the
-    // basetool parses exports by structure, not by this provenance string, so renaming is safe.
     const val TOOL_NAME = "Basetool SC Extractor"
 
     /**
-     * App version shown in the GUI (start screen / update banner) and written as the export's
-     * `toolVersion`. Generated from the project version (the release tag in CI) by the
-     * `generateBuildInfo` Gradle task — see [BuildInfo] — so it always matches the MSI version,
-     * with no hand-edited constant to drift. A local dev build reports the build's dev-fallback
-     * version.
+     * App version shown in the GUI and written as the export's `toolVersion`, generated from the
+     * project version by the `generateBuildInfo` task ([BuildInfo]).
      */
     val TOOL_VERSION: String = BuildInfo.VERSION
 
@@ -68,24 +62,15 @@ object BlueprintExtractor {
     const val PRIMARY_CHANNEL_NAME = "LIVE"
 
     /**
-     * The patch-cycle channel CIG spins up next to LIVE. Crafting knowledge is account-wide, but
-     * each channel writes its own logs, so a blueprint first received while playing HOTFIX is
-     * recorded only in the HOTFIX logs. A user who farmed on HOTFIX and then points the tool at
-     * LIVE would silently lose those blueprints — so when the picked folder is LIVE we also sweep a
-     * sibling HOTFIX folder (see [siblingHotfixFolder]).
+     * The patch-cycle channel next to LIVE, whose logs are swept along with a picked LIVE folder because
+     * blueprints received there are recorded only in its own logs ([siblingHotfixFolder]).
      */
     const val SIBLING_CHANNEL_NAME = "HOTFIX"
 
     /**
-     * Collect the SC log files to scan from a channel folder (e.g. `…\StarCitizen\LIVE`): the
-     * current `Game.log` in that folder plus every `*.log` in its `logbackups` subfolder (the
-     * `Game Build(...).log` session backups). When [channelFolder] is the LIVE channel and a
-     * sibling `HOTFIX` folder holding logs sits next to it, that channel's logs are appended too
-     * (see [siblingHotfixFolder]). Current first, then backups by name; the export is re-sorted by
-     * blueprint timestamp anyway.
-     *
-     * A folder that is neither shape but holds loose `*.log` files is read as an archive — see
-     * [looseLogsIn].
+     * Collects the SC log files to scan from a channel folder: its `Game.log`, then every `*.log` in
+     * `logbackups` by name, then the logs of a sibling HOTFIX folder when [channelFolder] is LIVE
+     * ([siblingHotfixFolder]). A folder of neither shape is read as an archive ([looseLogsIn]).
      */
     fun findLogFiles(channelFolder: File): List<File> {
         val files = collectChannelLogs(channelFolder).toMutableList()
@@ -116,14 +101,8 @@ object BlueprintExtractor {
     }
 
     /**
-     * Fallback for an **archive** folder: `*.log` files lying directly in [folder], used only when
-     * it has neither a `Game.log` nor a `logbackups` subfolder.
-     *
-     * SC never produces this shape, but people do — copying `logbackups` out before the game
-     * prunes it, or pulling the backups off a second PC. Without this the picker rejects a folder
-     * full of perfectly good logs as "the wrong folder", which is the harshest possible answer to
-     * a user who did the right thing. Deliberately **not** recursive: someone pointing at their
-     * whole `StarCitizen` root must not kick off a multi-GB walk across five channels.
+     * Lists the `*.log` files lying directly in an archive [folder], used only when it has neither a
+     * `Game.log` nor a `logbackups` subfolder. Not recursive.
      */
     private fun looseLogsIn(folder: File): List<File> =
         folder.listFiles()
@@ -132,12 +111,9 @@ object BlueprintExtractor {
             .orEmpty()
 
     /**
-     * If [channelFolder] is the LIVE channel directory, returns the sibling [SIBLING_CHANNEL_NAME]
-     * (HOTFIX) directory next to it (e.g. `…\StarCitizen\LIVE` → `…\StarCitizen\HOTFIX`) when that
-     * folder exists and actually holds SC logs (a `Game.log` or a `logbackups` subfolder). Returns
-     * `null` otherwise — when the picked folder isn't LIVE, has no parent, or no usable HOTFIX
-     * sibling is present. Pure `File` stats; never writes or browses, so a caller can use it for a
-     * cheap live UI hint as well as for the scan itself.
+     * Returns the sibling [SIBLING_CHANNEL_NAME] folder of a LIVE [channelFolder] when it exists and
+     * holds SC logs (a `Game.log` or a `logbackups` subfolder), otherwise `null`. Reads file metadata
+     * only.
      */
     fun siblingHotfixFolder(channelFolder: File): File? {
         if (!channelFolder.name.equals(PRIMARY_CHANNEL_NAME, ignoreCase = true)) return null
@@ -164,11 +140,9 @@ object BlueprintExtractor {
     )
 
     /**
-     * Run extraction over [channelFolder]. Returns the assembled [BlueprintExport] plus any
-     * skipped (unreadable) files, without writing anything to disk (so callers can preview
-     * first). A file that fails to read is skipped and reported — one locked or corrupt log
-     * must not lose the whole run. Events whose identity was already seen in another file
-     * (same player/name/timestamp/notification id ⇒ a duplicated log) are counted once.
+     * Runs extraction over [channelFolder] and returns the [BlueprintExport] plus the skipped unreadable
+     * files, without writing to disk. Events already seen in another file (same player, name, timestamp
+     * and notification id) are counted once.
      */
     fun extract(
         channelFolder: File,
@@ -177,9 +151,6 @@ object BlueprintExtractor {
         val files = findLogFiles(channelFolder)
         val bytesTotal = files.sumOf { it.length() }
 
-        // Ask the installation what it calls a received blueprint, then fall back to what we ship.
-        // The install's own wording wins nothing over ours — both are matched — but it is what
-        // makes a rewording, or a language we never shipped, work without a release.
         val localization = ScLocalization.detect(channelFolder)
         val formats = (localization.formats + BlueprintParser.BUILT_IN_FORMATS).distinct()
         val patterns = BlueprintParser.compile(formats)
@@ -214,7 +185,6 @@ object BlueprintExtractor {
         }
         progress?.invoke(files.size, files.size, bytesTotal, bytesTotal, "")
 
-        // Chronological order; events with an unparseable timestamp sink to the end.
         val sorted = allBlueprints.sortedBy { it.receivedAt.ifEmpty { "￿" } }
 
         val players = countsByPlayer.entries

@@ -114,8 +114,8 @@ private class AppState {
     var skippedFiles by mutableStateOf<List<String>>(emptyList())
 
     /**
-     * What the last run found out about the picked install's localisation. Only ever surfaced
-     * when a run came back empty, where "which label were we even looking for?" is the question.
+     * The localisation the last run detected for the picked install, surfaced only when a run found no
+     * blueprints.
      */
     var localization by mutableStateOf(ScLocalization.Detected.NONE)
 
@@ -129,9 +129,8 @@ private class AppState {
     var resultFile by mutableStateOf<File?>(null)
 
     /**
-     * The last successful export (categories, players, recent blueprints) feeding the structured
-     * summary screen and the config screen's "last run" context line. Deliberately NOT cleared by
-     * "Erneut" — it documents the session's last run until a new one overwrites it.
+     * The last successful export, feeding the summary screen and the config screen's "last run" line.
+     * Not cleared by "Erneut"; only a new run replaces it.
      */
     var resultExport by mutableStateOf<com.basetool.bpextractor.model.BlueprintExport?>(null)
     var isError by mutableStateOf(false)
@@ -150,9 +149,8 @@ private class AppState {
         }
 
         /**
-         * Pre-fill the folder the last successful run used, else the standard LIVE install path
-         * if it exists on this machine. The remembered folder is only a suggestion: it is dropped
-         * silently when it no longer exists, and the blueprint step re-validates it either way.
+         * Returns the folder of the last successful run, else the standard LIVE install path when it
+         * exists. A remembered folder that no longer exists is dropped.
          */
         fun defaultChannelFolder(): String {
             val remembered = runCatching { AppConfigStore().load().lastChannelFolder }.getOrNull()
@@ -164,10 +162,9 @@ private class AppState {
 }
 
 /**
- * The state-driven blueprint step (design spec §4): Konfiguration while idle, the transient
- * Extraktion while running, Zusammenfassung once a result exists. Errors fall back to
- * Konfiguration with the status line carrying the diagnosis. Shared by the [CommandStrip]
- * inline stepper and the screen body so the two can never disagree.
+ * Maps the state to the blueprint step: Konfiguration while idle or on error, Extraktion while
+ * running, Zusammenfassung once a result exists. Shared by the [CommandStrip] stepper and the screen
+ * body.
  */
 private fun blueprintStep(state: AppState): Int = when {
     state.running -> 1
@@ -195,8 +192,6 @@ private fun channelFolderHint(path: String, strings: Strings): FolderHint {
     val hasGameLog = File(dir, "Game.log").isFile
     val hasBackups = File(dir, "logbackups").isDirectory
     if (!hasGameLog && !hasBackups) {
-        // Neither channel shape — but loose *.log files make this a usable archive folder
-        // (BlueprintExtractor.looseLogsIn), so say so instead of calling it the wrong folder.
         val loose = dir.listFiles()?.count { it.isFile && it.extension.equals("log", ignoreCase = true) } ?: 0
         return if (loose > 0) {
             FolderHint(Krt.Success, strings.bpHintArchiveFolder(loose), Krt.Gray1)
@@ -221,9 +216,6 @@ private fun ExtractorScreen(state: AppState, appScope: CoroutineScope) {
             else -> BpSummaryStep(state)
         }
 
-        // Transient completion toast (auto-dismisses), overlaid bottom-right and
-        // clear of the footer. The status line + summary stay the persistent
-        // record; this is just a glanceable confirmation, not a second source.
         state.toast?.let { t ->
             LaunchedEffect(t) {
                 delay(4500)
@@ -240,13 +232,8 @@ private fun ExtractorScreen(state: AppState, appScope: CoroutineScope) {
 }
 
 /**
- * Blueprint step 1 — Konfiguration (`REDESIGN_IMPLEMENTATION.md` §4.2): a two-column body (the
- * path form on the left, a "what gets read" + "last run" context panel on the right) so the wide
- * window is used and no bottom void forms; the one orange CTA is pinned in the footer.
- *
- * [appScope] is the window-root scope: the extraction must outlive this composable, which leaves
- * the composition the moment `running` flips the workflow to the transient step-2 screen — a
- * local `rememberCoroutineScope` would be cancelled right there ("left the composition").
+ * Blueprint step 1, Konfiguration: the path form beside a context panel, with the start button in
+ * the footer. [appScope] is the window-root scope, so the extraction outlives this composable.
  */
 @Composable
 private fun BpConfigStep(state: AppState, appScope: CoroutineScope) {
@@ -268,8 +255,6 @@ private fun BpConfigStep(state: AppState, appScope: CoroutineScope) {
             Spacer(Modifier.weight(1f))
             CtaButton(
                 strings.bpCta,
-                // Stays enabled (variant A): a click validates and marks the
-                // offending field rather than leaving the button greyed out.
                 enabled = !state.running,
                 onClick = { runExtraction(appScope, state, strings) },
             )
@@ -279,7 +264,6 @@ private fun BpConfigStep(state: AppState, appScope: CoroutineScope) {
             modifier = Modifier.weight(1f).fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // Left: the form.
             Column(modifier = Modifier.weight(1.25f).fillMaxHeight().hudBox().padding(16.dp)) {
                 FieldLabel(strings.bpLabelChannelFolder)
                 Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -307,8 +291,6 @@ private fun BpConfigStep(state: AppState, appScope: CoroutineScope) {
                     )
                 }
                 Spacer(Modifier.height(6.dp))
-                // Live validity hint — suppressed while an on-click validation error is
-                // shown for this field, so the red border + "⚠ …" line isn't duplicated.
                 if (state.channelError == null) {
                     val channelHint = remember(state.channelFolder, strings) { channelFolderHint(state.channelFolder, strings) }
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -319,8 +301,6 @@ private fun BpConfigStep(state: AppState, appScope: CoroutineScope) {
                             color = channelHint.textColor,
                         )
                     }
-                    // When LIVE is picked and a sibling HOTFIX channel with logs sits beside it,
-                    // tell the user it's swept in too (its blueprints would otherwise be missed).
                     val hasHotfixSibling = remember(state.channelFolder) {
                         BlueprintExtractor.siblingHotfixFolder(File(state.channelFolder.trim())) != null
                     }
@@ -373,7 +353,6 @@ private fun BpConfigStep(state: AppState, appScope: CoroutineScope) {
                 }
             }
 
-            // Right: context panel ("what gets read" + "last run").
             Column(
                 modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Gray3).padding(16.dp),
             ) {
@@ -440,10 +419,6 @@ private fun BpRunningStep(state: AppState) {
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                // Indeterminate fallback only for the brief "finding files" phase, before
-                // the file count is known; once it is, the determinate bar takes over.
-                // The fill follows BYTES, not files, so it keeps moving inside the one
-                // huge current Game.log instead of stalling per file.
                 if (state.progressTotal == 0) {
                     CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Krt.Orange, strokeWidth = 2.dp)
                 } else {
@@ -470,14 +445,10 @@ private fun BpRunningStep(state: AppState) {
 private fun BpSummaryStep(state: AppState) {
     val strings = LocalStrings.current
     val scope = rememberCoroutineScope()
-    // Whether we can offer "open folder / open file" actions on this platform.
     val canOpenFiles = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
     val export = state.resultExport
     val sendController = remember { SendController() }
-    // The export's locale tag for the relayed Accept-Language (derived from the active catalogue).
     val langTag = if (strings === StringsEn) "en" else "de"
-    // Save the in-memory export as JSON locally — the alternative to sending, and the post-failure
-    // fallback. Uses the config step's chosen path as the picker default (#639).
     val saveBlueprintJson = {
         val export = state.resultExport
         if (export != null) {
@@ -511,14 +482,11 @@ private fun BpSummaryStep(state: AppState) {
         title = strings.bpSummaryTitle,
         scrollBody = false,
         footer = {
-            // Send to the basetool (the filled CTA) OR save as JSON locally (the alternative — no
-            // file is written unless chosen). Saving also stays available after a failed send (#639).
             GhostButton(strings.bpCtaExport, onClick = saveBlueprintJson)
             Spacer(Modifier.weight(1f))
             CtaButton(
                 strings.send.button,
                 onClick = {
-                    // Send straight from the in-memory export — nothing is written to disk.
                     val json = state.resultExport?.let { BlueprintExtractor.toJson(it) }
                     if (json != null) sendController.request(scope, SendKind.BLUEPRINT, json, langTag)
                 },
@@ -533,7 +501,6 @@ private fun BpSummaryStep(state: AppState) {
                     }
                     GhostButton(strings.bpOpenJson, onClick = { openWithDesktop(file, scope, state, strings) })
                 }
-                // "Erneut": back to Konfiguration with the fields kept (design §4.3).
                 GhostButton(
                     strings.bpAgain,
                     onClick = {
@@ -549,7 +516,6 @@ private fun BpSummaryStep(state: AppState) {
             Text(strings.bpSumSuccessTitle, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
             if (export != null) {
                 Spacer(Modifier.height(4.dp))
-                // The saved-file path only appears once the user actually saves the JSON (#639).
                 val savedPrefix = state.resultFile?.let { "${it.absolutePath} · " } ?: ""
                 Text(
                     savedPrefix + "schemaVersion ${export.schemaVersion} · " +
@@ -566,8 +532,6 @@ private fun BpSummaryStep(state: AppState) {
                 Text(state.status, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
             }
         }
-        // Unreadable (skipped) files are a warning, not a failure: the export was still
-        // written from everything that could be read — but the user must know it's partial.
         if (state.skippedFiles.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -580,9 +544,6 @@ private fun BpSummaryStep(state: AppState) {
                 )
             }
         }
-        // An empty result is not an error — 2 of 3 sessions in our own corpus legitimately carry
-        // no blueprint at all — so it stays an explanation, never a warning. The one thing the
-        // user cannot know is which localised label we searched for, so that is what we state.
         if (export != null && export.blueprintCount == 0) {
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -600,9 +561,6 @@ private fun BpSummaryStep(state: AppState) {
                 }
             }
         } else if (export != null) {
-            // What a scan can never see: SC prunes its own logbackups, so a blueprint received in
-            // a session that has since been pruned is gone for good. Belongs on the summary — it
-            // is about the result the user is looking at, not about configuring the next run.
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusDot(Krt.Gray2)
@@ -620,7 +578,6 @@ private fun BpSummaryStep(state: AppState) {
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // Left: category bars + players, vertically centred so the column fills.
                 Column(modifier = Modifier.width(290.dp).fillMaxHeight().hudBox(bracket = Krt.Gray3).padding(14.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
@@ -683,7 +640,6 @@ private fun BpSummaryStep(state: AppState) {
                     }
                 }
 
-                // Right: the "most recently received" table fills the remaining space.
                 Column(modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Gray3)) {
                     Box(
                         modifier = Modifier
@@ -740,8 +696,6 @@ private fun runExtraction(
     val folder = File(state.channelFolder.trim())
     state.toast = null
 
-    // Validate on click and mark the offending field(s) — the CTA itself stays
-    // enabled, so the user is never left guessing why nothing happened.
     var valid = true
     when {
         state.channelFolder.isBlank() -> {
@@ -754,8 +708,6 @@ private fun runExtraction(
         }
         else -> state.channelError = null
     }
-    // Writing the JSON is now optional (the summary step offers send-or-save), so a missing/bad
-    // output path no longer blocks the run — it is validated when the user actually saves (#639).
     state.outputError = null
     if (!valid) {
         state.isError = true
@@ -798,8 +750,6 @@ private fun runExtraction(
                     state.status = strings.bpStatusNoLogs
                     state.toast = ToastInfo(strings.bpToastNoLogsTitle, strings.bpToastNoLogsBody, error = true)
                 } else {
-                    // Files were found, but none could be read — a different failure
-                    // than "no logs here", so it gets its own diagnosis.
                     state.status = strings.bpStatusAllSkipped(result.skippedFiles.size)
                     state.toast = ToastInfo(strings.bpToastErrorTitle, strings.bpStatusAllSkipped(result.skippedFiles.size), error = true)
                 }
@@ -808,15 +758,10 @@ private fun runExtraction(
             }
 
             state.isError = false
-            // Remember the folder only once a run actually produced logs, so a typo or a wrong
-            // pick never becomes next start's suggestion.
             withContext(Dispatchers.IO) { rememberChannelFolder(folder.absolutePath) }
-            // Nothing is written automatically — the summary step lets the user send or save (#639).
             state.status = ""
             state.resultFile = null
             state.resultExport = export
-            // Non-blank marker that drives blueprintStep() to the summary screen; the
-            // structured panels render from resultExport, not from this text.
             state.resultSummary = strings.bpSumSuccessTitle
             state.toast = ToastInfo(strings.bpToastDoneTitle, strings.bpToastDoneBody(export.blueprintCount), error = false)
         } catch (t: Throwable) {
@@ -868,20 +813,11 @@ private fun guiMain() = application {
     val refinery = remember { RefineryUiState() }
     var lang by remember { mutableStateOf(Lang.DE) }
     var tab by remember { mutableStateOf(MainTab.START) }
-    // Locked decision (REDESIGN_IMPLEMENTATION.md): default window 1180×820, resizable
-    // down to 640×520 (the ResizeCorner enforces the floor).
     val windowState = rememberWindowState(width = 1180.dp, height = 820.dp)
     val appIcon = painterResource(Res.drawable.basetool_extractor_icon)
     val communityLogo = painterResource(Res.drawable.made_by_the_community_black)
-    // Application-root scope for long-running work (extraction, model pull, export): it must
-    // survive step/tab switches, which destroy the per-screen composables and would cancel any
-    // scope remembered inside them. Hoisted above the Window so the window-level paste handler
-    // below can launch on it too.
     val appScope = rememberCoroutineScope()
 
-    // One silent update check per GUI start: sweep leftovers of a previous
-    // update helper, then ask GitHub for the latest release. Any failure — offline, rate-limited,
-    // no releases — just keeps the banner hidden; the check must never block or break the app.
     var update by remember { mutableStateOf<UpdateUiState>(UpdateUiState.Hidden) }
     LaunchedEffect(Unit) {
         val found = withContext(Dispatchers.IO) {
@@ -893,9 +829,6 @@ private fun guiMain() = application {
         }
     }
 
-    // Download the MSI to the temp update dir, hand it to the detached installer helper and quit —
-    // msiexec can only replace the install dir once the app has exited. The helper deletes the
-    // update file (and itself) again after the installation; see UpdateChecker.INSTALLER_SCRIPT.
     fun installUpdate(info: UpdateInfo) {
         update = UpdateUiState.Downloading(info, 0L, info.msiSizeBytes)
         appScope.launch {
@@ -906,8 +839,6 @@ private fun guiMain() = application {
                     }
                 }
                 update = UpdateUiState.Installing(info)
-                // Pass the active GUI language so the helper's elevated-retry dialog (shown only if
-                // the install fails, e.g. the non-system-drive error 1926) matches what the user saw.
                 withContext(Dispatchers.IO) {
                     UpdateChecker.launchInstaller(msi, info.msiSha256, if (lang == Lang.EN) "en" else "de")
                 }
@@ -925,10 +856,6 @@ private fun guiMain() = application {
         undecorated = true,
         resizable = true,
         state = windowState,
-        // Window-level Strg+V on the refinery "Bilder" step: paste a clipboard image (design
-        // §5.2 intake). Preview phase so it also fires while the folder text field is focused;
-        // pasteFromClipboard only consumes when the clipboard actually carries an image or
-        // image files, so plain-text pastes still reach the field.
         onPreviewKeyEvent = { event ->
             val isPaste = event.type == KeyEventType.KeyDown && event.isCtrlPressed && event.key == Key.V
             if (isPaste && tab == MainTab.REFINERY && refinery.step == 1 && state.picker == null) {
@@ -951,8 +878,6 @@ private fun guiMain() = application {
                             ::exitApplication,
                             actions = { LanguageToggle(lang) { lang = it } },
                         )
-                        // One navigation band: tabs + the active workflow's inline stepper
-                        // (replaces the former TabBar + per-screen StepperBar stack).
                         val bpStep = blueprintStep(state)
                         CommandStrip(
                             tab = tab,
@@ -968,8 +893,6 @@ private fun guiMain() = application {
                                 MainTab.START -> 0
                             },
                             maxReached = when (tab) {
-                                // Blueprint steps are state-driven: only "back to Setup"
-                                // (resetting the result) is a meaningful stepper jump.
                                 MainTab.BLUEPRINTS -> if (state.running) -1 else 0
                                 MainTab.REFINERY -> if (refinery.running) -1 else refinery.maxReached
                                 MainTab.START -> 0
@@ -981,7 +904,6 @@ private fun guiMain() = application {
                                         state.status = ""
                                         state.isError = false
                                     }
-                                    // Never jump backwards INTO a running extraction mid-run.
                                     MainTab.REFINERY -> if (!refinery.running) refinery.step = target
                                     MainTab.START -> {}
                                 }
@@ -1008,7 +930,6 @@ private fun guiMain() = application {
                         CommunityDisclaimerFooter(communityLogo)
                     }
                     ResizeCorner(windowState)
-                    // KRT file/folder picker overlay (replaces the legacy OS dialogs). Full-window modal.
                     state.picker?.let { req ->
                         FilePickerDialog(
                             mode = req.mode,

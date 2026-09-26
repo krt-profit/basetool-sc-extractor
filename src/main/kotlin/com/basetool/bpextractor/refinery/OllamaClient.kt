@@ -58,11 +58,8 @@ interface OllamaApi {
 }
 
 /**
- * Production [OllamaApi] over the JDK's built-in [HttpClient] (no extra dependency; the slim
- * runtime gains the `java.net.http` module for it). The endpoint is configurable — Ollama's
- * default is `http://localhost:11434`. Connect timeouts are short (the preflight must answer
- * quickly); read timeouts are generous (a CPU-mode read takes ~a minute, see
- * `PHASE0_FINDINGS.md` §5).
+ * Production [OllamaApi] over the JDK's [HttpClient], against a configurable endpoint (Ollama's
+ * default is `http://localhost:11434`). Connect timeouts are short, read timeouts generous.
  */
 class HttpOllamaClient(private val endpoint: String = DEFAULT_ENDPOINT) : OllamaApi {
 
@@ -208,12 +205,8 @@ class HttpOllamaClient(private val endpoint: String = DEFAULT_ENDPOINT) : Ollama
         const val DEFAULT_ENDPOINT = "http://localhost:11434"
 
         /**
-         * Pinned context window (PHASE0_FINDINGS §10 item 2 / 2026-06-12 addendum). Measured on
-         * the golden set: a worst-case read (1536 px panel crop) is ~2018 prompt tokens (text +
-         * vision) + ~250 output tokens, so 12288 holds prompt + the full retry output budget
-         * (`PanelReader.NUM_PREDICT_RETRY` = 8192) with margin, while Ollama's 32k default
-         * wastes VRAM on KV-cache: 8b 9.5 → 6.7 GB, 4b 7.4 → 4.5 GB loaded. That is the real
-         * headroom for the 12 GB (recommended) and 8 GB (minimum) tiers.
+         * Pinned Ollama context window: holds the largest prompt plus the full retry output budget
+         * (`PanelReader.NUM_PREDICT_RETRY`) while using far less VRAM than Ollama's 32k default.
          */
         const val NUM_CTX = 12288
 

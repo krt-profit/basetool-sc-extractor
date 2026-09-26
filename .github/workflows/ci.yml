@@ -8,11 +8,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Least privilege by default; the three release jobs each opt into exactly what they need below.
 permissions:
   contents: read
 
-# Cancel superseded runs on a branch/PR, but never cancel a tag (release) build.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
@@ -21,51 +19,33 @@ defaults:
   run:
     shell: pwsh
 
-# Supply-chain rules for this file (SIB-SEC-02):
-#   * Every action is pinned to a full commit SHA, with the release it came from in the comment.
-#     A tag is mutable; a hijacked tag of any action below would otherwise run with this job's
-#     token, and in the release path before the MSI is attested. Dependabot moves the pins
-#     (.github/dependabot.yml), the workflow-lint job below rejects an unpinned one.
-#   * Every checkout sets `persist-credentials: false` - nothing here pushes with git.
-#   * No `${{ }}` expression is expanded inside a `run:` script; values reach scripts via `env:`.
-#   * The release is three jobs, so no job holds more than it uses: `build-msi` runs the build
-#     (Gradle, WiX from NuGet) with a read-only token; `attest` holds the OIDC/attestation rights
-#     and runs no build code at all; `publish` holds `contents: write` and runs no build code.
-
 jobs:
   check:
     name: Build & test
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Set up JDK 25
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
         with:
           distribution: temurin
           java-version: '25'
 
-      # A tampered gradle-wrapper.jar is the classic way to run arbitrary code in a build that
-      # otherwise looks untouched.
       - name: Validate the Gradle wrapper
-        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb
 
-      # zizmor's cache-poisoning flags this because the workflow also runs on tags. It does not
-      # apply here: nothing this job builds is published - the shipped MSI is rebuilt in build-msi
-      # with the cache disabled. Only `main` writes the cache, so a PR run cannot seed it.
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0 # zizmor: ignore[cache-poisoning]
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
         with:
           cache-read-only: ${{ github.ref != 'refs/heads/main' }}
 
       - name: Run tests
         run: .\gradlew.bat --stacktrace test
 
-      # Assemble the app image (jlink runtime + native bundle, no WiX/MSI). Catches
-      # runtime-module and packaging regressions without the slow full MSI build.
       - name: Assemble app image (packaging smoke test)
         run: .\gradlew.bat --stacktrace createDistributable
 
@@ -77,13 +57,10 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
-      # Downloaded rather than run as an action, and verified against a pinned digest: a workflow
-      # linter that is itself an unpinned third-party action would be arguing with itself. Same
-      # version and digest as basetool-android's ci.yml; bump both by hand, together.
       - name: Install actionlint
         env:
           ACTIONLINT_VERSION: 1.7.12
@@ -102,12 +79,10 @@ jobs:
         run: actionlint -color
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: '3.13'
 
-      # Hash-pinned (`--require-hashes`), so pip verifies what it installs; the reasoning and the
-      # by-hand bump rule live in .github/requirements/zizmor.txt.
       - name: Install zizmor
         run: |
           set -euo pipefail
@@ -115,9 +90,6 @@ jobs:
             --require-hashes -r .github/requirements/zizmor.txt
           zizmor --version
 
-      # Unpinned actions, template injection into run blocks, credential persistence, excessive
-      # permissions, cache poisoning. GH_TOKEN takes zizmor out of offline mode, which enables the
-      # `known-vulnerable-actions` audit.
       - name: Run zizmor
         env:
           GH_TOKEN: ${{ github.token }}
@@ -132,8 +104,6 @@ jobs:
     permissions:
       contents: read
     steps:
-      # The tag reaches the script through `env`, never as an expanded expression, and must be
-      # exactly a release version before anything else runs.
       - name: Validate the release tag
         env:
           REF_NAME: ${{ github.ref_name }}
@@ -142,33 +112,24 @@ jobs:
             throw "Refusing to release from tag '$env:REF_NAME': expected vMAJOR.MINOR.PATCH[-suffix]."
           }
 
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Set up JDK 25
-        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6
         with:
           distribution: temurin
           java-version: '25'
 
       - name: Validate the Gradle wrapper
-        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        uses: gradle/actions/wrapper-validation@9c971963bec38e04b3d30dcc455b5382be2fdbfb
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb
         with:
-          # No cache at all for the build that ships: a poisoned cache entry would become a
-          # poisoned - and then attested - MSI.
           cache-disabled: true
 
-      # The release version comes from the tag (e.g. v1.2.0 -> 1.2.0), not from
-      # build.gradle.kts. APP_VERSION is read by the Gradle build. Always via the script: it uses
-      # WiX 7 (installed, or bootstrapped as a local dotnet tool), accepts the WiX OSMF EULA (CI
-      # only), ensures the Util/UI wixext extensions, and copies the MSI to dist\. The runner
-      # image has no WiX 7, so this always bootstraps - and the script refuses a wix.7.0.0.nupkg
-      # or a Util/UI extension DLL that does not match its pinned SHA-512 before it is used. The
-      # Compose plugin's own WiX 3.11 download is off (gradle.properties). No separate WiX step.
       - name: Build MSI installer
         env:
           REF_NAME: ${{ github.ref_name }}
@@ -178,7 +139,7 @@ jobs:
           .\package-msi.ps1
 
       - name: Upload MSI as build artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: msi-installer
           path: dist/*.msi
@@ -191,23 +152,17 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      id-token: write       # mint the OIDC token Sigstore signs the provenance with
-      attestations: write   # store the build-provenance attestation on the repository
+      id-token: write
+      attestations: write
     steps:
-      # download-artifact v8 fails on a digest mismatch, so what is attested is byte-for-byte what
-      # build-msi uploaded.
       - name: Download the MSI
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: msi-installer
           path: dist
 
-      # SLSA build provenance, signed via Sigstore with a short-lived OIDC certificate: it binds
-      # the MSI's digest to this repository, this workflow file and the tagged commit, so anyone
-      # can prove the download came out of this build and not off someone's desk
-      # (`gh attestation verify`). It attests the artifact only - nothing is uploaded.
       - name: Attest build provenance for the MSI
-        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
         with:
           subject-path: dist/*.msi
 
@@ -217,7 +172,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 40
     permissions:
-      contents: write       # create the GitHub release and upload the MSI asset
+      contents: write
     steps:
       - name: Validate the release tag
         env:
@@ -227,23 +182,16 @@ jobs:
             throw "Refusing to release from tag '$env:REF_NAME': expected vMAJOR.MINOR.PATCH[-suffix]."
           }
 
-      # Only for .github/scripts/virustotal-scan.ps1; nothing from this checkout is built.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
 
       - name: Download the MSI
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: msi-installer
           path: dist
 
-      # Uploads the MSI to VirusTotal (free Public API - see the script header for why
-      # that licence fits this repo) and renders the release-notes section linking the
-      # report. Deliberately non-gating: the MSI is unsigned, so Defender's ML classifier
-      # flags it as a Wacatac false positive, and failing on a detection would block every
-      # release. `continue-on-error`, the step timeout and the script's own exit-0 policy make
-      # the scan a courtesy that can never hold up a publish.
       - name: Scan the MSI on VirusTotal
         id: virustotal
         continue-on-error: true
@@ -254,11 +202,6 @@ jobs:
           $msi = Get-ChildItem dist\*.msi | Select-Object -First 1
           .\.github\scripts\virustotal-scan.ps1 -Path $msi.FullName
 
-      # `gh release create` instead of a third-party release action: one less action holding
-      # `contents: write`. The notes file goes first and GitHub's generated changelog is appended
-      # below it; the VirusTotal part is empty when the scan was unavailable. `--verify-tag`
-      # refuses to create a tag that does not already exist. Tags like v1.2.0-rc1 are published as
-      # pre-releases (and the app's update check ignores those).
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -54,22 +54,14 @@ data class UpdateInfo(
 internal data class ParsedVersion(val major: Int, val minor: Int, val patch: Int, val preRelease: String?)
 
 /**
- * The GUI's update check against the public GitHub releases of this repo: on app start the latest
- * release is fetched (silently skipped on any failure — the check must never block or break the
- * app); when it is newer than the running version, the start screen offers to download the MSI and
- * install it. The download goes to a fresh, randomly named folder under the user's temp dir
- * ([newUpdateDir]) — NEVER the install dir (CLAUDE.md guardrail 2) — and a detached PowerShell
- * helper re-verifies the MSI's SHA-256 and runs `msiexec /i` after the app exits, then deletes the
- * MSI, the helper script and the folder again. [cleanupLeftovers] sweeps those folders on every
- * start as a belt-and-braces guard against a crashed or killed helper.
+ * The GUI's update check against this repo's public GitHub releases. On start the latest release is
+ * fetched, any failure being skipped silently; a newer one is offered for download into a fresh temp
+ * folder ([newUpdateDir]), and a detached PowerShell helper installs it after the app exits and
+ * cleans up. [cleanupLeftovers] sweeps leftover folders on every start.
  *
- * The update path **fails closed**: an offer needs an MSI asset whose URL lies under this repo's
- * own release-download path ([RELEASE_DOWNLOAD_PREFIX]) and whose API answer carries a well-formed
- * `sha256:` digest. The digest is checked after the download and again by the helper immediately
- * before every `msiexec` run, so the file the installer opens is the file the release published.
- *
- * Only release *metadata* is fetched from GitHub; no usage data is sent (the request carries
- * nothing but the standard headers).
+ * Fails closed: an offer needs an MSI under [RELEASE_DOWNLOAD_PREFIX] with a well-formed `sha256:`
+ * digest, verified after the download and before every `msiexec` run. Only release metadata is
+ * fetched; no usage data is sent.
  */
 object UpdateChecker {
 
@@ -90,7 +82,6 @@ object UpdateChecker {
     private val http: HttpClient by lazy {
         HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(5))
-            // The asset download redirects from github.com to the objects CDN.
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build()
     }
@@ -128,11 +119,9 @@ object UpdateChecker {
         }
 
     /**
-     * Decide whether [release] is an offerable update over [currentVersion]: a published (not
-     * draft/pre-release) version that compares newer and actually carries an MSI asset under
-     * [RELEASE_DOWNLOAD_PREFIX] with a well-formed SHA-256 digest. A missing or malformed digest
-     * means no offer: without it neither the download nor the installer helper could verify the
-     * file, and an unverifiable installer is never run.
+     * Decides whether [release] is an offerable update over [currentVersion]: published, newer, and
+     * carrying an MSI asset under [RELEASE_DOWNLOAD_PREFIX] with a well-formed SHA-256 digest; otherwise
+     * `null`.
      */
     fun selectUpdate(release: GitHubRelease?, currentVersion: String): UpdateInfo? {
         if (release == null || release.draft || release.prerelease) return null
@@ -206,11 +195,8 @@ object UpdateChecker {
     private fun tempRoot(): File = File(System.getProperty("java.io.tmpdir"))
 
     /**
-     * A fresh download folder under the user's temp dir, created by [Files.createTempDirectory]
-     * with an unpredictable name — so nothing can pre-create or plant files in it ahead of the
-     * download, which a fixed, guessable path allowed. Deliberately NOT the session temp dir from
-     * `ImageIntake.tempFolder()`: that one is removed by a shutdown hook on exit — which would race
-     * the installer helper that still needs the MSI after the app has quit.
+     * A fresh download folder with an unpredictable name under the user's temp dir. Not the session temp
+     * dir, which a shutdown hook removes before the installer helper runs.
      */
     fun newUpdateDir(root: File = tempRoot()): File =
         Files.createTempDirectory(root.toPath(), "$UPDATE_DIR_PREFIX-").toFile()
@@ -226,16 +212,13 @@ object UpdateChecker {
             root.listFiles { f -> f.isDirectory && f.name.startsWith(UPDATE_DIR_PREFIX) }
                 ?.forEach { it.deleteRecursively() }
         } catch (_: Exception) {
-            // Best effort only — leftovers in the temp dir must never break the app.
         }
     }
 
     /**
-     * Download the MSI of [info] into [targetDir] (a fresh [newUpdateDir] when null), reporting
-     * (bytesDone, bytesTotal) along the way. Refuses any URL outside [RELEASE_DOWNLOAD_PREFIX] and
-     * verifies the byte count and the SHA-256 before returning; a partial or corrupt file is
-     * deleted (with the folder, when this call created it) and the failure thrown to the caller
-     * (the banner shows it with a retry).
+     * Downloads the MSI of [info] into [targetDir] (a fresh [newUpdateDir] when `null`), reporting
+     * (bytesDone, bytesTotal). Refuses URLs outside [RELEASE_DOWNLOAD_PREFIX] and verifies byte count and
+     * SHA-256; a partial or corrupt file is deleted and the failure thrown.
      */
     fun downloadMsi(
         info: UpdateInfo,
@@ -304,16 +287,9 @@ object UpdateChecker {
     }
 
     /**
-     * The app's own launcher `.exe`, so the update helper can relaunch it once the install is
-     * done (otherwise the user has to start the freshly-updated app by hand). Resolved from the
-     * fixed jpackage app-image layout — `<installDir>\<AppName>.exe` next to the bundled runtime
-     * at `<installDir>\runtime` (== `java.home`) — which survives the user picking a custom
-     * install dir (guardrail: `dirChooser` is on) and stays valid across an in-place upgrade
-     * (same dir, same exe name). [appPath] (jpackage's own `jpackage.app-path`, when present) is
-     * tried first; both inputs are injectable so the resolver is unit-testable.
-     *
-     * Returns null when nothing resolves — most importantly a dev `gradlew run`, where `java.home`
-     * is a plain JDK with no launcher beside it; the helper then simply skips the relaunch.
+     * The app's own launcher `.exe`, for relaunch after an update: [appPath] (`jpackage.app-path`) first,
+     * else `<installDir>\<AppName>.exe` beside the bundled runtime at `java.home`. `null` when nothing
+     * resolves, e.g. in a dev run.
      */
     internal fun installedAppLauncher(
         appPath: String? = System.getProperty("jpackage.app-path"),
@@ -326,44 +302,17 @@ object UpdateChecker {
         }
         val installDir = javaHome?.takeIf { it.isNotBlank() }?.let { File(it).parentFile } ?: return null
         File(installDir, launcherName).let { if (it.isFile) return it }
-        // Fallback: the app-image install dir holds exactly one .exe (the launcher); the slim
-        // runtime under runtime\ ships no java.exe, so a lone-*.exe match is unambiguous.
         return installDir.listFiles { f -> f.isFile && f.extension.equals("exe", ignoreCase = true) }
             ?.singleOrNull()
     }
 
     /**
-     * The detached helper that performs the install after the app exits. PowerShell reads the
-     * whole script file before running it, so the last line can delete the script's own folder.
-     * The initial sleep gives the closing JVM time to release its files before msiexec checks
-     * files-in-use; the MSI is deleted afterwards in every outcome (installed, cancelled or
-     * failed) — the temp folder must end up empty either way. When `$AppPath` is given and still
-     * exists, the helper **relaunches the app** at the very end (after the upgrade or its
-     * rollback), so the user lands back in the running app without starting it manually.
+     * The detached PowerShell helper that installs the MSI after the app exits, deletes the MSI and its
+     * own folder in every outcome, and relaunches the app when `$AppPath` exists.
      *
-     * The first `msiexec /i` runs **without** elevation, so the common case (install under
-     * `%LOCALAPPDATA%` on the system drive) stays a zero-friction, no-UAC update. Only when that
-     * attempt does *not* succeed does the helper offer an **elevated retry** ("Als Administrator
-     * wiederholen"): the app has already exited by install time, so this native Yes/No dialog is
-     * the only place such a button can live. This is the escape hatch for the non-system-drive
-     * failure — Windows-Installer error 1926 "Could not set file security for file
-     * X:\Config.Msi\*.rbf. Error: 5", an endless per-`.rbf` loop that only an elevated install
-     * (which holds the privilege to write the rollback files' security descriptors) can get past.
-     * `$Lang` ("de"/"en") localizes the dialog to the language the app was showing; the file is
-     * written with a UTF-8 BOM (see [launchInstaller]) so PowerShell 5.1 renders the umlauts.
-     *
-     * Success/benign exit codes (0 ok, 1602 user-cancelled, 3010/1641 reboot variants) skip the
-     * prompt; anything else — 1603 among them, which is what the 1926 rollback returns — offers it.
-     *
-     * **Every `msiexec` run is preceded by a fresh SHA-256 of the MSI** against
-     * `$Sha256`, the digest the release published — also the elevated retry, which may start
-     * minutes later after the user answered the dialog. A mismatch (or an unreadable file) skips
-     * that install attempt and the retry prompt entirely; the helper then only cleans up and
-     * relaunches the unchanged app. So the installer never runs a file that changed after the
-     * app's own verification in [downloadMsi]. The hash is computed with .NET's `SHA256` directly,
-     * not `Get-FileHash`: that cmdlet lives in a module, and a Windows PowerShell started with an
-     * inherited PowerShell 7 `PSModulePath` (the CI runner) could not load it, which made the
-     * check reject even the correct file.
+     * The first `msiexec /i` runs without elevation; an exit code other than 0, 1602, 3010 or 1641 offers
+     * an elevated retry in a native dialog localized by `$Lang`. Every `msiexec` run is preceded by a
+     * fresh SHA-256 check against `$Sha256`, computed with .NET's `SHA256`; a mismatch skips the install.
      */
     internal val INSTALLER_SCRIPT = """
         param([string]${'$'}MsiPath, [string]${'$'}Sha256, [string]${'$'}Lang = 'de', [string]${'$'}AppPath = '')
@@ -429,14 +378,10 @@ object UpdateChecker {
         """.trimIndent()
 
     /**
-     * The helper invocation. Windows PowerShell 5.1 by absolute path (always present, unlike
-     * pwsh); `-File` passes the MSI path as a plain positional argument, so no string ever needs
-     * embedded quotes — paths with spaces or apostrophes survive ProcessBuilder's quoting as-is.
-     * [sha256] is the expected lowercase-hex digest the helper re-checks before every `msiexec`.
-     * [lang] ("de"/"en") localizes the elevated-retry dialog to the language the GUI was showing
-     * (any value other than "en" falls back to German); [appPath] is the launcher to relaunch
-     * after the install (empty string to skip). Both are plain trailing positional arguments —
-     * like the MSI path they carry no embedded quotes, so paths with spaces survive as-is.
+     * The helper invocation: Windows PowerShell 5.1 by absolute path with `-File` and plain positional
+     * arguments, so paths with spaces or apostrophes need no quoting. [sha256] is the expected
+     * lowercase-hex digest, [lang] localizes the retry dialog (anything but "en" is German), and
+     * [appPath] is the launcher to relaunch (empty to skip).
      */
     internal fun installerCommand(
         scriptFile: File,
@@ -458,17 +403,9 @@ object UpdateChecker {
     )
 
     /**
-     * Write the helper script next to [msiFile] and launch it detached. The caller exits the app
-     * right after — the helper waits, installs, removes the MSI and itself, then relaunches the
-     * app. Its working dir is the temp root: never the install dir (which the MSI replaces) and
-     * never the update dir (which the helper deletes at the end). [sha256] is the expected MSI
-     * digest the helper re-verifies before every install attempt; [lang] localizes the
-     * elevated-retry dialog; [appLauncher] is the exe to relaunch (defaults to
-     * [installedAppLauncher]; null skips the relaunch, e.g. in a dev run).
-     *
-     * The script is written with a UTF-8 BOM: Windows PowerShell 5.1 decodes a BOM-less `.ps1` as
-     * the ANSI code page, which would mangle the German umlauts in the failure dialog; the BOM
-     * makes it read the file as UTF-8.
+     * Writes the helper script next to [msiFile] with a UTF-8 BOM and launches it detached, with the temp
+     * root as working dir; the caller exits right after. [sha256] is the digest the helper re-verifies,
+     * [lang] localizes its retry dialog, and [appLauncher] is the exe to relaunch (`null` skips it).
      */
     fun launchInstaller(msiFile: File, sha256: String, lang: String, appLauncher: File? = installedAppLauncher()) {
         val script = File(msiFile.parentFile, "install-update.ps1")

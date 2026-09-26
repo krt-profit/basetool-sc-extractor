@@ -1,8 +1,3 @@
-# Phase-0 spike helper: crop a region from a screenshot and rescale it.
-# Usage: .\crop.ps1 -In <src.png> -Out <dst.png> -X 950 -Y 350 -W 920 -H 1500 [-Scale 1.5]
-# Coordinates are in SOURCE pixels. Scale > 1 upscales (HighQualityBicubic - the
-# JDK/Skia-equivalent resampling class the production pipeline will use; true
-# Lanczos is unavailable in both, see issue #433).
 param(
     [Parameter(Mandatory)] [string]$In,
     [Parameter(Mandatory)] [string]$Out,

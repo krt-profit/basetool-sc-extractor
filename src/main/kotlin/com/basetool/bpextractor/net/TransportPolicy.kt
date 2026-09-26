@@ -3,13 +3,9 @@ package com.basetool.bpextractor.net
 import java.net.URI
 
 /**
- * Which server URLs the outbound clients ([BasetoolIngestClient], `auth.DeviceGrantClient`) may talk
- * to: `https` anywhere, plain `http` only to the local machine (a dev gateway or Keycloak).
- *
- * The URL is **parsed**, not prefix-matched. A prefix test such as `startsWith("http://localhost")`
- * also admits `http://localhost.attacker.tld` (a foreign host that merely begins with the word) and
- * `http://127.0.0.1@attacker.tld/` (user-info in front of a foreign host) — both would send the
- * refresh token, the DPoP proof and the export over cleartext to someone else's server.
+ * Decides which server URLs the outbound clients ([BasetoolIngestClient], `auth.DeviceGrantClient`)
+ * may talk to: `https` anywhere, plain `http` only to the local machine. The URL is parsed, never
+ * prefix-matched, so look-alike hosts and user-info tricks are refused.
  */
 object TransportPolicy {
 

@@ -92,9 +92,6 @@ class BasetoolIngestClientTest {
 
     @Test
     fun appendsFieldErrorsToGenericValidationDetail() {
-        // The gateway's bean-validation problem carries only a generic detail; the field messages
-        // are what tell the user WHICH field was rejected (e.g. a null inputQuantity from a read
-        // that lost the number column) — the client must surface them.
         server.createContext("/v1/refinery-extract") { ex ->
             respond(
                 ex,
@@ -121,9 +118,6 @@ class BasetoolIngestClientTest {
 
     @Test
     fun rejectsForeignHostsDisguisedAsLocalhost() {
-        // A prefix check let both of these through, sending token and export in cleartext to a
-        // foreign host (SIB-SEC-09): a host that merely starts with "localhost", and user-info
-        // "127.0.0.1@" in front of the real host.
         assertFailsWith<IllegalArgumentException> { BasetoolIngestClient("http://localhost.attacker.tld") }
         assertFailsWith<IllegalArgumentException> { BasetoolIngestClient("http://127.0.0.1@attacker.tld/") }
         assertFailsWith<IllegalArgumentException> { BasetoolIngestClient("http://localhost@attacker.tld/") }
@@ -137,13 +131,8 @@ class BasetoolIngestClientTest {
         BasetoolIngestClient("http://127.0.0.1:8443/ingest")
     }
 
-    // --- DPoP (RFC 9449, REQ-INGEST-012) -------------------------------------------------------
-
     @Test
     fun `the proof is bound to this token and this url, so it cannot be lifted`() {
-        // The two claims that make a proof worth anything. `ath` ties it to the access token it
-        // accompanies, `htu` to the endpoint it was minted for — without them a captured proof
-        // could be replayed against another request. Spring checks both, `ath` unconditionally.
         server.createContext("/v1/blueprint-preview") { ex ->
             respond(ex, 200, """{"handoffId":"B1","kind":"BLUEPRINT","frontendUrl":"https://app/bp"}""")
         }
@@ -175,8 +164,6 @@ class BasetoolIngestClientTest {
 
     @Test
     fun `an empty body on a 401 does not break the problem parsing`() {
-        // Spring's DPoP entry point returns no body at all — a legitimate shape the client must
-        // survive rather than fail to decode.
         server.createContext("/v1/blueprint-preview") { ex -> respond(ex, 401, "") }
 
         val failure =
@@ -190,9 +177,6 @@ class BasetoolIngestClientTest {
 
     @Test
     fun `a 403 CLIENT_NOT_ALLOWED surfaces its code and is never re-sent`() {
-        // The gateway refuses this client software outright (REQ-INGEST-011). It will refuse it
-        // again on every attempt, so a retry is pure noise — and would re-upload the payload. The
-        // DPoP-Nonce header below is deliberately adversarial: even that must not buy a second try.
         server.createContext("/v1/refinery-extract") { ex ->
             ex.responseHeaders.add(DpopNonce.HEADER, "N-9")
             respond(

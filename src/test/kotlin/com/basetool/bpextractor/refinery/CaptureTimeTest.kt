@@ -50,17 +50,14 @@ class CaptureTimeTest {
 
     @Test
     fun `rejects out-of-range candidates instead of guessing`() {
-        // Month 13, hour 25, minute 71 — shapes that match the regex but no calendar.
         assertNull(CaptureTime.fromName("Screenshot 2026-13-01 213823.png", utc))
         assertNull(CaptureTime.fromName("Screenshot 2026-06-01 253823.png", utc))
         assertNull(CaptureTime.fromName("Screenshot 2026-06-01 217123.png", utc))
-        // Time digits embedded in a longer run must not be clipped into a timestamp.
         assertNull(CaptureTime.fromName("export 2026-06-01 2138234567890.png", utc))
     }
 
     @Test
     fun `name timestamp wins over the file modified time`() {
-        // The exact name matters (createTempFile would append digits), so build it by hand.
         val dir = java.nio.file.Files.createTempDirectory("capture-time").toFile().apply { deleteOnExit() }
         val file = File(dir, "Screenshot 2026-06-01 213823.png").apply {
             createNewFile()

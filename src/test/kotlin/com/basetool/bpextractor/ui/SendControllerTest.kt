@@ -27,10 +27,9 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
 /**
- * Exercises the [SendController] "remember me" path (epic krt-profit/basetool#639, #648) against a
- * single local stand-in for Keycloak + the ingest gateway (JDK [HttpServer]) — no real credentials,
- * no real network. Proves the silent refresh skips the browser and re-persists the rotated token,
- * and that a dead stored token is dropped.
+ * Exercises the [SendController] "remember me" path against a local stand-in for Keycloak and the
+ * ingest gateway ([HttpServer]): the silent refresh skips the browser and re-persists the rotated
+ * token, and a dead stored token is dropped.
  */
 class SendControllerTest {
 
@@ -64,7 +63,7 @@ class SendControllerTest {
             if (override != null) {
                 override(ex)
             } else {
-                respond(ex, 400, """{"error":"unauthorized_client"}""") // fallback path: fail fast, no poll
+                respond(ex, 400, """{"error":"unauthorized_client"}""")
             }
         }
         server.createContext("/v1/refinery-extract") { ex ->
@@ -133,7 +132,6 @@ class SendControllerTest {
 
         assertTrue(controller.state is SendState.Done, "expected Done, was ${controller.state}")
         assertEquals("https://app/x?handoff=H1", (controller.state as SendState.Done).frontendUrl)
-        // The vault blob is a StoredCredential record now (token + its DPoP key), not a bare token.
         assertEquals(
             "RT-ROTATED",
             StoredCredential.decode(assertNotNull(store.stored))?.refreshToken,
@@ -147,7 +145,7 @@ class SendControllerTest {
     @Test
     fun `a dead stored token is cleared before falling back to a fresh login`() {
         server.createContext("/protocol/openid-connect/token") { ex ->
-            respond(ex, 400, """{"error":"invalid_grant"}""") // the stored refresh token is dead
+            respond(ex, 400, """{"error":"invalid_grant"}""")
         }
         val store = FakeCredentialStore("RT-DEAD")
         val controller = controller(store)
@@ -177,8 +175,6 @@ class SendControllerTest {
 
     @Test
     fun `a credential whose key is gone is dropped instead of redeemed`() {
-        // A cleared TPM or a profile copied onto another machine: the name no longer opens, so the
-        // bound token can never be redeemed — no refresh is even attempted.
         val tokenCalls = AtomicInteger(0)
         server.createContext("/protocol/openid-connect/token") { ex ->
             tokenCalls.incrementAndGet()
@@ -194,14 +190,8 @@ class SendControllerTest {
         assertEquals(1, deviceCalls.get(), "the member signs in afresh")
     }
 
-    // --- DPoP (RFC 9449, REQ-INGEST-012) -------------------------------------------------------
-
     @Test
     fun `a bound token goes to the gateway under DPoP with a proof, and its key is persisted`() {
-        // ADR-0129: the gateway VALIDATES the proof now instead of relaying the token onward, so a
-        // sender-constrained token finally pays — the party that checks the proof is the party that
-        // consumes it. 2.7.x sent this same bound token as a plain bearer, which a resource server
-        // refuses outright; that is what broke every send from 2026-08-03.
         server.createContext("/protocol/openid-connect/token") { ex ->
             respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-ROTATED","token_type":"DPoP","expires_in":300}""")
         }
@@ -212,8 +202,6 @@ class SendControllerTest {
         assertEquals("DPoP AT", ingestAuth, "a bound token goes out under the DPoP scheme")
         assertNotNull(ingestProof, "and carries the proof the gateway validates")
 
-        // The refresh token and the NAME of the key that redeems it are stored together; the key
-        // itself stays in the key storage (a bound refresh token needs its own key).
         val stored = assertNotNull(StoredCredential.decode(assertNotNull(store.stored)))
         assertEquals("RT-ROTATED", stored.refreshToken)
         val key = assertNotNull(keys.open(assertNotNull(stored.dpopKeyName)))
@@ -227,8 +215,6 @@ class SendControllerTest {
 
     @Test
     fun `a bound token with no persistent key available is used but not remembered`() {
-        // No key storage (another OS, a broken CNG): the session key signs this send, but a token
-        // bound to a key that dies with the process must not be persisted — and neither may the key.
         server.createContext("/protocol/openid-connect/token") { ex ->
             respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-ROTATED","token_type":"DPoP","expires_in":300}""")
         }
@@ -240,19 +226,12 @@ class SendControllerTest {
         }
 
         assertEquals("DPoP AT", ingestAuth, "the send itself still works under DPoP")
-        // The new token dies with the process, so it is not stored; the stored one is left as it
-        // was (rotation is off realm-wide, so it is still valid).
         assertEquals("RT-STORED", store.stored, "the unredeemable-after-exit token is not stored")
         assertEquals(0, store.saveCount)
     }
 
     @Test
     fun `an unbound token keeps the plain bearer — the extractor follows the server`() {
-        // Still load-bearing, and the reason the key stays optional: a Keycloak with DPoP off
-        // answers token_type=Bearer, and presenting such a token under the DPoP scheme is a hard 401
-        // — Spring's JwkThumbprintValidator requires cnf.jkt and says "jkt claim is required". The
-        // extractor must follow the server, not its own wish to use DPoP. It is also the transition
-        // safety net: the gateway keeps .jwt() alongside .dPoP(), so this path stays accepted.
         server.createContext("/protocol/openid-connect/token") { ex ->
             respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-ROTATED","token_type":"Bearer","expires_in":300}""")
         }
@@ -265,9 +244,6 @@ class SendControllerTest {
 
     @Test
     fun `a legacy stored token still refreshes and is upgraded to a keyed record`() {
-        // Users of the already-released build have a bare refresh token in the vault. Keycloak binds
-        // the newly issued pair to the proof's key, so the very next send upgrades the credential
-        // in place — no forced re-login.
         val proofs = mutableListOf<String?>()
         server.createContext("/protocol/openid-connect/token") { ex ->
             proofs.add(ex.requestHeaders.getFirst("DPoP"))
@@ -286,8 +262,6 @@ class SendControllerTest {
 
     @Test
     fun `the stored key is the one reused on the next send`() {
-        // Reusing the key is the whole point: a refresh token bound to key A cannot be redeemed with
-        // key B, so a controller that minted a fresh key per send would lock the user out.
         server.createContext("/protocol/openid-connect/token") { ex ->
             respond(ex, 200, """{"access_token":"AT","refresh_token":"RT","token_type":"DPoP","expires_in":300}""")
         }
@@ -302,14 +276,8 @@ class SendControllerTest {
         assertEquals(setOf(firstKey), keys.keys.keys, "and no second key is created along the way")
     }
 
-    // --- migration off the exportable key (SIB-SEC-04) --------------------------------------------
-
     @Test
     fun `a record with an exported key is revoked, deleted, and the member signs in once more`() {
-        // Records written before the non-exportable key carry the private key next to the token, so
-        // a copy of the record was the login. The token is bound to that exported key and cannot
-        // move onto a non-exportable one: it is revoked (with a proof from the old key, so a copy
-        // dies too), the record is deleted, and the member goes through one device grant — told why.
         val legacyPair =
             KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()
         val legacyExport =
@@ -341,18 +309,14 @@ class SendControllerTest {
 
         runBlocking { controller.request(this, SendKind.REFINERY, """{"x":1}""", "de") }
 
-        // The old token was revoked, with a proof from the old (exported) key.
         assertTrue(revokedBody.contains("token=RT-OLD"), "the legacy token must be revoked")
         val legacyThumbprint = assertNotNull(DpopKey.fromLegacyExport(legacyExport)).thumbprint
         assertEquals(legacyThumbprint, DpopProofs.thumbprint(assertNotNull(revokeProof)))
-        // It was never redeemed — only the device-code grant hit the token endpoint.
         assertTrue(refreshed.none { it.contains("RT-OLD") }, "the legacy token must not be refreshed")
         assertEquals(1, deviceCalls.get(), "the member signs in once via the device grant")
-        // And the overlay said why.
         val shown = stateAtBrowse
         assertTrue(shown is SendState.Authenticating && shown.keyUpgrade, "was $shown")
         assertTrue(controller.state is SendState.Done, "was ${controller.state}")
-        // The new record names a non-exportable key and holds no key material.
         val blob = assertNotNull(store.stored)
         assertFalse(blob.contains(legacyExport.substringBefore('.')))
         assertFalse(blob.contains("\"dpopKey\""))
@@ -383,10 +347,6 @@ class SendControllerTest {
 
     @Test
     fun `a rejected proof does not cost the user their stored login`() {
-        // Keycloak validates the DPoP proof BEFORE the grant and reports every proof defect as a
-        // generic invalid_request — a clock more than 15s fast is enough. That says nothing about
-        // the refresh token, so it must not be deleted, and there is no point opening a browser for
-        // a device grant whose polls carry the very same proof.
         server.createContext("/protocol/openid-connect/token") { ex ->
             respond(ex, 400, """{"error":"invalid_request","error_description":"DPoP proof is not active"}""")
         }
@@ -401,7 +361,6 @@ class SendControllerTest {
         assertEquals(0, browseCount)
         val state = controller.state
         assertTrue(state is SendState.Error, "expected Error, was $state")
-        // The server's own words, so a clock-skew failure is diagnosable instead of a bare HTTP 400.
         assertTrue(
             state.message.contains("DPoP proof is not active"),
             "the reason must reach the user, was: ${state.message}",
@@ -429,8 +388,6 @@ class SendControllerTest {
 
         val state = controller.state
         assertTrue(state is SendState.Error, "expected Error, was $state")
-        // The code is what lets the overlay say "this build is not approved" instead of echoing an
-        // English server sentence that reads like something a retry could fix.
         assertEquals("CLIENT_NOT_ALLOWED", state.code)
         assertEquals(1, attempts.get(), "a permanent refusal is never re-sent")
     }
@@ -444,7 +401,6 @@ class SendControllerTest {
 
         runBlocking { controller.request(this, SendKind.BLUEPRINT, """{"schemaVersion":1}""", "en") }
 
-        // The BLUEPRINT kind routes to /v1/blueprint-preview, whose stand-in returns the B1 handoff.
         assertTrue(controller.state is SendState.Done, "expected Done, was ${controller.state}")
         assertEquals("https://app/bp?handoff=B1", (controller.state as SendState.Done).frontendUrl)
     }

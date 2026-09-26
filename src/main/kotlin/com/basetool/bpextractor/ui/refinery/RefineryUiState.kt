@@ -82,11 +82,8 @@ data class RefineryImage(
     val selected: Boolean = true,
 ) {
     /**
-     * Best-effort low-resolution heuristic for the §5.2 capture-quality warning: a NON-pre-cropped
-     * capture below a full-HD long edge is a terminal-area crop or a downscaled shot whose ~9px
-     * digit glyphs read less reliably than a full-resolution, head-on capture (PHASE0: the hardest
-     * digit ambiguities are not recoverable post-capture). Pre-cropped panels are intentionally
-     * small and exempt.
+     * Whether a non-pre-cropped capture falls below a full-HD long edge, for the capture-quality warning;
+     * pre-cropped panels are exempt.
      */
     val lowResolution: Boolean get() = !precropped && maxOf(width, height) < LOW_RES_LONG_EDGE
 
@@ -97,21 +94,17 @@ data class RefineryImage(
 }
 
 /**
- * All UI state of the refinery workflow (design spec §5) + the glue that drives the preflight
- * probes, the guided model pull, folder loading and the extraction pipeline. Heavy work always
- * runs on [Dispatchers.IO]; Compose snapshot state is safely written cross-thread, straight from
- * that IO coroutine — there is no UI dispatcher to hop to here, and hopping to another background
- * pool bought nothing.
+ * All UI state of the refinery workflow plus the glue driving the preflight probes, the model pull,
+ * folder loading and the extraction pipeline. Heavy work runs on [Dispatchers.IO], which writes the
+ * Compose snapshot state directly.
  */
 class RefineryUiState(
     /** Ollama client factory — injectable so UI logic could be exercised without a server. */
     private val clientFor: (String) -> OllamaApi = { HttpOllamaClient(it) },
 ) {
-    // --- navigation ---
     var step by mutableStateOf(0)
     var maxReached by mutableStateOf(0)
 
-    // --- §5.1 preflight ---
     var endpoint by mutableStateOf(HttpOllamaClient.DEFAULT_ENDPOINT)
     var ollamaStatus by mutableStateOf<OllamaStatus>(OllamaStatus.Checking)
     var hardware by mutableStateOf<HardwareSnapshot?>(null)
@@ -120,7 +113,6 @@ class RefineryUiState(
     var scAcknowledged by mutableStateOf(false)
     private var preflightRan = false
 
-    // --- §5.2 images ---
     var folder by mutableStateOf("")
 
     /** The path the loaded [images] reflect — guards the auto-load from rescanning the same dir. */
@@ -135,7 +127,6 @@ class RefineryUiState(
     /** True while a folder-watch tick is diffing — overlapping ticks are skipped. */
     private var rescanning by mutableStateOf(false)
 
-    // --- §5.3 extraction ---
     /** The selection snapshot the active/last run works on (drives the §5.3 stage rows). */
     val runImages = mutableStateListOf<RefineryImage>()
     var running by mutableStateOf(false)
@@ -151,7 +142,6 @@ class RefineryUiState(
     var cancelRequested by mutableStateOf(false)
     var result by mutableStateOf<PipelineResult?>(null)
 
-    // --- §5.4 manual review corrections ---
     /** The order header with the user's corrections applied; null until the first header edit. */
     var editedOrder by mutableStateOf<RefineryExtractOrder?>(null)
         private set
@@ -196,13 +186,9 @@ class RefineryUiState(
     }
 
     /**
-     * Machine warnings the user's corrections have RESOLVED — recomputed deterministically
-     * against [reviewedOrder] so the §5.4 banner can show them as settled instead of pretending
-     * the finding still stands. Only the value-dependent warnings are re-checkable
-     * (SUM_MISMATCH via [Validation.sumMismatch]; IMPLAUSIBLE_CELL when every flagged row was
-     * corrected to plausible numbers; YIELD_RATIO_OUTLIER via [Validation.yieldRatioOutliers]) —
-     * the read-provenance warnings (REFINE/VERIFY/UNQUOTED/STITCH_CONTESTED)
-     * describe how the values came to be and stay as they are.
+     * Machine warnings the user's corrections have resolved, recomputed against [reviewedOrder]. Only the
+     * value-dependent warnings (SUM_MISMATCH, IMPLAUSIBLE_CELL, YIELD_RATIO_OUTLIER) can resolve;
+     * read-provenance warnings stay.
      */
     val resolvedWarnings: Set<ExtractWarning>
         get() {
@@ -218,7 +204,6 @@ class RefineryUiState(
             if (ExtractWarning.IMPLAUSIBLE_CELL in validated.warnings && goods.none(::implausibleReviewed)) {
                 resolved += ExtractWarning.IMPLAUSIBLE_CELL
             }
-            // The per-material yield/qty ratio re-check: correcting the divergent digit settles it.
             if (ExtractWarning.YIELD_RATIO_OUTLIER in validated.warnings &&
                 Validation.yieldRatioOutliers(goods).isEmpty()
             ) {
@@ -242,7 +227,6 @@ class RefineryUiState(
         editedGoods.clear()
     }
 
-    // --- §5.5 export ---
     var exportedFile by mutableStateOf<File?>(null)
     var exportError by mutableStateOf<String?>(null)
 
@@ -259,8 +243,6 @@ class RefineryUiState(
             val d = decision ?: return true
             return when (d.tier) {
                 HardwareTier.RECOMMENDED -> true
-                // Below recommended, the radio decides: the compact model on the GPU (Ollama
-                // auto-offloads when it doesn't fully fit) or forced CPU mode (num_gpu 0).
                 HardwareTier.MINIMUM, HardwareTier.CPU -> fallback != FallbackChoice.CPU
             }
         }
@@ -270,17 +252,15 @@ class RefineryUiState(
         private set
 
     /**
-     * The cross-model verify partner for this run, or null. Policy (PHASE0 addendum 2026-06-12):
-     * recommended tier on the GPU only — the verify pass is an accuracy bonus and must never
-     * cost a below-tier machine double CPU time — and only when the partner is already installed
-     * (no extra download flow; the pass simply lights up once the model is present).
+     * The cross-model verify partner for this run, or `null`: set only on the recommended tier on the GPU
+     * and when the partner model is already installed.
      */
     val verifyModel: String?
         get() = Preflight.MODEL_VERIFY.takeIf {
             it != selectedModel && gpuMode && selectedModel == Preflight.MODEL_RECOMMENDED && verifyAvailable
         }
 
-    /** Measured per-image ETA for the effective (model, mode) pair (`PHASE0_FINDINGS.md` §5). */
+    /** Per-image ETA for the effective model and mode, in seconds. */
     val etaSecondsPerImage: Int
         get() = Preflight.etaSecondsPerImage(selectedModel, gpuMode) +
             (if (verifyModel != null) Preflight.ETA_GPU_MINIMUM_S else 0)
@@ -364,12 +344,9 @@ class RefineryUiState(
     }
 
     /**
-     * §5.2 folder watch — one poll tick: diff [path] against the loaded grid instead of
-     * reloading it. New image files appear at the end of the grid (selected by default), images
-     * whose file vanished from the folder drop out, and every surviving tile keeps its checkbox
-     * state untouched. Images removed via the tile ✕ stay out ([dismissedPaths]); a file still
-     * being written simply fails to decode and is retried on the next tick. No-op while the
-     * initial load or a previous tick is in flight, or when [path] is no longer the loaded
+     * One folder-watch poll: diffs [path] against the loaded grid, appending new images (selected) and
+     * dropping vanished ones while keeping each tile's checkbox state. Images removed via the tile ✕ stay
+     * out ([dismissedPaths]). No-op while a load or tick is in flight or [path] is no longer the loaded
      * folder.
      */
     fun rescanFolder(scope: CoroutineScope, path: String) {
@@ -423,9 +400,8 @@ class RefineryUiState(
     }
 
     /**
-     * §5.2 CTA — (re)enter the extraction step. Any previous run's result is discarded so the
-     * step's auto-start fires again with the CURRENT selection, and the stepper ceiling drops
-     * back to this step: a changed input invalidates the old review/export.
+     * Enters the extraction step, discarding any previous result so the run restarts with the current
+     * selection and the stepper ceiling drops back to this step.
      */
     fun startExtraction() {
         if (running) return
@@ -453,7 +429,7 @@ class RefineryUiState(
      */
     fun importTransferable(scope: CoroutineScope, t: Transferable): Boolean {
         if (!ImageIntake.accepts(t)) return false
-        if (loadingImages) return true // swallow re-entrant pastes while a load is in flight
+        if (loadingImages) return true
         loadingImages = true
         scope.launch(Dispatchers.IO) {
             try {
@@ -467,7 +443,6 @@ class RefineryUiState(
                 }
                 val known = images.mapTo(HashSet()) { it.file.absolutePath }
                 val loaded = loadImages(saved.filter { it.absolutePath !in known }.distinct())
-                // A re-paste of a previously ✕-removed image is an explicit re-add.
                 loaded.forEach { dismissedPaths -= it.file.absolutePath }
                 images.addAll(loaded)
             } finally {
@@ -546,9 +521,8 @@ class RefineryUiState(
     }
 
     /**
-     * The contract extract with the user's review corrections overlaid (machine read + edits) —
-     * the single source of truth for both sending to the basetool and writing the JSON. Null until
-     * an extraction has produced a reviewable order.
+     * The contract extract with the user's review corrections overlaid, used for both sending and writing
+     * the JSON; `null` until an extraction produced a reviewable order.
      */
     fun reviewedExtract(): RefineryExtract? {
         val machine = result?.extract ?: return null
@@ -609,9 +583,8 @@ class RefineryUiState(
             ?.sortedBy { it.name.lowercase() } ?: emptyList()
 
     /**
-     * Turn [files] into grid tiles, decoding up to [DECODE_PARALLELISM] of them at once on
-     * [Dispatchers.IO]. Order follows [files]; unreadable files are dropped (and, for the folder
-     * watch, retried on the next tick).
+     * Turns [files] into grid tiles, decoding up to [DECODE_PARALLELISM] at once on [Dispatchers.IO].
+     * Order follows [files]; unreadable files are dropped.
      */
     private suspend fun loadImages(files: List<File>): List<RefineryImage> = coroutineScope {
         files.map { file -> async(imageDecode) { loadImage(file) } }.awaitAll().filterNotNull()
@@ -631,9 +604,8 @@ class RefineryUiState(
         internal const val THUMB_LONG_EDGE = 240
 
         /**
-         * How many screenshots [loadImages] decodes at once: enough to overlap disk reads and
-         * decoding on a folder of dozens of captures, few enough not to monopolise the IO pool
-         * the preflight probes and the extraction share.
+         * How many screenshots [loadImages] decodes at once, bounded so it does not monopolise the shared IO
+         * pool.
          */
         private const val DECODE_PARALLELISM = 4
 
@@ -641,13 +613,9 @@ class RefineryUiState(
         private val imageDecode = Dispatchers.IO.limitedParallelism(DECODE_PARALLELISM)
 
         /**
-         * Decode [file] into a grid tile (native size, crop tag, thumbnail), null when unreadable.
-         *
-         * The native size comes from the image **header** ([ImageReader.getWidth]), so the crop tag
-         * ([Locate.isPrecropped]) sees exactly the dimensions a full decode would report; the
-         * thumbnail is decoded with source subsampling ([javax.imageio.ImageReadParam.setSourceSubsampling]),
-         * so a 4K capture never materialises at full size just to become a 240 px tile. The full
-         * frame is decoded only by the extraction run ([readFull]).
+         * Decodes [file] into a grid tile (native size, crop tag, thumbnail), or `null` when unreadable. The
+         * native size comes from the image header and the thumbnail is decoded with source subsampling; the
+         * full frame is decoded only by the extraction run ([readFull]).
          */
         internal fun loadImage(file: File): RefineryImage? = runCatching {
             ImageIO.createImageInputStream(file)?.use { input ->

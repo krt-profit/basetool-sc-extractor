@@ -33,8 +33,6 @@ class StitcherTest {
 
     @Test
     fun `chains two scrolled captures by their overlap and keeps on-screen order`() {
-        // Capture B (taken FIRST alphabetically) shows rows 3..6, capture A shows rows 1..4 —
-        // input order must not matter, only the overlap does.
         val top = ImageRead(
             "b_lower.png",
             panel(
@@ -65,10 +63,6 @@ class StitcherTest {
 
     @Test
     fun `a QTY disagreement in the overlap zone neither duplicates rows nor keeps the edge read`() {
-        // Auftrag 10 reality: the same physical LARANITE row is the EDGE row of capture 1
-        // (mis-read 185) and a mid-table row of capture 2 (clean 105). The exact overlap fails
-        // on the digit, so without the loose pass every overlap row would export twice; the
-        // surviving QTY must come from the capture that saw the row away from its edges.
         val first = ImageRead(
             "1_upper.png",
             panel(
@@ -76,7 +70,7 @@ class StitcherTest {
                     row("BEXALITE (RAW)", "597", "127", "--"),
                     row("BORASE (ORE)", "892", "192", "93"),
                     row("BORASE (ORE)", "903", "727", "353"),
-                    row("LARANITE (RAW)", "510", "185", "--"), // edge row, mis-read
+                    row("LARANITE (RAW)", "510", "185", "--"),
                 ),
             ),
         )
@@ -86,7 +80,7 @@ class StitcherTest {
                 listOf(
                     row("BORASE (ORE)", "892", "192", "93"),
                     row("BORASE (ORE)", "903", "727", "353"),
-                    row("LARANITE (RAW)", "510", "105", "--"), // mid-table, clean
+                    row("LARANITE (RAW)", "510", "105", "--"),
                     row("TUNGSTEN (ORE)", "858", "276", "134"),
                     row("INERT MATERIALS", "0", "852", "0", refine = "OFF"),
                 ),
@@ -105,9 +99,6 @@ class StitcherTest {
 
     @Test
     fun `a quoted read of an OFF row beats the un-quoted read even though its yield is the marker`() {
-        // The yield-based refine correction may only fire on rows whose surviving read saw the
-        // quoted state — for an OFF row the quoted capture also shows "--", so preferring by
-        // "has a numeric yield" alone would keep the un-quoted variant (and its provenance).
         val early = ImageRead(
             "early.png",
             panel(listOf(row("BEXALITE (RAW)", "597", "127", "--", refine = "ON")), quoted = false),
@@ -126,9 +117,6 @@ class StitcherTest {
 
     @Test
     fun `a one-character name garble with matching numbers does not break the overlap`() {
-        // Auftrag 1 run-to-run reality: one read transcribes LINDINIUM as LINDINIMUM. The
-        // numeric cells (quality+qty) disambiguate, so the overlap must still chain — otherwise
-        // the shared rows duplicate (observed: 23 instead of 18 stitched rows).
         val top = ImageRead(
             "a.png",
             panel(
@@ -161,10 +149,6 @@ class StitcherTest {
 
     @Test
     fun `a quality-and-qty misread of the same row across captures merges on the stable yield`() {
-        // Auftrag 14: the high-quality TUNGSTEN row is read 958|950 in one scroll capture and
-        // 858|858 in the next — only the YIELD (413) is stable. Identity-on-the-triple kept BOTH
-        // (the order stitched to 18 rows instead of 13); the positive-yield anchor must align them
-        // into one row and mark it contested so the review looks.
         val upper = ImageRead(
             "2_mid.png",
             panel(
@@ -188,7 +172,6 @@ class StitcherTest {
 
         val result = Stitcher.stitch(listOf(upper, lower))
 
-        // 4 unique rows, not 6: the 958/858 row and the 902 row chain across the overlap.
         assertEquals(
             listOf("TUNGSTEN (ORE)", "TUNGSTEN (ORE)", "TUNGSTEN (ORE)", "RICCITE (ORE)"),
             result.rows.map { it.name },
@@ -199,11 +182,6 @@ class StitcherTest {
 
     @Test
     fun `an OFF seam row mis-read in both cells reconciles instead of duplicating`() {
-        // Auftrag 15: the TARANITE overlap row (last of capture 1 = first of capture 2) is a
-        // refine-OFF row (yield "--", so no positive-yield anchor). Capture 1 reads it 310/290,
-        // capture 2 mis-reads BOTH cells as 318/298 (0/8 confusions), so overlap() finds nothing
-        // and the row would export twice. Seam reconciliation aligns the boundary pair into one
-        // contested row, keeping the upper capture's read.
         val upper = ImageRead(
             "1_upper.png",
             panel(
@@ -240,9 +218,6 @@ class StitcherTest {
 
     @Test
     fun `a non-confusable OFF seam difference stays a scroll gap, not reconciled`() {
-        // Guard: seam reconciliation only fires on a CONFUSABLE single-digit edit of the SAME
-        // material. A boundary pair differing by a non-confusable digit (0 vs 7) is a genuine
-        // scroll gap — keep both rows and let the checksum flag the hole rather than drop one.
         val upper = ImageRead("1.png", panel(listOf(row("TARANITE (RAW)", "310", "290", "--", refine = "OFF"))))
         val lower = ImageRead("2.png", panel(listOf(row("TARANITE (RAW)", "317", "290", "--", refine = "OFF"))))
 
@@ -253,9 +228,6 @@ class StitcherTest {
 
     @Test
     fun `equal qty and yield differing only in quality is not merged across captures`() {
-        // Safety guard for the yield anchor: two genuinely distinct TUNGSTEN tiers that happen to
-        // hold an equal amount (same QTY, same YIELD, different QUALITY) must NOT collapse — only a
-        // QTY *disagreement* unlocks the yield anchor, so these stay two rows for the review.
         val first = ImageRead("one.png", panel(listOf(row("TUNGSTEN (ORE)", "858", "850", "413"))))
         val second = ImageRead("two.png", panel(listOf(row("TUNGSTEN (ORE)", "902", "850", "413"))))
 
@@ -266,7 +238,6 @@ class StitcherTest {
 
     @Test
     fun `the garble tolerance needs both numeric cells - unreadable numbers stay strict`() {
-        // Without quality+qty as disambiguators a one-edit name match is NOT enough to merge.
         val a = ImageRead("a.png", panel(listOf(row("TORITE (ORE)", null, null, "30"))))
         val b = ImageRead("b.png", panel(listOf(row("TORIDE (ORE)", null, null, "30"))))
 
@@ -277,7 +248,6 @@ class StitcherTest {
 
     @Test
     fun `duplicate materials at different qualities never collapse`() {
-        // Auftrag 1 reality: LINDINIUM at four different qualities is one order's normal state.
         val capture = ImageRead(
             "a.png",
             panel(
@@ -314,7 +284,6 @@ class StitcherTest {
 
     @Test
     fun `the quoted variant of a row beats the un-quoted duplicate`() {
-        // Auftrag 2 reality: the same order captured before AND after GET QUOTE.
         val unquoted = ImageRead(
             "before_quote.png",
             panel(
@@ -347,8 +316,6 @@ class StitcherTest {
 
     @Test
     fun `bracket-style transcription variants of the same row align across captures`() {
-        // The VLM sometimes transcribes the suffix as "[ORE]" instead of "(ORE)" — same panel,
-        // same row. The identity key folds the bracket style so the overlap still matches.
         val first = ImageRead(
             "one.png",
             panel(

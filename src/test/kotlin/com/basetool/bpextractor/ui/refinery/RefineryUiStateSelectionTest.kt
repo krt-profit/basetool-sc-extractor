@@ -40,13 +40,12 @@ class RefineryUiStateSelectionTest {
     fun `setAllImagesSelected unticks and re-ticks every image, keeping grid order`() {
         val state = RefineryUiState()
         state.images.addAll(listOf(image("a.png"), image("b.png"), image("c.png")))
-        state.toggleImageSelected(state.images[1]) // a mixed selection collapses too
+        state.toggleImageSelected(state.images[1])
 
         state.setAllImagesSelected(false)
         assertTrue(state.selectedImages.isEmpty())
         assertEquals(listOf("a.png", "b.png", "c.png"), state.images.map { it.file.name })
 
-        // Hand-picking after the bulk untick is the §5.2 single-image-run flow.
         state.toggleImageSelected(state.images[2])
         assertEquals(listOf("c.png"), state.selectedImages.map { it.file.name })
 
@@ -58,7 +57,6 @@ class RefineryUiStateSelectionTest {
     fun `startExtraction discards the previous run and drops the stepper ceiling`() {
         val state = RefineryUiState()
         state.images.add(image("a.png"))
-        // Simulate a finished run whose review/export was already reachable.
         state.extractError = "boom"
         state.outcomes[0] = com.basetool.bpextractor.refinery.ImageOutcome(
             name = "a.png",

@@ -63,14 +63,10 @@ import java.io.File
 import kotlin.math.roundToInt
 
 /**
- * §5.4 Review & Bestätigung on the [StepScaffold] (desktop variant — master-data matching
- * happens later in the basetool frontend): head badges (`SETUP` + layout %), the warning banner,
- * the four order header cards, and the goods table filling the rest height with derived
- * confidence (percent + dot at the 0.90/0.75 thresholds, accessible tints, flagged rows with a
- * coloured 3dp edge). Header values and goods rows are user-correctable in place (✎): a
- * corrected row exports at confidence 1.0 with an ↺ to restore the machine read — the export
- * writes [RefineryUiState.reviewedOrder]. The "stays manual" note and the export CTA sit in the
- * pinned footer.
+ * The Review & Bestätigung step: head badges, the warning banner, the four order header cards and the
+ * goods table with derived confidence. Header values and rows are correctable in place; a corrected
+ * row exports at confidence 1.0 and can be restored to the machine read. The export writes
+ * [RefineryUiState.reviewedOrder].
  */
 @Composable
 fun ReviewStep(state: RefineryUiState) {
@@ -80,8 +76,6 @@ fun ReviewStep(state: RefineryUiState) {
     val machineGoods = result.extract.orders.first().goods
     val validated = result.validated
     var editingRow by remember { mutableStateOf<Int?>(null) }
-    // Header cards own their inline-edit state; they report it up here so "Continue to export" can
-    // warn about an editor that is still open — its typing only reaches the export once ✓ is hit.
     val openHeaderEdits = remember { mutableStateListOf<String>() }
     var confirmLeave by remember { mutableStateOf(false) }
     val hasOpenEdit = editingRow != null || openHeaderEdits.isNotEmpty()
@@ -93,7 +87,6 @@ fun ReviewStep(state: RefineryUiState) {
             subtitle = strings.rfReviewSubtitle,
             scrollBody = false,
             headRight = {
-                // Head badges: panel type + layout confidence.
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     KrtChip(order.panelType, color = Krt.Orange, border = Krt.Orange)
                     KrtChip(strings.rfBadgeLayout((order.layoutConfidence * 100).roundToInt()))
@@ -103,16 +96,12 @@ fun ReviewStep(state: RefineryUiState) {
                 GhostButton(strings.back, onClick = { state.goTo(2) })
                 Spacer(Modifier.weight(1f))
                 FootNote(strings.rfManualNote)
-                // Review only finalises the data; choosing send-vs-save-JSON happens on the export step.
-                // An open inline editor still holds uncommitted typing — warn before discarding it.
                 CtaButton(
                     strings.rfCtaToExport,
                     onClick = { if (hasOpenEdit) confirmLeave = true else state.goTo(4) },
                 )
             },
         ) {
-            // Warning banner: count + list of validation findings. Findings the user's corrections
-            // resolved (re-checked deterministically) show as settled instead of still-open.
             val resolved = state.resolvedWarnings
             val open = validated.warnings.size - resolved.size
             if (validated.warnings.isEmpty()) {
@@ -138,15 +127,12 @@ fun ReviewStep(state: RefineryUiState) {
                     }
                 }
             }
-            // Unresolved findings: a human re-shoot of the order (closer/larger, head-on) is the one
-            // legitimate "retry" — genuinely new pixels — and the folder watch ingests it live.
             if (open > 0) {
                 Spacer(Modifier.height(8.dp))
                 FootNote(strings.rfRecaptureHint)
             }
             Spacer(Modifier.height(12.dp))
 
-            // Four order-header cards, each value correctable in place.
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 HeaderCard(
                     title = strings.rfHdrLocation,
@@ -213,7 +199,6 @@ fun ReviewStep(state: RefineryUiState) {
             }
             Spacer(Modifier.height(12.dp))
 
-            // Goods table: one sticky header row, the body scrolls and fills the rest height.
             Column(modifier = Modifier.weight(1f).fillMaxWidth().hudBox()) {
                 GoodsHeaderRow()
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
@@ -241,7 +226,6 @@ fun ReviewStep(state: RefineryUiState) {
             }
         }
 
-        // Guard the forward navigation: an open inline editor would silently lose its typing.
         if (confirmLeave) {
             UnsavedChangesOverlay(
                 onBack = { confirmLeave = false },
@@ -293,7 +277,6 @@ private fun HeaderCard(
 ) {
     val strings = LocalStrings.current
     var editing by remember { mutableStateOf(false) }
-    // Surface the open/closed editor state so the step can warn before discarding uncommitted text.
     LaunchedEffect(editing) { onEditingChange(editing) }
     var text by remember { mutableStateOf("") }
     var invalid by remember { mutableStateOf(false) }
@@ -501,8 +484,6 @@ private fun GoodsEditRow(
                         .padding(horizontal = 8.dp, vertical = 3.dp),
                 )
             }
-            // Apply lands in the confidence column (otherwise empty mid-edit) as a filled button —
-            // far louder than the old bare ✓ glyph, so a correction doesn't get left un-applied.
             Box(Modifier.weight(1.2f), contentAlignment = Alignment.CenterStart) {
                 ApplyButton(label = strings.rfEditApply, enabled = valid, description = strings.rfEditApply, onClick = submit)
             }
@@ -601,10 +582,8 @@ private fun GlyphButton(
 }
 
 /**
- * The prominent "apply this correction" action (the commit of a ✎ edit): a filled Success-green
- * button, optionally labelled. Deliberately louder than the quiet glyph actions around it —
- * committing is the step that actually changes the export, and the old bare ✓ glyph was too easy to
- * skip (a typed-but-un-applied correction silently fell back to the machine read).
+ * The prominent filled "apply this correction" button that commits a ✎ edit to the export,
+ * optionally labelled.
  */
 @Composable
 private fun ApplyButton(

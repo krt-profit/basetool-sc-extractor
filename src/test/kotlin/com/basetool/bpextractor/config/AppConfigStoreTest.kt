@@ -62,8 +62,6 @@ class AppConfigStoreTest {
 
     @Test
     fun aLaterWriterKeepsWhatAnEarlierOneStored() {
-        // The blueprint step and the send flow each own an AppConfigStore. Both must
-        // load-then-copy-then-save, or one silently drops the other's field.
         val blueprintSide = AppConfigStore(dir)
         blueprintSide.save(blueprintSide.load().copy(lastChannelFolder = """D:\SC\LIVE"""))
 
@@ -77,7 +75,6 @@ class AppConfigStoreTest {
 
     @Test
     fun anOlderConfigWithoutTheFieldStillLoads() {
-        // Forward/backward compatibility: config.json written by a previous release.
         File(dir, "config.json").writeText("""{"ingestBaseUrl":"https://ingest.example","consentGiven":true}""")
         val config = AppConfigStore(dir).load()
         assertEquals("https://ingest.example", config.ingestBaseUrl)

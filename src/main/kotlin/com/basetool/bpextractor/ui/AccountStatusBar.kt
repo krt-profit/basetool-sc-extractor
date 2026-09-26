@@ -27,12 +27,10 @@ import com.basetool.bpextractor.ui.i18n.LocalStrings
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * The compact "remember me" status line (epic krt-profit/basetool#639, #648), shown in the Start
- * footer: an orange dot + „Mit Basetool verbunden" + a „Vom Basetool trennen" action when a token
- * is stored, or a muted „Nicht mit Basetool verbunden" otherwise. Pairs with
- * [AccountDisconnectOverlay], which renders the confirmation above the page.
+ * The compact "remember me" status line in the Start footer: „Mit Basetool verbunden" with a
+ * „Vom Basetool trennen" action when a token is stored, else „Nicht mit Basetool verbunden".
  *
- * @param account the account state + disconnect action
+ * @param account the account state and disconnect action
  */
 @Composable
 fun AccountStatusRow(account: AccountController) {
@@ -65,11 +63,10 @@ fun AccountStatusRow(account: AccountController) {
 }
 
 /**
- * The disconnect-confirmation scrim modal (no native dialog, per the design system): explains that
- * disconnecting revokes the stored login so the next send asks for approval again, then confirms or
- * cancels. Hidden unless [AccountController.confirming] is set.
+ * The disconnect-confirmation scrim modal, explaining that disconnecting revokes the stored login;
+ * hidden unless [AccountController.confirming] is set.
  *
- * @param account the account state + disconnect action
+ * @param account the account state and disconnect action
  * @param scope the UI coroutine scope the disconnect runs on
  */
 @Composable

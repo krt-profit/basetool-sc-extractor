@@ -14,8 +14,8 @@ import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
 /**
- * The §5.2 grid tile decode (SIB-PERF-01): native size from the image header, the crop tag from
- * exactly that size, and a subsampled thumbnail of the same size the full decode used to produce.
+ * Pins the grid tile decode: native size from the image header, the crop tag from that size, and a
+ * subsampled thumbnail.
  */
 class RefineryImageLoadTest {
 

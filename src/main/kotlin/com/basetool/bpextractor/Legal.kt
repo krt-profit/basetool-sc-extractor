@@ -1,18 +1,12 @@
 package com.basetool.bpextractor
 
 /**
- * Star Citizen Fankit attribution shown wherever the tool surfaces its Star Citizen
- * affiliation (GUI footer, docs). Required by the Star Citizen Fankit Guidelines
- * when using fankit assets such as the "Made by the Community" logo:
- *  - the trademark notice must be visible, legible, and ≥10pt (Guidelines 2b);
- *  - it must accompany the "Made by the Community" logo (Guidelines 2/6).
+ * Star Citizen Fankit attribution, shown wherever the tool surfaces its Star Citizen affiliation.
+ * The trademark notice must be legible at 10pt or more and accompany the "Made by the Community"
+ * logo.
  */
 object Legal {
-    /**
-     * The required trademark notice — VERBATIM from the Fankit Guidelines (page 2b).
-     * Do not alter the wording (note: Squadron 42 is intentionally not listed; it is
-     * not part of the required notice). `®` = the ® registered-trademark sign.
-     */
+    /** The trademark notice required by the Fankit Guidelines, verbatim; its wording must not change. */
     const val TRADEMARK_NOTICE: String =
         "Star Citizen®, Roberts Space Industries® and Cloud Imperium® " +
         "are registered trademarks of Cloud Imperium Rights LLC"

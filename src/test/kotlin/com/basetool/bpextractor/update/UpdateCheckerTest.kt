@@ -14,8 +14,6 @@ import kotlin.test.assertTrue
 
 class UpdateCheckerTest {
 
-    // --- version comparison ------------------------------------------------------------------
-
     @Test
     fun `newer major, minor and patch are detected`() {
         assertTrue(UpdateChecker.isNewerVersion("3.0.0", "2.3.3"))
@@ -34,7 +32,6 @@ class UpdateCheckerTest {
     fun `leading v and a missing patch part are accepted`() {
         assertTrue(UpdateChecker.isNewerVersion("v2.4.0", "2.3.3"))
         assertTrue(UpdateChecker.isNewerVersion("2.4.0", "v2.3.3"))
-        // "2.4" reads as 2.4.0.
         assertTrue(UpdateChecker.isNewerVersion("2.4", "2.3.3"))
         assertFalse(UpdateChecker.isNewerVersion("2.3", "2.3.0"))
     }
@@ -53,8 +50,6 @@ class UpdateCheckerTest {
         assertFalse(UpdateChecker.isNewerVersion("2.4.0", "dev"))
         assertFalse(UpdateChecker.isNewerVersion("99999999999999999999.0.0", "2.3.3"))
     }
-
-    // --- release JSON parsing ----------------------------------------------------------------
 
     /** Mirrors the real `releases/latest` answer shape, including fields the app ignores. */
     private val releaseJson = """
@@ -103,19 +98,15 @@ class UpdateCheckerTest {
 
     @Test
     fun `an API error answer yields no update`() {
-        // 404 bodies ({"message": "Not Found"}) parse into defaults — the empty tag is not newer.
         val release = UpdateChecker.parseLatestRelease("""{"message": "Not Found"}""")
         assertNull(UpdateChecker.selectUpdate(release, "1.0.0"))
     }
-
-    // --- update selection --------------------------------------------------------------------
 
     @Test
     fun `selectUpdate picks the msi asset and strips the tag prefix`() {
         val info = assertNotNull(UpdateChecker.selectUpdate(UpdateChecker.parseLatestRelease(releaseJson), "2.3.3"))
         assertEquals("9.9.9", info.version)
         assertEquals("v9.9.9", info.tagName)
-        // The .msi.sha256 sibling asset must not be mistaken for the installer.
         assertTrue(info.msiUrl.endsWith("Basetool.SC.Extractor-9.9.9.msi"))
         assertEquals(58827316L, info.msiSizeBytes)
         assertEquals("e3299dd3a45ab325824c1a8fbb6b5eb099cbec977249b57cb1a8a282f24fc3a3", info.msiSha256)
@@ -146,8 +137,6 @@ class UpdateCheckerTest {
 
     @Test
     fun `a release whose msi carries no usable digest is not offered`() {
-        // Fail closed (SIB-SEC-05): without a digest neither the download nor the installer helper
-        // could verify the file, so there is no offer at all rather than an unverified install.
         val release = assertNotNull(UpdateChecker.parseLatestRelease(releaseJson))
         val noDigest = release.assets.map { it.copy(digest = null) }
         assertNull(UpdateChecker.selectUpdate(release.copy(assets = noDigest), "1.0.0"))
@@ -193,8 +182,6 @@ class UpdateCheckerTest {
         assertNull(UpdateChecker.sha256FromDigest("sha256:${"z".repeat(64)}"))
     }
 
-    // --- installer helper --------------------------------------------------------------------
-
     @Test
     fun `installer command runs the hidden powershell helper with plain path arguments`() {
         val script = File("""C:\Users\Tim O'Brien\AppData\Local\Temp\basetool-sc-extractor-update\install-update.ps1""")
@@ -204,19 +191,14 @@ class UpdateCheckerTest {
         val command = UpdateChecker.installerCommand(script, msi, sha, "de", app.absolutePath)
         assertTrue(command.first().endsWith("powershell.exe"))
         assertTrue(command.containsAll(listOf("-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden")))
-        // -File takes the script, then four plain positional arguments — MSI path, expected
-        // SHA-256, UI language, app-launcher path. Paths with spaces/apostrophes need no embedded
-        // quoting anywhere.
         assertEquals(script.absolutePath, command[command.indexOf("-File") + 1])
         assertEquals(msi.absolutePath, command[command.size - 4])
         assertEquals(sha, command[command.size - 3])
         assertEquals("de", command[command.size - 2])
         assertEquals(app.absolutePath, command.last())
         assertTrue(command.none { it.contains('"') })
-        // The language is passed through; anything but "en" falls back to German.
         assertEquals("en", UpdateChecker.installerCommand(script, msi, sha, "en", "").let { it[it.size - 2] })
         assertEquals("de", UpdateChecker.installerCommand(script, msi, sha, "fr", "").let { it[it.size - 2] })
-        // No launcher (dev run) → an empty trailing argument, so the helper skips the relaunch.
         assertEquals("", UpdateChecker.installerCommand(script, msi, sha, "de", "").last())
     }
 
@@ -224,19 +206,14 @@ class UpdateCheckerTest {
     fun `installed app launcher resolves from the jpackage app-image layout`() {
         val root = Files.createTempDirectory("bpx-appimage").toFile()
         try {
-            // Mimic <installDir>\<AppName>.exe next to <installDir>\runtime (== java.home).
             val install = File(root, "Basetool SC Extractor").apply { mkdirs() }
             val runtime = File(install, "runtime").apply { mkdirs() }
             val launcher = File(install, "Basetool SC Extractor.exe").apply { writeText("stub") }
 
-            // Derived from java.home when jpackage.app-path is absent.
             assertEquals(launcher, UpdateChecker.installedAppLauncher(appPath = null, javaHome = runtime.absolutePath))
-            // jpackage.app-path wins when it points at a real file.
             assertEquals(launcher, UpdateChecker.installedAppLauncher(appPath = launcher.absolutePath, javaHome = null))
-            // Renamed launcher is still found as the install dir's lone .exe.
             File(install, "Basetool SC Extractor.exe").renameTo(File(install, "Launcher.exe"))
             assertEquals(File(install, "Launcher.exe"), UpdateChecker.installedAppLauncher(appPath = null, javaHome = runtime.absolutePath))
-            // Dev run: java.home is a plain JDK with no launcher beside it → null (relaunch skipped).
             val jdk = File(root, "jdk-25").apply { mkdirs() }
             assertNull(UpdateChecker.installedAppLauncher(appPath = null, javaHome = jdk.absolutePath))
         } finally {
@@ -248,21 +225,15 @@ class UpdateCheckerTest {
     fun `installer script installs, waits and deletes the update files`() {
         val script = UpdateChecker.INSTALLER_SCRIPT
         assertTrue(script.startsWith("param([string]\$MsiPath"))
-        // Positional params: the UI language for the failure dialog and the app to relaunch.
         assertTrue(script.contains("\$Lang"))
         assertTrue(script.contains("\$AppPath"))
         assertTrue(script.contains("msiexec.exe"))
         assertTrue(script.contains("-Wait"))
-        // On a failed install the helper offers an elevated retry — the fix for the non-system-drive
-        // "could not set file security" (error 1926) loop that a plain per-user install can't clear.
         assertTrue(script.contains("-PassThru"))
         assertTrue(script.contains("-Verb RunAs"))
-        // The MSI itself and the whole update folder (incl. the script) are removed afterwards.
         assertTrue(script.contains("Remove-Item -LiteralPath \$MsiPath"))
         assertTrue(script.contains("Split-Path -Parent \$MsiPath"))
-        // The helper must leave the update folder before deleting it (CWD blocks deletion).
         assertTrue(script.contains("Set-Location"))
-        // Finally it relaunches the updated app so the user need not start it by hand.
         assertTrue(script.contains("Start-Process -FilePath \$AppPath"))
         assertTrue(script.contains("Test-Path -LiteralPath \$AppPath"))
     }
@@ -271,11 +242,8 @@ class UpdateCheckerTest {
     fun `installer script re-hashes the msi before every msiexec run, the elevated retry included`() {
         val script = UpdateChecker.INSTALLER_SCRIPT
         assertTrue(script.contains("[System.Security.Cryptography.SHA256]::Create().ComputeHash("))
-        // No module-provided cmdlet in the check itself: it must work whatever PSModulePath says.
         assertFalse(script.contains("Get-FileHash"))
-        // The digest is the second positional parameter, right after the MSI path.
         assertTrue(script.startsWith("param([string]\$MsiPath, [string]\$Sha256,"))
-        // Both msiexec launches live inside Invoke-MsiInstall, whose first statement is the check.
         val body = script.substringAfter("function Invoke-MsiInstall").substringBefore("\n}")
         val check = body.indexOf("Test-MsiDigest")
         assertTrue(check >= 0)
@@ -283,17 +251,14 @@ class UpdateCheckerTest {
         assertTrue(check < body.indexOf("msiexec.exe"))
         assertEquals(2, Regex("Start-Process -FilePath 'msiexec.exe'").findAll(script).count())
         assertEquals(2, Regex("Start-Process -FilePath 'msiexec.exe'").findAll(body).count())
-        // The elevated retry goes through the same function, so it is re-checked too.
         assertTrue(script.contains("Invoke-MsiInstall -Elevated"))
-        // A digest mismatch skips the retry prompt as well.
         assertTrue(script.contains("\$code -ne \$digestMismatch"))
     }
 
     /**
-     * Runs the helper's own `Test-MsiDigest` and `Invoke-MsiInstall` in Windows PowerShell, lifted
-     * out of [UpdateChecker.INSTALLER_SCRIPT] through the PowerShell parser, with `Start-Process`
-     * shadowed by a stub — so no msiexec and no UAC prompt can ever start, even if the check were
-     * broken. Skipped where there is no Windows PowerShell (the helper only ever runs on Windows).
+     * Runs the helper's `Test-MsiDigest` and `Invoke-MsiInstall`, extracted from
+     * [UpdateChecker.INSTALLER_SCRIPT], in Windows PowerShell with `Start-Process` stubbed, so no msiexec
+     * or UAC prompt can start. Skipped where Windows PowerShell is unavailable.
      */
     @Test
     fun `the helper refuses to launch msiexec for a file whose hash does not match`() {
@@ -313,26 +278,20 @@ class UpdateCheckerTest {
                 ).redirectErrorStream(true).start()
                 val out = process.inputStream.bufferedReader().readText().trim()
                 process.waitFor()
-                // Echoed so a CI failure shows what PowerShell actually said, not just the line.
                 println("installer-helper driver [digest ${sha.take(8)}…]: $out")
                 return out
             }
-            // Matching digest: the (stubbed) msiexec runs, plainly and elevated.
             assertEquals("plain=0 started=1 elevated=0 started=2", run(good))
             assertEquals("plain=0 started=1 elevated=0 started=2", run(good.uppercase()))
-            // Wrong, empty or malformed digest: nothing is launched, either way.
             assertEquals("plain=-1 started=0 elevated=-1 started=0", run("0".repeat(64)))
             assertEquals("plain=-1 started=0 elevated=-1 started=0", run(""))
             assertEquals("plain=-1 started=0 elevated=-1 started=0", run("not-a-digest"))
-            // The file changed after the app's own verification: refused as well.
             msi.appendText("tampered")
             assertEquals("plain=-1 started=0 elevated=-1 started=0", run(good))
         } finally {
             dir.deleteRecursively()
         }
     }
-
-    // --- temp dir handling -------------------------------------------------------------------
 
     @Test
     fun `each update folder is a fresh unpredictable folder under the user temp dir`() {
@@ -345,7 +304,6 @@ class UpdateCheckerTest {
             assertTrue(a.name.startsWith(UpdateChecker.UPDATE_DIR_PREFIX))
             assertNotEquals(a, b)
             assertNotEquals(UpdateChecker.UPDATE_DIR_PREFIX, a.name)
-            // The default root is the user's temp dir — never the install dir.
             val real = UpdateChecker.newUpdateDir()
             try {
                 assertEquals(File(System.getProperty("java.io.tmpdir")).absoluteFile, real.absoluteFile.parentFile)
@@ -371,8 +329,8 @@ class UpdateCheckerTest {
             assertFalse(stale.exists())
             assertFalse(legacy.exists())
             assertTrue(unrelated.exists())
-            UpdateChecker.cleanupLeftovers(root) // nothing left — must not throw
-            UpdateChecker.cleanupLeftovers(File(root, "missing")) // no root — must not throw
+            UpdateChecker.cleanupLeftovers(root)
+            UpdateChecker.cleanupLeftovers(File(root, "missing"))
         } finally {
             root.deleteRecursively()
         }

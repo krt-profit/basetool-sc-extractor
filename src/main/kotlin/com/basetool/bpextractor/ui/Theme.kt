@@ -22,21 +22,18 @@ import androidx.compose.ui.unit.sp
  * is no light theme.
  */
 object Krt {
-    // House colors (Corporate Design Manual p.12)
-    val Orange = Color(0xFFE77E23)       // HAUSFARBE — action + identity only
-    val OrangeHover = Color(0xFFEEB64B)  // ZIERFARBE HELL — orange hover
-    val OrangeDark = Color(0xFFC45C00)   // ZIERFARBE DUNKEL — deep accent
+    val Orange = Color(0xFFE77E23)
+    val OrangeHover = Color(0xFFEEB64B)
+    val OrangeDark = Color(0xFFC45C00)
     val White = Color(0xFFFFFFFF)
-    val Black = Color(0xFF000000)        // page background
+    val Black = Color(0xFF000000)
 
-    // Grayscale (Manual p.13), light → dark
-    val Gray1 = Color(0xFFD2D2D2)        // primary body text on dark
-    val Gray2 = Color(0xFF646464)        // muted text, placeholders, disabled
-    val Gray3 = Color(0xFF282828)        // hairline borders, hover-row fill
-    val Gray4 = Color(0xFF141414)        // darkest; standard surface
-    val SurfaceInput = Color(0xFF1C1C1C) // input / table-head fill (half-step above surface)
+    val Gray1 = Color(0xFFD2D2D2)
+    val Gray2 = Color(0xFF646464)
+    val Gray3 = Color(0xFF282828)
+    val Gray4 = Color(0xFF141414)
+    val SurfaceInput = Color(0xFF1C1C1C)
 
-    // Semantic (reuse Bereichsfarben values by appearance)
     val Danger = Color(0xFFA3000A)
     val DangerHover = Color(0xFFD41A25)
     val Success = Color(0xFF239E33)
@@ -44,9 +41,6 @@ object Krt {
     val Info = Color(0xFF355DDC)
 }
 
-// One face only — Lato (OFL), loaded from the classpath (src/main/resources/fonts)
-// so it works in the packaged app too. The design system is Lato-only: headlines are
-// Lato Bold UPPERCASE with 0.05em tracking (no Audiowide/Ethnocentric display face).
 val Lato = FontFamily(
     Font("fonts/Lato-Light.ttf", FontWeight.Light),
     Font("fonts/Lato-Regular.ttf", FontWeight.Normal),
@@ -81,9 +75,6 @@ private val KrtColorScheme = darkColorScheme(
     scrim = Krt.Black,
 )
 
-// Headings: Lato Bold with 0.05em tracking (always rendered UPPERCASE by callers) —
-// UPPERCASE + tracking + orange carry the headline character, so Bold is mandatory.
-// Body/labels: Lato — Light 300 for prose, Bold 700 for labels/buttons.
 private val KrtTypography = Typography(
     headlineLarge = TextStyle(fontFamily = Lato, fontWeight = FontWeight.Bold, fontSize = 26.sp, letterSpacing = 0.05.em),
     headlineMedium = TextStyle(fontFamily = Lato, fontWeight = FontWeight.Bold, fontSize = 19.sp, letterSpacing = 0.05.em),

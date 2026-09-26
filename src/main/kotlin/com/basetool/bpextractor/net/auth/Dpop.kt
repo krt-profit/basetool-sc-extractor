@@ -24,11 +24,9 @@ import java.util.Base64
 import java.util.UUID
 
 /**
- * The one operation a DPoP key has to offer: an ES256 signature (ECDSA on P-256 over SHA-256, raw
- * 64-byte R‖S as JWS wants it) with a private key this interface never hands out. Two
- * implementations: [JdkDpopSigner], an in-memory JDK key that lives and dies with the process, and
- * `CngDpopKeyStore`'s signer, a **non-exportable** key Windows keeps in its key storage (TPM when
- * available) and signs with in place.
+ * Signs ES256 (ECDSA P-256 over SHA-256, raw 64-byte R‖S) with a private key it never hands out.
+ * Implemented by [JdkDpopSigner] (in-memory, process-bound) and by `CngDpopKeyStore`'s
+ * non-exportable Windows key.
  */
 internal interface DpopSigner {
 
@@ -77,34 +75,17 @@ internal class JdkDpopSigner(private val keyPair: KeyPair) : DpopSigner {
 }
 
 /**
- * A DPoP proof-of-possession key (RFC 9449) — EC **P-256 / ES256**, the one curve the basetool
- * ingest gateway is tested against (`REQ-INGEST-012`, `DpopResourceServerTest` in the basetool repo).
+ * A DPoP proof-of-possession key (RFC 9449) on EC P-256 / ES256 (REQ-INGEST-012). A key that outlives
+ * the process is a non-exportable CNG key persisted only by [keyName]. Never log an instance.
  *
- * <p>The point of binding is **token theft**, not impersonation: the "remember me" refresh token
- * lives on disk in Windows Credential Manager ([WinCredentialStore]), and sender-constraining makes
- * a copied token worthless to anyone who cannot also sign with this key. That only holds while the
- * private key cannot be copied along with the token — so a key that has to outlive the process is
- * a **non-exportable CNG key** (`CngDpopKeyStore`: the TPM when the machine has one, else the
- * software key storage provider with export disabled), and the credential record carries nothing
- * but its [keyName]. Earlier builds stored the exported key *inside* the same record, which made a
- * copied record exactly as good as the original; [fromLegacyExport] exists only to revoke such a
- * record once before it is destroyed.
- *
- * <p>Proof construction is pure JDK code: no JOSE library is pulled in, so the slim jpackage
- * runtime is unchanged ({@code SunEC} lives in {@code java.base} on JDK 25).
- *
- * <p>**Never log an instance.** The class deliberately keeps the JDK's identity {@code toString}.
- *
- * @param keyName the persisted key's name in its key storage provider, or `null` for a key that
- *   exists in this process only ([generate])
+ * @param keyName the persisted key's name in its key storage provider, or `null` for a process-only
+ *   key ([generate])
  */
 class DpopKey internal constructor(private val signer: DpopSigner, val keyName: String? = null) {
 
     /**
-     * The public key as the RFC 7638 *canonical* JWK: exactly the required members, lexicographically
-     * ordered ({@code crv}, {@code kty}, {@code x}, {@code y}), no extras. Serving as both the proof
-     * header's {@code jwk} and the thumbprint input keeps the two provably consistent — the server
-     * recomputes {@code cnf.jkt} from what we send here.
+     * The public key as the RFC 7638 canonical JWK (`crv`, `kty`, `x`, `y` in that order, no extras),
+     * used both as the proof header's `jwk` and as the thumbprint input.
      */
     val publicJwk: JsonObject = jwkOf(signer.publicKey)
 
@@ -117,14 +98,12 @@ class DpopKey internal constructor(private val signer: DpopSigner, val keyName: 
     /**
      * Builds and signs one DPoP proof JWT for a single request (RFC 9449 §4.2).
      *
-     * @param htm the HTTP method the proof is bound to, upper-case (e.g. `POST`)
-     * @param htu the absolute request URI **without query and fragment** — build it with [htu]
-     * @param accessToken the token the proof accompanies; adds the `ath` hash (required at a
-     *   resource server, absent at the token endpoint where no token is presented yet)
-     * @param issuedAt the `iat` instant — pass [ServerClock.now] so a drifting local clock does not
-     *   put it outside the server's window
-     * @param jti the proof's unique id — **fresh per proof**, defaulted to a random UUID; a reused
-     *   one is exactly what a replay looks like to a server that caches them
+     * @param htm the upper-case HTTP method, e.g. `POST`
+     * @param htu the absolute request URI without query and fragment, built with [htu]
+     * @param accessToken the token the proof accompanies, adding the `ath` hash; absent at the token
+     *   endpoint
+     * @param issuedAt the `iat` instant, normally [ServerClock.now]
+     * @param jti the proof's unique id, fresh per proof
      * @return the serialized `header.payload.signature` proof
      */
     fun proof(
@@ -146,7 +125,6 @@ class DpopKey internal constructor(private val signer: DpopSigner, val keyName: 
                 put("htm", htm)
                 put("htu", htu)
                 put("iat", issuedAt.epochSecond)
-                // RFC 9449 §4.2: base64url of the SHA-256 over the ASCII access-token value.
                 if (accessToken != null) put("ath", base64Url(sha256(accessToken.toByteArray(Charsets.US_ASCII))))
             }
         val signingInput = "${base64Url(canonicalJson(header))}.${base64Url(canonicalJson(claims))}"
@@ -166,14 +144,11 @@ class DpopKey internal constructor(private val signer: DpopSigner, val keyName: 
         fun generate(): DpopKey = DpopKey(JdkDpopSigner.generate())
 
         /**
-         * Reads the exported key pair an **earlier build** stored inside the credential record (the
-         * PKCS#8 private and X.509 public encodings, base64, joined by `.`). Used for one thing only:
-         * revoking that record's refresh token before the record is destroyed during the migration
-         * to non-exportable keys, so a copy taken earlier dies with it. Nothing writes this format
-         * any more. **Fail-safe**: anything unreadable yields `null`.
+         * Reads a legacy record's exported key pair (base64 PKCS#8 private and X.509 public encodings joined
+         * by `.`), used only to revoke that record's refresh token. Fail-safe.
          *
          * @param encoded the `dpopKey` value of a legacy record
-         * @return an in-memory key, or `null` when it cannot be read back
+         * @return an in-memory key, or `null` when it cannot be read
          */
         internal fun fromLegacyExport(encoded: String): DpopKey? =
             try {
@@ -190,10 +165,8 @@ class DpopKey internal constructor(private val signer: DpopSigner, val keyName: 
             }
 
         /**
-         * The `htu` value for a request URI: RFC 9449 §4.2 wants the target URI **without query and
-         * fragment**. Also drops a redundant default port and lower-cases scheme + host (RFC 3986 §6
-         * normalisation), because the server compares against the URI *it* reconstructs — an
-         * explicit `:443` we sent but it did not would fail the proof for no good reason.
+         * The `htu` value for a request URI: without query and fragment, with a default port dropped and
+         * scheme and host lower-cased (RFC 9449 §4.2, RFC 3986 §6).
          *
          * @param uri the absolute request URI
          * @return the normalized absolute URI to put in the proof
@@ -245,27 +218,17 @@ class DpopKey internal constructor(private val signer: DpopSigner, val keyName: 
 }
 
 /**
- * The clock one server's proofs are stamped from, corrected towards **that server's** time.
- *
- * <p>**Why this has to exist.** A proof's `iat` is written by the client but judged by the server,
- * inside a narrow window: Keycloak accepts −25s…+15s, the ingest gateway ±60s. A desktop clock that
- * runs ~15 seconds fast — invisible in the taskbar, and entirely harmless to the plain-bearer builds
- * that send no timestamp at all — therefore breaks *every* proof, and with it the whole login, since
- * Keycloak validates the proof before it even looks at the grant. Rather than leave that to the user
- * to diagnose, the offset is measured from the HTTP `Date` every response carries (RFC 9110 §6.6.1)
- * and added to `iat`.
- *
- * <p>This can only ever aim *at* the server's window, never widen it — the server judges by its own
- * clock regardless — so a wrong or even forged `Date` costs nothing but a rejected proof. Each server
- * gets its own instance for the same reason each gets its own [DpopNonce]: their clocks are unrelated.
+ * The clock one server's proofs are stamped from, corrected by the offset measured from that
+ * server's HTTP `Date` headers so a proof's `iat` lands inside its acceptance window. One instance
+ * per server.
  */
 class ServerClock {
 
     @Volatile private var offset: Long = 0
 
     /**
-     * How far the server's clock is ahead of this machine's, in seconds (negative ⇒ this machine
-     * runs fast). Zero until a `Date` has been seen — and, on a healthy machine, ever after.
+     * How far the server's clock is ahead of this machine's, in seconds (negative when this machine runs
+     * fast); zero until a `Date` has been seen.
      */
     fun offsetSeconds(): Long = offset
 
@@ -273,13 +236,11 @@ class ServerClock {
     fun now(): Instant = Instant.now().plusSeconds(offset)
 
     /**
-     * Learns the offset from one response. Ignores an absent or unparseable header, so a server that
-     * omits `Date` simply leaves the local clock in charge.
+     * Learns the offset from one response; an absent or unparseable header is ignored.
      *
      * @param dateHeader the response's `Date` value
-     * @param sentAt local time immediately before the request went out; with local time *now* it
-     *   brackets the moment the server stamped the header, and the midpoint removes half the
-     *   round-trip bias (immaterial against a 15-second window, but free)
+     * @param sentAt local time immediately before the request went out, used with the current time to
+     *   take the round-trip midpoint
      */
     fun observe(dateHeader: String?, sentAt: Instant) {
         val server = parseHttpDate(dateHeader) ?: return
@@ -315,19 +276,8 @@ class ServerClock {
 }
 
 /**
- * RFC 9449 §8's **nonce challenge — deliberately not implemented.**
- *
- * <p>A server may refuse a proof and hand out a `DPoP-Nonce` it wants echoed back in a new one.
- * Neither server in this system does: Spring Security 7.1, which the ingest gateway runs, has no
- * resource-server nonce support at all, and the string `use_dpop_nonce` appears nowhere in Keycloak.
- * Carrying an untested handshake for a case that cannot currently arise buys no security and no
- * confidence — it only guarantees that the first real challenge would be answered by code nobody has
- * ever seen run.
- *
- * <p>So the challenge is **detected and reported by name** instead. If one ever arrives, the send
- * fails immediately with [CODE], the UI says plainly that the server wants a handshake this build
- * does not speak, and fixing it is a release — a loud, once-only event rather than a silent
- * dependency on untested code. Detection is the whole of the implementation.
+ * Detects RFC 9449 §8's nonce challenge without implementing it: a challenge fails the send with
+ * [CODE] so the UI can report that the server requires an unsupported handshake.
  */
 object DpopNonce {
 
@@ -341,12 +291,8 @@ object DpopNonce {
     const val CODE = "DPOP_NONCE_REQUIRED"
 
     /**
-     * Reports a challenge on the one channel this app has. There is no logging framework here and
-     * none may be added lightly — the tool must stay stateless on disk, so a log file next to the
-     * exe is out — and the packaged app has no console, so this reaches a developer running from a
-     * terminal and nobody else. **The user-facing half is the UI message keyed on [CODE]**; this is
-     * only so the cause is not invisible while diagnosing. The nonce itself is server-issued and not
-     * a secret, but it is not echoed here either — the endpoint is all anyone needs.
+     * Reports a nonce challenge on standard error for a developer running from a terminal; the user sees
+     * the UI message keyed on [CODE]. The nonce itself is not printed.
      *
      * @param endpoint the URL that issued the challenge
      */
