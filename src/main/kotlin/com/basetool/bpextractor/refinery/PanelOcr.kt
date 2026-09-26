@@ -43,12 +43,14 @@ class PanelOcr private constructor(
 
     /**
      * Everything one panel yields in a single detect-and-recognize pass: the per-row [RowReading]s, the
-     * QTY-column values including lone cells [readRows] drops, and every numeric value on the panel.
+     * QTY-column values including lone cells [readRows] drops, every numeric value on the panel, and the
+     * recognized cells with their boxes.
      */
     data class PanelNumbers(
         val rows: List<RowReading>,
         val qtyColumn: List<Long>,
         val allNumbers: Set<Long>,
+        val cells: List<NumCell> = emptyList(),
     )
 
     /** Detect + recognize every numeric cell in the panel (unordered). */
@@ -63,7 +65,7 @@ class PanelOcr private constructor(
         val cells = numericCells(panel)
         val allNumbers = cells.mapNotNull { it.digits.toLongOrNull() }.toSet()
         val rows = clusterRows(cells)
-        val cols = dataColumns(rows) ?: return PanelNumbers(emptyList(), emptyList(), allNumbers)
+        val cols = dataColumns(rows) ?: return PanelNumbers(emptyList(), emptyList(), allNumbers, cells)
         val readings = mutableListOf<RowReading>()
         for (row in rows) {
             val assign = arrayOfNulls<Long>(3)
@@ -81,8 +83,11 @@ class PanelOcr private constructor(
             cell.digits.toLongOrNull() != null &&
                 (0..2).minByOrNull { abs(cell.cx - cols[it]) } == 1 && abs(cell.cx - cols[1]) < COL_TOLERANCE
         }.map { it.value }
-        return PanelNumbers(readings, qtyColumn, allNumbers)
+        return PanelNumbers(readings, qtyColumn, allNumbers, cells)
     }
+
+    /** The pixels of one recognized [cell] in [panel], clamped to the panel. */
+    fun cellImage(panel: BufferedImage, cell: NumCell): BufferedImage = crop(panel, cell.box)
 
     /**
      * Read the panel into rows of numeric cells (top→bottom rows, left→right cells) — the raw grid

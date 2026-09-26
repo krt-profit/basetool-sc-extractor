@@ -115,6 +115,19 @@ disagreement into a review flag. The criterion is cells rescued or flagged on th
 against the pixels, never a model card (issue #55; the round that moved to PP-OCRv6 small is in
 `docs/refinery-extractor/PHASE0_FINDINGS.md`).
 
+A change to **`GlyphTopology`** (the hole-counting 0/6/8/9 reader behind the repair veto,
+`GLYPH_VETOED`) is measured with `GlyphTopologyEval`: every OCR cell whose number is a golden value
+supplies the true digits, and the run prints the arbitrations right / wrong / abstained plus a
+confusion table. **Wrong must stay 0** — the reader may only ever hold a repair back, so it is tuned
+to abstain, never to guess (2026-09-26: 1219 right, 0 wrong, 1083 abstained). Counts only; the
+optional feature dump goes outside the repo.
+
+```powershell
+$env:GLYPH_EVAL_DIR      = "<the sample corpus>"
+$env:GLYPH_EVAL_EXPECTED = "<corpus>\golden-expected.json"
+.\gradlew.bat test --tests '*GlyphTopologyEval*' --rerun-tasks -i
+```
+
 Add `PROMPT_SMOKE_VERIFY_MODEL=qwen3-vl:4b-instruct` for the config the expected file was generated
 with. **Never** regenerate the whole file with `PROMPT_SMOKE_WRITE_EXPECTED=1` to make a diff go
 away — merge the orders you meant to add and leave the rest, and settle any disputed cell against
@@ -177,23 +190,32 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   literal prefixes of their regexes. Returns `FileResult(player, blueprints)`; an
   optional `onBytesRead` callback feeds within-file progress. No I/O orchestration, no
   disk writes — keep it that way (it's the easiest part to unit-test).
-- **`BlueprintExtractor.kt`** — orchestration: `findLogFiles(channelFolder)` (when the
-  folder is LIVE it also appends a sibling `HOTFIX` channel's logs via
-  `siblingHotfixFolder`; a folder with neither `Game.log` nor `logbackups/` but loose
+- **`BlueprintExtractor.kt`** — orchestration: `findLogFiles(channelFolder)` (a LIVE folder
+  also appends its sibling `HOTFIX` channel's logs and a HOTFIX folder its sibling `LIVE`, via
+  `siblingChannelFolder`; a folder with neither `Game.log` nor `logbackups/` but loose
   `*.log` files in it is read as an **archive**, non-recursively, via `looseLogsIn`)
-  → parse each → aggregate per-player counts → sort
+  → parse each → aggregate per-player counts → resolve untranslated `@key` names through the
+  installed `global.ini` files (`localizationKey` keeps the key) → sort
   chronologically → assemble `BlueprintExport`. `extract` returns `ExtractionResult`
   (export + `skippedFiles`): an unreadable log is skipped and reported, never fatal,
   and events whose identity (player/name/timestamp/notification id) was already seen
   in another file are counted once (guards against manually copied logs).
   `writeJson`/`toJson` serialize the export to disk/string. No line-level parsing here.
+- **`ScInstallLocator.kt`** — pre-fills the channel folder: the remembered folder, else its
+  LIVE/HOTFIX sibling (the launcher renames LIVE to HOTFIX to patch), else the folder the RSI
+  Launcher last started LIVE/HOTFIX from (`%APPDATA%\rsilauncher\logs\log.log` — only the
+  `Launching Star Citizen … from (…)` line is read, the file also carries account activity), else
+  a running `…\Bin64\StarCitizen.exe`, else the default install roots on every drive. Also
+  `suggestChannel` for the "did you mean …\LIVE?" hint. Read-only, best-effort, logs nothing.
 - **`ScLocalization.kt`** — reads the game's own localisation so the blueprint label is never
   guessed: `g_language` from `<channel>\user.cfg` and the
   `crafting_hud_notification_received_blueprint` value from every
   `<channel>\data\Localization\*\global.ini`. Streams the ~11 MB files behind a literal guard and
   stops at the key; handles the UTF-8 BOM and both `key=` and `key,FLAG=` shapes. Read-only and
   best-effort — a missing folder, unreadable file or absent key yields an empty result, never an
-  exception. The pure line parsers are separate and unit-tested without a disk.
+  exception. The pure line parsers are separate and unit-tested without a disk. `Detected` also
+  names the installed languages whose `global.ini` lacks the key (the zero-result hint), and
+  `resolveKeys` looks up raw item keys for the `@key` resolution.
 - **`model/Models.kt`** — `@Serializable` data classes (`BlueprintEvent`,
   `PlayerSummary`, `BlueprintExport`). The exported JSON *is* this shape.
 - **`update/UpdateChecker.kt`** — the GUI's startup update check against this repo's
@@ -302,7 +324,11 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   decoded at full size just to become a 240 px tile; only the extraction run does that;
   `ImageIntake.kt` is the pure intake logic for clipboard pastes — the window-level
   Strg+V handler lives in `Main.kt` — and external drag & drop: images persist into
-  the picked folder or, without one, into the session temp dir from guardrail 2),
+  the picked folder or, without one, into the session temp dir from guardrail 2; the
+  images step's opt-in "watch the clipboard" (`RefineryUiState.watchClipboard`, session-only,
+  never persisted) polls once per second and takes each *new* clipboard image — told apart by
+  `ImageIntake.fingerprint` — through the same path, so a PrtScn in the game needs no window
+  switch; it deliberately uses no global keyboard hook),
   `FilePicker.kt` (the KRT in-app file/folder picker — never native dialogs),
   `i18n/Strings.kt` (the DE/EN string catalogues + `LocalStrings`).
 
@@ -365,8 +391,9 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   (`Sth/2/C Cirrus`), hyphens, and trailing spaces (trimmed). The name terminates at
   `: " [<digits>]`. Any regex change must keep the existing edge-case tests green.
 - `MissionId` on a blueprint line is always all-zero ⇒ useless. The **player** comes from
-  login lines (`User Login Success - Handle[…]`, the char-status line, or `nickname="…"`),
-  first match wins. The **build number** comes from the file name `Game Build(<n>)`, and —
+  the char-status line or `User Login Success - Handle[…]`, first match wins; `nickname="…"`
+  is only the fallback for a file that has neither, because connection lines can name other
+  players (none of the 424 corpus files needs it). The **build number** comes from the file name `Game Build(<n>)`, and —
   for the live `Game.log`, whose name carries none — from the `BackupNameAttachment="…
   Build(<n>) …"` header on line 1 (present in all 424 corpus files, always agreeing with the
   file name). File name wins; the header is read once, on the first line only.
@@ -396,23 +423,35 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   string that cannot vary.
 - **German item names differ from English ones**, so a German player's `productName` will not
   always match the basetool catalogue: of our 177 corpus names, 127 resolve in the English
-  `global.ini` and 13 of those are written differently in German — all of them the
+  `global.ini` (most likely a pack's loose file, see the class-tag note below) and 13 of those are written differently in German — all of them the
   `(30 cap)` → `(30 Schuss)` suffix. Not fixable here (`productName` must stay byte-verbatim,
   it *is* the matching key); tracked on the basetool side.
 - Do NOT anchor on the bare skeleton without the label whitelist: `Added notification "` alone
   matches ~19,000 non-blueprint notifications in the corpus (~105 false positives per real
   blueprint). The ~6× overcounting guard is owned by `Added notification`, the false-positive
   guard by the whitelist — both are needed.
-- Class/Size/Grade rides along **inside the name as a prefix** (`Sth/2/C Cirrus`; 23 of 177
-  distinct names, classes Ind/Mil/Sth). The parenthesised *suffix* form (`… (Civ/3/A)`) that
-  other tools strip does not occur once in 1.82 GB of English logs — don't port a suffix regex.
-  `productName` stays byte-verbatim either way: it is the basetool's matching key.
+- **Class tags in a name come from localisation packs, never from the game.** The vanilla English
+  `global.ini` inside `Data.p4k` has no class tag on any of its 9,615 `item_Name…` values
+  (`item_Name_POWR_TYDT_S02_Cirrus=Cirrus`, checked 2026-09-26). The `Sth/2/C Cirrus` prefix in
+  the corpus (23 of 177 distinct names) is StarStrings'; other packs write `[STH-S2-C] Cirrus` or
+  suffixes like `Cirrus (S2 C Stealth)` / `(Mil/3/A)`. So the same blueprint's name varies with
+  the member's pack. Don't strip any of them here — `productName` stays byte-verbatim; it is the
+  evidence, and normalisation belongs to the basetool's matcher (`BlueprintPackTags`,
+  REQ-INV-050 there, a closed list of exactly these shapes).
+- **The one exception to "verbatim": an untranslated `@key`.** When a pack lacks an item's
+  translation the game writes the raw key (`@Item_Name_…`) into the notification. That is no
+  name at all, so the extractor looks the key up in every installed `global.ini` (active language
+  first) and exports the value as `productName`, keeping the key in `localizationKey`; an
+  unresolvable key stays `@key`. None occurs in our corpus; VerseKit saw it on a lagging German pack.
 - The account-wide blueprint library is **not** in the log — the game fetches it from a backend
   service and only a channel-reuse line reaches the file. The export therefore means "received
   while a log existed", never "owned". Negative result, already searched; don't redo it.
 - PTU/EPTU/TECH-PREVIEW were measured (5 / 0 / 1 blueprint events against HOTFIX's 43): the
-  `LIVE` + sibling `HOTFIX` sweep stays as is. Pointing the picker at a test channel already
-  works, so those stay opt-in.
+  `LIVE` ↔ `HOTFIX` sweep stays limited to those two, in either direction. Pointing the picker
+  at a test channel already works, so those stay opt-in.
+- No two notifications of one blueprint share a timestamp under different ids in the corpus
+  (checked 2026-09-26 because VerseKit found that for contract notifications), so the
+  notification id stays in the dedup identity.
 - Characterization check: the real (private) `game-log/` dump yields exactly **179
   blueprints** for player **`greluc`**. If a parser change moves that number, understand
   why before accepting it. Note the dump is a *flat* archive folder (no `Game.log`, no
@@ -540,6 +579,17 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   refinement terminal without notice, and a broken anchor does not fail — it exports a work order
   read out of the sidebar (see the knowledge base: *The refinery got a new skin and every panel was
   cropped to the sidebar*).
+- **the refinery prompt** (`setup_panel_prompt_v1.txt`) → the full `PromptSmokeTest` sweep; any
+  diff against the golden file is a regression. Even an added *paragraph* moves English reads: a
+  German-label paragraph in the shared prompt flipped Auftrag 15's `[RAW]` to `(RAW)`, cleared two
+  false `REFINE_CORRECTED`s and turned Auftrag 18's `SUM_MISMATCH` into `TO_REFINE_CONTESTED`
+  (2026-09-26). That is why the German labels live in `setup_panel_prompt_de_labels.txt` and are
+  spliced in (`PanelReader.PROMPT_GERMAN_CLIENT`) **only** when the install's `user.cfg` says German
+  (`RefineryUiState.detectGermanClient`) — English clients keep the frozen prompt byte for byte. The
+  labels are copied from the German pack's `refinery_ui_*` keys (`workordercard_inmanifest`,
+  `…_torefine`, `jobcard_table_*`, `workordercost`, `processingtime`, `button_confirm`, `getquote`);
+  method and material names are not translated there. `Validation.ctaMeansQuoted` knows BESTÄTIGEN
+  / ANGEBOT EINHOLEN. No real German capture is in the corpus yet — add one when a member sends it.
 - **bundled modules or the runtime** → `suggestRuntimeModules`, rebuild, GUI-launch test.
 - **`onnxruntime`** → diff `OcrDigestTest` across the bump (above), then `suggestRuntimeModules` + a
   GUI-launch test from the app image — the native libs come out of the jar at runtime, so a

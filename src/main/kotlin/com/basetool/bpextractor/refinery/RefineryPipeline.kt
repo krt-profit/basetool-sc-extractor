@@ -83,6 +83,8 @@ class RefineryPipeline(
      * injectable as `{ null }` so unit tests stay fast and offline (no ONNX). Null ⇒ no OCR pass.
      */
     private val ocr: () -> PanelOcr? = { OcrModels.get() },
+    /** Whether the captures come from a German-language client ([PanelReader.PROMPT_GERMAN_CLIENT]). */
+    private val germanClient: Boolean = false,
 ) {
 
     /**
@@ -92,7 +94,8 @@ class RefineryPipeline(
      */
     fun extract(inputs: List<PipelineInput>, listener: PipelineListener = object : PipelineListener {}): PipelineResult {
         require(inputs.isNotEmpty()) { "no input images" }
-        val reader = PanelReader(ollama, model, numGpu)
+        val reader = PanelReader(ollama, model, numGpu, germanClient)
+        if (germanClient) listener.onLog("· Read — German client (user.cfg): the prompt also names the German panel labels")
 
         val reads = mutableListOf<ImageRead>()
         val sourceImages = mutableListOf<RefineryExtractImage>()
@@ -201,6 +204,7 @@ class RefineryPipeline(
             ocr = ocrResult?.readings ?: emptyMap(),
             toRefineContested = ocrResult?.toRefineContested ?: false,
             qtyOcrContested = ocrResult?.qtyContested ?: emptySet(),
+            glyphVeto = ocrResult?.glyphVeto ?: OcrCrossCheck.GlyphVeto.NONE,
         )
         listener.onLog("✓ Stitch — ${validated.goods.size} row(s) from ${reads.size} read(s)")
         if (validated.warnings.isNotEmpty()) {
@@ -234,7 +238,7 @@ class RefineryPipeline(
         stitched: StitchResult,
         listener: PipelineListener,
     ): CrossModelVerify.Outcome? {
-        val verifier = PanelReader(ollama, verifyModel!!, numGpu)
+        val verifier = PanelReader(ollama, verifyModel!!, numGpu, germanClient)
         return try {
             val secondReads = mutableListOf<ImageRead>()
             queue.forEachIndexed { i, (name, b64) ->

@@ -43,12 +43,18 @@ object ScLocalization {
      * @param formats the [BLUEPRINT_KEY] value of each of those languages that carries the key,
      *   in the same order — a language pack older than the crafting feature simply contributes
      *   nothing
+     * @param languagesWithoutLabel the installed languages whose `global.ini` lacks [BLUEPRINT_KEY]
      */
     data class Detected(
         val activeLanguage: String?,
         val installedLanguages: List<String>,
         val formats: List<String>,
+        val languagesWithoutLabel: List<String> = emptyList(),
     ) {
+        /** The active language when its installed `global.ini` has no blueprint label, else `null`. */
+        fun activeLanguageWithoutLabel(): String? =
+            activeLanguage?.takeIf { active -> languagesWithoutLabel.any { it.equals(active, ignoreCase = true) } }
+
         companion object {
             val NONE = Detected(activeLanguage = null, installedLanguages = emptyList(), formats = emptyList())
         }
@@ -63,12 +69,69 @@ object ScLocalization {
      */
     fun detect(channelFolder: File): Detected {
         val languages = languageFolders(channelFolder)
+        val formatByLanguage = languages.associate { it.name to blueprintFormatIn(File(it, GLOBAL_INI)) }
         return Detected(
             activeLanguage = activeLanguage(channelFolder),
             installedLanguages = languages.map { it.name },
-            formats = languages.mapNotNull { blueprintFormatIn(File(it, "global.ini")) }.distinct(),
+            formats = formatByLanguage.values.filterNotNull().distinct(),
+            languagesWithoutLabel = formatByLanguage.filterValues { it == null }.keys.toList(),
         )
     }
+
+    /** Each language's localisation table inside its folder. */
+    private const val GLOBAL_INI = "global.ini"
+
+    /** The marker the game puts before a localisation key it could not translate. */
+    const val RAW_KEY_PREFIX = "@"
+
+    /** A whole item name that is an untranslated localisation key, e.g. `@Item_Name_Foo`. */
+    private val RAW_KEY = Regex("""^@([A-Za-z0-9_]+)$""")
+
+    /** The localisation key behind a name the game left untranslated, or `null` for a real name. */
+    fun rawKeyOf(name: String): String? = RAW_KEY.matchEntire(name.trim())?.groupValues?.get(1)
+
+    /**
+     * Looks up raw localisation [keys] (without the leading `@`) in every installed `global.ini` of
+     * [channelFolder], [preferredLanguage] first, and returns the value found for each, keyed as given.
+     * Keys are matched case-insensitively; a key no file carries is absent from the result.
+     */
+    fun resolveKeys(channelFolder: File, keys: Set<String>, preferredLanguage: String? = null): Map<String, String> {
+        if (keys.isEmpty()) return emptyMap()
+        val wanted = keys.associateBy { it.lowercase() }
+        val found = linkedMapOf<String, String>()
+        val languages = languageFolders(channelFolder)
+            .sortedByDescending { preferredLanguage != null && it.name.equals(preferredLanguage, ignoreCase = true) }
+        for (language in languages) {
+            val missing = wanted.filterValues { it !in found }
+            if (missing.isEmpty()) break
+            runCatching {
+                val ini = File(language, GLOBAL_INI)
+                if (!ini.isFile) return@runCatching
+                ini.useLines(Charsets.UTF_8) { lines ->
+                    for (line in lines) {
+                        val (key, value) = parseEntry(line) ?: continue
+                        val original = missing[key.lowercase()] ?: continue
+                        if (value.startsWith(RAW_KEY_PREFIX)) continue
+                        found.putIfAbsent(original, value)
+                    }
+                }
+            }
+        }
+        return found
+    }
+
+    /** The key (flags stripped) and value of one `global.ini` line, or `null` for a line without both. */
+    fun parseEntry(line: String): Pair<String, String>? {
+        val eq = line.indexOf('=')
+        if (eq <= 0) return null
+        val key = line.substring(0, eq).substringBefore(',').trim().removePrefix(BOM)
+        val value = line.substring(eq + 1).trim()
+        if (key.isEmpty() || value.isEmpty()) return null
+        return key to value
+    }
+
+    /** Whether a `g_language` value names a German localisation (`german_(germany)` and its variants). */
+    fun isGerman(language: String?): Boolean = language?.trim()?.startsWith("german", ignoreCase = true) == true
 
     /** The `g_language` value from `<channel>\user.cfg`, or `null` when absent/unreadable. */
     fun activeLanguage(channelFolder: File): String? =

@@ -1,0 +1,2 @@
+
+A German-language client shows the same panel with German labels: "// Rohstoffe" with "// Frachtliste" (= IN MANIFEST) and "// Zum Veredeln" (= TO REFINE); "// Auswahl, Erträge und Kosten der Verarbeitung"; columns AUSGEWÄHLTE MATERIALIEN | Qualität | Menge | Ertrag | Veredeln (Nein/Ja); "Gesamtkosten" (= TOTAL COST); "Verarbeitungszeit" (= PROCESSING TIME); the button BESTÄTIGEN (= CONFIRM) or ANGEBOT EINHOLEN (= GET QUOTE). Fill the same fields from them; method and material names stay English there too.

@@ -148,15 +148,10 @@ private class AppState {
             return File(base, "blueprints.json").absolutePath
         }
 
-        /**
-         * Returns the folder of the last successful run, else the standard LIVE install path when it
-         * exists. A remembered folder that no longer exists is dropped.
-         */
+        /** Returns the folder of the last successful run, else the channel [ScInstallLocator] finds, else empty. */
         fun defaultChannelFolder(): String {
             val remembered = runCatching { AppConfigStore().load().lastChannelFolder }.getOrNull()
-            if (!remembered.isNullOrBlank() && File(remembered).isDirectory) return remembered
-            val standard = File("""C:\Program Files\Roberts Space Industries\StarCitizen\LIVE""")
-            return if (standard.isDirectory) standard.absolutePath else ""
+            return runCatching { ScInstallLocator.locate(remembered)?.absolutePath }.getOrNull().orEmpty()
         }
     }
 }
@@ -193,11 +188,13 @@ private fun channelFolderHint(path: String, strings: Strings): FolderHint {
     val hasBackups = File(dir, "logbackups").isDirectory
     if (!hasGameLog && !hasBackups) {
         val loose = dir.listFiles()?.count { it.isFile && it.extension.equals("log", ignoreCase = true) } ?: 0
-        return if (loose > 0) {
-            FolderHint(Krt.Success, strings.bpHintArchiveFolder(loose), Krt.Gray1)
-        } else {
-            FolderHint(Krt.Orange, strings.bpHintWrongFolder, Krt.Gray1)
+        if (loose > 0) {
+            return FolderHint(Krt.Success, strings.bpHintArchiveFolder(loose), Krt.Gray1)
         }
+        val suggestion = runCatching { ScInstallLocator.suggestChannel(dir) }.getOrNull()
+        val text = suggestion?.let { strings.bpHintWrongFolder + " " + strings.bpHintChannelSuggestion(it.absolutePath) }
+            ?: strings.bpHintWrongFolder
+        return FolderHint(Krt.Orange, text, Krt.Gray1)
     }
     val found = listOfNotNull(
         "Game.log".takeIf { hasGameLog },
@@ -301,15 +298,15 @@ private fun BpConfigStep(state: AppState, appScope: CoroutineScope) {
                             color = channelHint.textColor,
                         )
                     }
-                    val hasHotfixSibling = remember(state.channelFolder) {
-                        BlueprintExtractor.siblingHotfixFolder(File(state.channelFolder.trim())) != null
+                    val sibling = remember(state.channelFolder) {
+                        BlueprintExtractor.siblingChannelFolder(File(state.channelFolder.trim()))
                     }
-                    if (hasHotfixSibling) {
+                    if (sibling != null) {
                         Spacer(Modifier.height(6.dp))
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatusDot(Krt.Orange)
                             Text(
-                                strings.bpHotfixNote,
+                                strings.bpSiblingChannelNote(sibling.name),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Krt.Gray1,
                             )
@@ -556,6 +553,13 @@ private fun BpSummaryStep(state: AppState) {
                             strings.bpSumZeroLanguage(lang),
                             style = MaterialTheme.typography.bodySmall,
                             color = Krt.Gray2,
+                        )
+                    }
+                    state.localization.activeLanguageWithoutLabel()?.let { lang ->
+                        Text(
+                            strings.bpSumZeroLabelMissing(lang),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Krt.Orange,
                         )
                     }
                 }

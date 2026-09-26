@@ -178,7 +178,7 @@ class BlueprintExtractorTest {
             val hotfixBackups = File(hotfix, "logbackups").apply { mkdirs() }
             File(hotfixBackups, "Game Build(9) a.log").writeText("x")
 
-            assertEquals("HOTFIX", BlueprintExtractor.siblingHotfixFolder(live)?.name)
+            assertEquals("HOTFIX", BlueprintExtractor.siblingChannelFolder(live)?.name)
             assertEquals(3, BlueprintExtractor.findLogFiles(live).size)
         } finally {
             root.deleteRecursively()
@@ -192,7 +192,7 @@ class BlueprintExtractorTest {
             val live = File(root, "LIVE").apply { mkdirs() }
             File(live, "Game.log").writeText("x")
 
-            assertNull(BlueprintExtractor.siblingHotfixFolder(live))
+            assertNull(BlueprintExtractor.siblingChannelFolder(live))
             assertEquals(1, BlueprintExtractor.findLogFiles(live).size)
         } finally {
             root.deleteRecursively()
@@ -208,7 +208,7 @@ class BlueprintExtractorTest {
             val hotfix = File(root, "HOTFIX").apply { mkdirs() }
             File(hotfix, "Game.log").writeText("x")
 
-            assertNull(BlueprintExtractor.siblingHotfixFolder(ptu))
+            assertNull(BlueprintExtractor.siblingChannelFolder(ptu))
             assertEquals(1, BlueprintExtractor.findLogFiles(ptu).size)
         } finally {
             root.deleteRecursively()
@@ -223,7 +223,7 @@ class BlueprintExtractorTest {
             File(live, "Game.log").writeText("x")
             File(root, "HOTFIX").mkdirs()
 
-            assertNull(BlueprintExtractor.siblingHotfixFolder(live))
+            assertNull(BlueprintExtractor.siblingChannelFolder(live))
             assertEquals(1, BlueprintExtractor.findLogFiles(live).size)
         } finally {
             root.deleteRecursively()
@@ -277,11 +277,105 @@ class BlueprintExtractorTest {
             val withHotfix = BlueprintExtractor.extract(live).export
             assertEquals(listOf(hotfix.absolutePath), withHotfix.additionalSourceFolders)
 
-            val alone = BlueprintExtractor.extract(hotfix).export
+            val fromHotfix = BlueprintExtractor.extract(hotfix).export
+            assertEquals(listOf(live.absolutePath), fromHotfix.additionalSourceFolders)
+
+            val ptu = File(root, "PTU").apply { mkdirs() }
+            File(ptu, "Game.log").writeText("x")
+            val alone = BlueprintExtractor.extract(ptu).export
             assertNull(alone.additionalSourceFolders)
             assertTrue(BlueprintExtractor.toJson(alone).contains("\"additionalSourceFolders\": null"))
         } finally {
             root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a picked HOTFIX folder also pulls in its sibling LIVE channel`() {
+        val root = Files.createTempDirectory("StarCitizen").toFile()
+        try {
+            val live = File(root, "LIVE").apply { mkdirs() }
+            File(live, "Game.log").writeText(
+                loginLine("tester") + "\n" + blueprintLine("Yubarev Pistol", 19, "2026-03-26T16:49:31.050Z"),
+            )
+            val hotfix = File(root, "HOTFIX").apply { mkdirs() }
+            File(hotfix, "Game.log").writeText(
+                loginLine("tester") + "\n" + blueprintLine("Ghost Rifle", 20, "2026-03-27T16:49:31.050Z"),
+            )
+
+            assertEquals("LIVE", BlueprintExtractor.siblingChannelFolder(hotfix)?.name)
+            val result = BlueprintExtractor.extract(hotfix).export
+            assertEquals(listOf("Yubarev Pistol", "Ghost Rifle"), result.blueprints.map { it.productName })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `the sibling channel is matched case-insensitively and only between LIVE and HOTFIX`() {
+        assertEquals("HOTFIX", BlueprintExtractor.siblingChannelName("live"))
+        assertEquals("LIVE", BlueprintExtractor.siblingChannelName("Hotfix"))
+        assertNull(BlueprintExtractor.siblingChannelName("PTU"))
+        assertNull(BlueprintExtractor.siblingChannelName("EPTU"))
+        assertNull(BlueprintExtractor.siblingChannelName("TECH-PREVIEW"))
+    }
+
+    @Test
+    fun `a label only the sibling channel's language pack knows is still recognised`() {
+        val root = Files.createTempDirectory("StarCitizen").toFile()
+        try {
+            val live = File(root, "LIVE").apply { mkdirs() }
+            File(live, "Game.log").writeText("x")
+            val hotfix = File(root, "HOTFIX").apply { mkdirs() }
+            val lang = File(hotfix, "data/Localization/klingon").apply { mkdirs() }
+            File(lang, "global.ini").writeText("crafting_hud_notification_received_blueprint=wa' Bauplan: %s")
+            File(hotfix, "Game.log").writeText(
+                "<2026-05-02T20:11:04.132Z> [Notice] <SHUDEvent_OnNotification> Added notification " +
+                    "\"wa' Bauplan: Attrition-5 Repeater: \" [136] to queue. New queue size: 1",
+            )
+
+            val result = BlueprintExtractor.extract(live)
+
+            assertEquals(listOf("Attrition-5 Repeater"), result.export.blueprints.map { it.productName })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `an untranslated key name is resolved from the installed pack and keeps its key`() {
+        val channel = tempChannel()
+        try {
+            val lang = File(channel, "data/Localization/german_(germany)").apply { mkdirs() }
+            File(lang, "global.ini").writeText("Nozzle_FuelGiver_Name,P=Tankdüse Secure")
+            File(channel, "Game.log").writeText(
+                loginLine("tester") + "\n" +
+                    blueprintLine("@Nozzle_FuelGiver_Name", 19, "2026-03-26T16:49:31.050Z") + "\n" +
+                    blueprintLine("@Unknown_Item_Name", 20, "2026-03-26T16:50:31.050Z") + "\n" +
+                    blueprintLine("Yubarev Pistol", 21, "2026-03-26T16:51:31.050Z"),
+            )
+
+            val events = BlueprintExtractor.extract(channel).export.blueprints
+
+            assertEquals(listOf("Tankdüse Secure", "@Unknown_Item_Name", "Yubarev Pistol"), events.map { it.productName })
+            assertEquals(listOf("Nozzle_FuelGiver_Name", "Unknown_Item_Name", null), events.map { it.localizationKey })
+            assertEquals("Weapon", events.last().category)
+        } finally {
+            channel.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `a normally named event serialises a null localisation key`() {
+        val channel = tempChannel()
+        try {
+            File(channel, "Game.log").writeText(
+                loginLine("tester") + "\n" + blueprintLine("Yubarev Pistol", 19, "2026-03-26T16:49:31.050Z"),
+            )
+            val json = BlueprintExtractor.toJson(BlueprintExtractor.extract(channel).export)
+            assertTrue(json.contains("\"localizationKey\": null"))
+        } finally {
+            channel.deleteRecursively()
         }
     }
 

@@ -122,6 +122,7 @@ object BlueprintParser {
         var buildHeaderPending = gameBuild == null
         val blueprints = mutableListOf<BlueprintEvent>()
         var player: PlayerIdentity? = null
+        var nicknameFallback: PlayerIdentity? = null
 
         val input = file.inputStream().let { raw ->
             if (onBytesRead == null) raw else CountingInputStream(raw, onBytesRead)
@@ -136,7 +137,10 @@ object BlueprintParser {
                 }
 
                 if (player == null) {
-                    player = extractPlayer(line)
+                    player = extractOwnPlayer(line)
+                    if (player == null && nicknameFallback == null) {
+                        nicknameFallback = extractNickname(line)
+                    }
                 }
 
                 if (BLUEPRINT_MARKER !in line) continue
@@ -157,7 +161,7 @@ object BlueprintParser {
             }
         }
 
-        val resolved = player
+        val resolved = player ?: nicknameFallback
         val finalBlueprints =
             if (resolved != null && blueprints.any { it.player == null }) {
                 blueprints.map { if (it.player == null) it.copy(player = resolved.handle) else it }
@@ -168,7 +172,8 @@ object BlueprintParser {
         return FileResult(resolved, finalBlueprints)
     }
 
-    private fun extractPlayer(line: String): PlayerIdentity? {
+    /** The handle from a character-status or login line, the two lines that name the log's own player. */
+    private fun extractOwnPlayer(line: String): PlayerIdentity? {
         if ("geid " in line) {
             CHAR_STATUS.find(line)?.let {
                 return PlayerIdentity(handle = it.groupValues[3])
@@ -179,12 +184,16 @@ object BlueprintParser {
                 return PlayerIdentity(handle = it.groupValues[1])
             }
         }
-        if ("nickname=\"" in line) {
-            NICKNAME.find(line)?.let {
-                return PlayerIdentity(handle = it.groupValues[1])
-            }
-        }
         return null
+    }
+
+    /**
+     * The handle from a `nickname="…"` line, used only when the file has no character-status or login
+     * line at all, because connection lines can also name other players.
+     */
+    private fun extractNickname(line: String): PlayerIdentity? {
+        if ("nickname=\"" !in line) return null
+        return NICKNAME.find(line)?.let { PlayerIdentity(handle = it.groupValues[1]) }
     }
 
     /** `(30 cap)`-style capacity suffix — the ammo marker that isn't a keyword. */

@@ -87,6 +87,27 @@ object ImageIntake {
         }
     }
 
+    /** How many sample points per axis [fingerprint] reads. */
+    private const val FINGERPRINT_GRID = 48
+
+    /**
+     * A cheap identity of [image]'s content — its size and a grid of sampled pixels — so a watched
+     * clipboard can tell a new capture from the one it already took.
+     */
+    fun fingerprint(image: BufferedImage): Long {
+        var h = 1125899906842597L
+        h = 31 * h + image.width
+        h = 31 * h + image.height
+        for (gy in 0 until FINGERPRINT_GRID) {
+            val y = (gy.toLong() * (image.height - 1) / (FINGERPRINT_GRID - 1).coerceAtLeast(1)).toInt()
+            for (gx in 0 until FINGERPRINT_GRID) {
+                val x = (gx.toLong() * (image.width - 1) / (FINGERPRINT_GRID - 1).coerceAtLeast(1)).toInt()
+                h = 31 * h + image.getRGB(x, y)
+            }
+        }
+        return h
+    }
+
     /** Render any AWT [image] (clipboard images are often not [BufferedImage]) into one. */
     fun toBuffered(image: Image): BufferedImage {
         if (image is BufferedImage) return image

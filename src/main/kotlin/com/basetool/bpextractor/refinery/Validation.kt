@@ -103,6 +103,12 @@ enum class ExtractWarning {
      * repair a qty against a possibly-wrong total) and the order is flagged for review.
      */
     TO_REFINE_CONTESTED,
+
+    /**
+     * A single-digit repair (checksum, yield rate or OCR) was held back because the cell's glyphs clearly
+     * show the unrepaired digit ([GlyphTopology]); the export keeps the read value and review must decide.
+     */
+    GLYPH_VETOED,
 }
 
 /** The validated order: contract-ready goods + order fields + warnings + layout confidence. */
@@ -199,6 +205,19 @@ object Validation {
 
     /** Dampening factor on layout confidence when the header checksum flags. */
     private const val SUM_MISMATCH_DAMPENING = 0.9
+
+    /**
+     * What the bottom button label says about the order: `true` for the quoted order's CONFIRM /
+     * BESTÄTIGEN, `false` for GET QUOTE / ANGEBOT EINHOLEN, `null` for anything else.
+     */
+    fun ctaMeansQuoted(cta: String): Boolean? {
+        val label = cta.uppercase()
+        return when {
+            "CONFIRM" in label || "BESTÄTIG" in label || "BESTATIG" in label -> true
+            "QUOTE" in label || "ANGEBOT" in label -> false
+            else -> null
+        }
+    }
 
     /**
      * The YIELD column's refine signal for a row whose surviving read saw the quoted state: a positive
@@ -427,6 +446,8 @@ object Validation {
         toRefineContested: Boolean = false,
         /** [OcrCrossCheck]: rows whose qty OCR read confusably differently (flagged on the OFF subset). */
         qtyOcrContested: Set<Int> = emptySet(),
+        /** [OcrCrossCheck]: holds back a repair the cell's glyphs contradict. */
+        glyphVeto: OcrCrossCheck.GlyphVeto = OcrCrossCheck.GlyphVeto.NONE,
     ): ValidatedOrder {
         val warnings = mutableSetOf<ExtractWarning>()
         val goods = mutableListOf<RefineryExtractGood>()
@@ -504,7 +525,19 @@ object Validation {
             warnings += ExtractWarning.TO_REFINE_CONTESTED
         }
 
-        val repair = if (anchorContested) emptyMap() else checksumRepair(goods, PanelValues.toQuantity(stitch.toRefine))
+        val vetoed = mutableSetOf<Int>()
+        fun Map<Int, Long>.unlessVetoed(current: (RefineryExtractGood) -> Long?): Map<Int, Long> = filter { (row, fixed) ->
+            val from = goods.firstOrNull { it.rowIndex == row }?.let(current) ?: return@filter true
+            val veto = glyphVeto.contradicts(row, from, fixed)
+            if (veto) vetoed += row
+            !veto
+        }
+
+        val repair = if (anchorContested) {
+            emptyMap()
+        } else {
+            checksumRepair(goods, PanelValues.toQuantity(stitch.toRefine)).unlessVetoed { it.inputQuantity }
+        }
         if (repair.isNotEmpty()) {
             warnings += ExtractWarning.CHECKSUM_REPAIRED
             for (i in goods.indices) {
@@ -514,7 +547,7 @@ object Validation {
             }
         }
 
-        val yieldFix = yieldRepair(goods)
+        val yieldFix = yieldRepair(goods).unlessVetoed { it.outputQuantity }
         if (yieldFix.isNotEmpty()) {
             warnings += ExtractWarning.YIELD_REPAIRED
             for (i in goods.indices) {
@@ -524,7 +557,15 @@ object Validation {
             }
         }
 
-        val ocrYieldFix = ocrYieldRepair(goods, ocr, yieldFix.keys)
+        val ocrYieldFix = ocrYieldRepair(goods, ocr, yieldFix.keys + vetoed).unlessVetoed { it.outputQuantity }
+        if (vetoed.isNotEmpty()) {
+            warnings += ExtractWarning.GLYPH_VETOED
+            for (i in goods.indices) {
+                if (goods[i].rowIndex in vetoed) {
+                    goods[i] = goods[i].copy(confidence = minOf(goods[i].confidence, CONFIDENCE_OCR_CONTESTED))
+                }
+            }
+        }
         if (ocrYieldFix.isNotEmpty()) {
             warnings += ExtractWarning.YIELD_OCR_REPAIRED
             for (i in goods.indices) {
@@ -576,13 +617,7 @@ object Validation {
             warnings += ExtractWarning.VERIFY_MISMATCH
         }
 
-        val ctaQuoted = stitch.cta?.uppercase()?.let { cta ->
-            when {
-                "CONFIRM" in cta -> true
-                "QUOTE" in cta -> false
-                else -> null
-            }
-        }
+        val ctaQuoted = stitch.cta?.let(::ctaMeansQuoted)
         if (ctaQuoted != null && ctaQuoted != stitch.quoted) {
             warnings += ExtractWarning.CTA_MISMATCH
         }

@@ -3,6 +3,7 @@ package com.basetool.bpextractor.refinery
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -78,6 +79,39 @@ class ValidationTest {
         assertEquals(365L, repaired.outputQuantity, "385 -> 365 via the material rate witness")
         assertEquals(Validation.CONFIDENCE_YIELD_REPAIRED, repaired.confidence)
         assertTrue(ExtractWarning.YIELD_REPAIRED in order.warnings)
+    }
+
+    @Test
+    fun `a repair the cell's glyphs contradict is held back and flagged`() {
+        val rows = listOf(
+            StitchedRow("BORASE (ORE)", "359", "751", "385", "ON", "a.png", quotedRead = true),
+            StitchedRow("BORASE (ORE)", "584", "26", "12", "ON", "a.png", quotedRead = true),
+            StitchedRow("BORASE (ORE)", "892", "591", "287", "ON", "a.png", quotedRead = true),
+        )
+        val asked = mutableListOf<Triple<Int, Long, Long>>()
+        val veto = OcrCrossCheck.GlyphVeto { row, from, to -> asked += Triple(row, from, to); true }
+
+        val order = Validation.validate(stitched(rows, toRefine = "1368"), glyphVeto = veto)
+
+        val kept = order.goods.single { it.inputQuantity == 751L }
+        assertEquals(385L, kept.outputQuantity)
+        assertEquals(Validation.CONFIDENCE_OCR_CONTESTED, kept.confidence)
+        assertTrue(ExtractWarning.GLYPH_VETOED in order.warnings)
+        assertFalse(ExtractWarning.YIELD_REPAIRED in order.warnings)
+        assertEquals(listOf(Triple(0, 385L, 365L)), asked)
+    }
+
+    @Test
+    fun `a repair the glyphs do not contradict is applied as before`() {
+        val rows = listOf(
+            StitchedRow("BORASE (ORE)", "359", "751", "385", "ON", "a.png", quotedRead = true),
+            StitchedRow("BORASE (ORE)", "584", "26", "12", "ON", "a.png", quotedRead = true),
+            StitchedRow("BORASE (ORE)", "892", "591", "287", "ON", "a.png", quotedRead = true),
+        )
+        val order = Validation.validate(stitched(rows, toRefine = "1368"), glyphVeto = { _, _, _ -> false })
+
+        assertEquals(365L, order.goods.single { it.inputQuantity == 751L }.outputQuantity)
+        assertFalse(ExtractWarning.GLYPH_VETOED in order.warnings)
     }
 
     @Test
@@ -188,6 +222,19 @@ class ValidationTest {
         val order = Validation.validate(stitched(listOf(cleanRow()), quoted = true, cta = "CONFIRM"))
 
         assertFalse(ExtractWarning.CTA_MISMATCH in order.warnings)
+    }
+
+    @Test
+    fun `the German client's button labels mean the same as the English ones`() {
+        assertEquals(true, Validation.ctaMeansQuoted("BESTÄTIGEN"))
+        assertEquals(true, Validation.ctaMeansQuoted("Bestatigen"))
+        assertEquals(false, Validation.ctaMeansQuoted("ANGEBOT EINHOLEN"))
+        assertEquals(true, Validation.ctaMeansQuoted("CONFIRM"))
+        assertEquals(false, Validation.ctaMeansQuoted("GET QUOTE"))
+        assertNull(Validation.ctaMeansQuoted("CANCEL"))
+
+        val german = Validation.validate(stitched(listOf(cleanRow()), quoted = true, cta = "ANGEBOT EINHOLEN"))
+        assertTrue(ExtractWarning.CTA_MISMATCH in german.warnings)
     }
 
     @Test

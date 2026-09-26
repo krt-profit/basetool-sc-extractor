@@ -27,6 +27,12 @@ data class BlueprintEvent(
     val gameBuild: String? = null,
     /** Name of the log file this event came from. */
     val sourceFile: String,
+    /**
+     * The localisation key the game wrote instead of a name when it had no translation for it, without
+     * the leading `@`; [productName] then carries that key's value from the installed `global.ini`, or
+     * the raw `@key` when none has it. `null` for every normally rendered name.
+     */
+    val localizationKey: String? = null,
 )
 
 /** A player seen across the scanned logs, with how many blueprints they received. */

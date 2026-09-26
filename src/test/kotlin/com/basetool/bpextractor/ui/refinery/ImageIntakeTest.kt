@@ -130,4 +130,15 @@ class ImageIntakeTest {
         assertTrue(ImageIntake.isTempFile(File(a, "clipboard.png")))
         assertFalse(ImageIntake.isTempFile(File("clipboard.png").absoluteFile))
     }
+
+    @Test
+    fun `the clipboard fingerprint tells a new capture from the same one`() {
+        fun capture(shade: Int, w: Int = 320, h: Int = 200) = BufferedImage(w, h, BufferedImage.TYPE_INT_RGB).apply {
+            for (y in 0 until h) for (x in 0 until w) setRGB(x, y, (shade shl 16) or ((x + y) and 0xFF))
+        }
+        assertEquals(ImageIntake.fingerprint(capture(10)), ImageIntake.fingerprint(capture(10)))
+        assertTrue(ImageIntake.fingerprint(capture(10)) != ImageIntake.fingerprint(capture(11)))
+        assertTrue(ImageIntake.fingerprint(capture(10)) != ImageIntake.fingerprint(capture(10, w = 321)))
+        ImageIntake.fingerprint(BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB))
+    }
 }
