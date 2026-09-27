@@ -1,4 +1,2 @@
 <2026-01-02T11:55:00.000Z> [Notice] <Legacy login response> [CIG-net] User Login Success - Handle[PLAYER_A] - Time[0] [Team_GameServices][Login]
 <2026-01-02T12:00:00.000Z> [Notice] <SHUDEvent_OnNotification> Added notification "Received Blueprint: TH-01 Propulsor: " [11] to queue. New queue size: 3, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]
-<2026-01-02T13:00:00.000Z> [Notice] <SHUDEvent_OnNotification> Added notification "Received Blueprint: Vendetta "Snow Camo" HMG: " [70] to queue. New queue size: 6, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]
-<2026-01-02T14:00:00.000Z> [Notice] <SHUDEvent_OnNotification> Added notification "Received Blueprint: H4-PBF Ammo Carrier Snow Camo: " [83] to queue. New queue size: 8, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]

@@ -1,0 +1,2 @@
+<2026-01-02T10:55:00.000Z> [Notice] <Legacy login response> [CIG-net] User Login Success - Handle[PLAYER_A] - Time[0] [Team_GameServices][Login]
+<2026-01-02T11:00:00.000Z> [Notice] <SHUDEvent_OnNotification> Added notification "Received Blueprint: BUL-H4 Armor: " [5] to queue. New queue size: 2, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]
