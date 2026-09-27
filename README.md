@@ -71,7 +71,7 @@ shortcut).
 > every send fails with `token refresh failed: (unrecognized_name)`. After the
 > update you confirm the sign-in in the browser once more.
 
-> **The move to the exchange API needs one more sign-in.** From the release that
+> **The move to the exchange API needs one more sign-in.** From **2.10.0**, which
 > sends through `/exchange/v1`, the extractor asks for new permissions
 > (`exchange.connect`, the two draft capabilities and `offline_access`), which a
 > stored sign-in cannot grow into. The first send after that update therefore opens
@@ -308,7 +308,7 @@ the Basetool exchange API's **v1 envelope** (`basetool.blueprints` 1.0,
 {
   "format": "basetool.blueprints",
   "formatVersion": "1.0",
-  "generator": { "name": "basetool-sc-extractor", "version": "<release>" },
+  "generator": { "name": "basetool-sc-extractor", "version": "2.10.0" },
   "generatedAt": "2026-09-27T12:00:00Z",        // UTC, when the file was written
   "items": [
     {

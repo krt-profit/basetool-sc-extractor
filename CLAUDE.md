@@ -650,7 +650,7 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   `User-Agent` the gateway's minimum-version gate reads) reads that — so the MSI and the
   app's reported version stay in lockstep. The dev fallback in `build.gradle.kts` stays
   `1.0.0`. The registry's `minClientVersion` for `basetool-sc-extractor` is raised to the
-  migration release at the go-live; after that a dev build (`1.0.0`) is refused by prod,
+  migration release, 2.10.0, at the go-live; after that a dev build (`1.0.0`) is refused by prod,
   which is correct — develop against the sandbox.
 
 ## Releases (CI)
