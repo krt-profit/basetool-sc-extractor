@@ -173,6 +173,27 @@ PC — the summary lists them all and preselects the one with the most log files
 click another to switch. Only the selected account's blueprints are shown, saved
 and sent; the others never leave your PC.
 
+**Sync blueprints (opt-in).** Next to *Send to Basetool* — which stages a preview you
+review in the browser — the summary offers **Sync blueprints**: it writes the
+selected account's blueprints straight into „Meine Blueprints". The first time it
+explains what it does and asks you to switch it on; you then sign in once more,
+because the sync needs two more permissions (`exchange.blueprints.read` /
+`.write`). The sync:
+
+- **reads your blueprints first**, then adds only products you do not own yet — it
+  **never removes** anything (the log proves a blueprint was received, not that it
+  is gone);
+- matches names with the Basetool's own import matching; names it cannot place
+  (unknown, or fitting several products) are listed for the web import instead;
+- does **not** add back what you removed in the Basetool or in another program —
+  those are listed, and *Add anyway* adds them only when you press it;
+- before the first sync of an account in a session, asks the Basetool whether that
+  game account belongs to you (`account-check`). The handle goes to that check only
+  and is never stored. On a mismatch it stops and asks; without an RSI handle in
+  your Basetool profile it syncs and says it could not check.
+
+Every sync can be undone in the Basetool under „Verbundene Anwendungen".
+
 ### Using it — Refinery (screenshot extraction)
 
 The refinery workflow reads the **SETUP view** of a refinery work order
@@ -487,9 +508,11 @@ basetool-sc-extractor/
 │   ├── BlueprintExtractor.kt         # folder scan, aggregation, JSON
 │   ├── Legal.kt                      # mandatory Fankit texts (trademark notice, verbatim)
 │   ├── ScLocalization.kt             # reads the game's own global.ini (blueprint label)
-│   ├── config/AppConfig.kt           # %APPDATA% config.json (ingest URL, consent, installation label, last folder)
+│   ├── config/AppConfig.kt           # %APPDATA% config.json (ingest URL, consent, installation label, sync opt-in, last folder)
 │   ├── model/BlueprintEnvelope.kt    # the exchange v1 envelope the blueprint file and draft are
 │   ├── net/ExchangeClient.kt         # /exchange/v1: drafts, installation label; DPoP + nonce, User-Agent, Idempotency-Key
+│   ├── net/ExchangeBlueprints.kt     # account check, blueprint pages, catalog/resolve, blueprint changes
+│   ├── net/BlueprintSync.kt          # the opt-in direct sync: pull, resolve, add only what is missing
 │   ├── net/auth/                     # device grant (RFC 8628), exchange login, DPoP (RFC 9449) with a non-exportable CNG key, DPAPI vault
 │   ├── update/UpdateChecker.kt       # GitHub release check, verified download, installer handoff
 │   ├── refinery/                     # refinery pipeline (pure, no UI)
@@ -516,6 +539,7 @@ basetool-sc-extractor/
 │   ├── ui/UpdateBanner.kt            # the start screen's update offer
 │   ├── ui/AccountController.kt / AccountStatusBar.kt  # sign-in state, "disconnect"
 │   ├── ui/SendController.kt / SendOverlay.kt          # the "Send to Basetool" flow
+│   ├── ui/SyncController.kt / SyncOverlay.kt          # the opt-in "Sync blueprints" flow, account check first
 │   ├── ui/i18n/Strings.kt            # DE/EN string catalogue
 │   ├── ui/WindowChrome.kt            # undecorated title bar + window buttons
 │   └── model/Models.kt               # blueprint JSON data models

@@ -62,6 +62,31 @@ class SendStrings(
     val errorClockSkew: (Long, String) -> String,
 )
 
+/** Strings for the opt-in direct blueprint sync, grouped under `strings.sync`. */
+class SyncStrings(
+    val button: String,
+    val consentTitle: String,
+    val consentBody: String,
+    val consentConfirm: String,
+    val workingTitle: String,
+    val checkingAccount: String,
+    val syncing: String,
+    val mismatchTitle: String,
+    /** The account check found that the log's account is not the member's; takes the handle. */
+    val mismatchBody: (String) -> String,
+    val mismatchContinue: String,
+    val resultTitle: String,
+    /** Takes the products added and the products already owned. */
+    val resultAdded: (Int, Int) -> String,
+    val resultNothing: String,
+    val resultUnknownAccount: String,
+    val resultRemovedElsewhere: (Int) -> String,
+    val overrideButton: String,
+    val resultUnmatched: (Int) -> String,
+    val resultAmbiguous: (Int) -> String,
+    val resultRefused: (Int) -> String,
+)
+
 /** Strings for the "remember me" account surface, grouped under `strings.account`. */
 class AccountStrings(
     val connected: String,
@@ -365,6 +390,7 @@ interface Strings {
     val pickerPathNotFound: String
     val pickerClearPath: String
     val send: SendStrings
+    val sync: SyncStrings
     val account: AccountStrings
 }
 
@@ -820,6 +846,46 @@ object StringsDe : Strings {
                     "nächsten Senden wird die Freigabe erneut abgefragt.",
             disconnectConfirm = "Trennen",
         )
+    override val sync =
+        SyncStrings(
+            button = "Blueprints synchronisieren",
+            consentTitle = "Blueprints synchronisieren",
+            consentBody =
+                "Die Blueprints des gewählten Spielkontos werden direkt in „Meine Blueprints“ " +
+                    "eingetragen — ohne Prüfung im Browser. Der Abgleich fügt nur hinzu, was dort noch " +
+                    "fehlt; er entfernt nie etwas. Was du im Basetool gelöscht hast, wird nur auf deine " +
+                    "ausdrückliche Bestätigung wieder hinzugefügt. Rückgängig machen kannst du jeden " +
+                    "Abgleich im Basetool unter „Verbundene Anwendungen“. Beim ersten Mal meldest du " +
+                    "dich einmal neu an, weil der Abgleich eine zusätzliche Berechtigung braucht.",
+            consentConfirm = "Einschalten und synchronisieren",
+            workingTitle = "Synchronisiere",
+            checkingAccount = "Prüfe, ob das Spielkonto zu deinem Basetool-Konto gehört…",
+            syncing = "Gleiche deine Blueprints mit dem Basetool ab…",
+            mismatchTitle = "Anderes Spielkonto?",
+            mismatchBody = { handle ->
+                "Laut deinem Basetool-Profil gehört das Spielkonto „$handle“ nicht zu dir. Wenn die " +
+                    "Logs von einem anderen Konto stammen, wähle in der Zusammenfassung dein eigenes " +
+                    "Konto aus. Nur wenn es wirklich deins ist, trotzdem synchronisieren — und das " +
+                    "RSI-Handle im Basetool-Profil korrigieren."
+            },
+            mismatchContinue = "Trotzdem synchronisieren",
+            resultTitle = "Synchronisiert",
+            resultAdded = { added, owned ->
+                "$added Blueprint(s) neu in „Meine Blueprints“ eingetragen, $owned waren schon da."
+            },
+            resultNothing = "Das gewählte Spielkonto hat keine Blueprints — es gibt nichts abzugleichen.",
+            resultUnknownAccount =
+                "Hinweis: In deinem Basetool-Profil ist kein RSI-Handle hinterlegt, deshalb konnte " +
+                    "nicht geprüft werden, ob das Spielkonto zu dir gehört.",
+            resultRemovedElsewhere = { n ->
+                "$n Blueprint(s) hast du im Basetool oder in einem anderen Programm entfernt. Sie " +
+                    "wurden nicht wieder hinzugefügt:"
+            },
+            overrideButton = "Trotzdem hinzufügen",
+            resultUnmatched = { n -> "$n Name(n) kennt das Basetool nicht — bitte im Web importieren:" },
+            resultAmbiguous = { n -> "$n Name(n) passen auf mehrere Blueprints — bitte im Web importieren:" },
+            resultRefused = { n -> "$n Blueprint(s) wurden abgelehnt:" },
+        )
 }
 
 /** English catalogue — full parity with [StringsDe]. */
@@ -1261,6 +1327,42 @@ object StringsEn : Strings {
                 "The saved login is revoked and removed from this machine. The next send will ask " +
                     "for approval again.",
             disconnectConfirm = "Disconnect",
+        )
+    override val sync =
+        SyncStrings(
+            button = "Sync blueprints",
+            consentTitle = "Sync blueprints",
+            consentBody =
+                "The selected game account's blueprints are written straight into “My blueprints” — " +
+                    "without a review in the browser. The sync only adds what is missing there; it " +
+                    "never removes anything. What you deleted in the basetool is only added back when " +
+                    "you confirm it. You can undo any sync in the basetool under “Connected " +
+                    "applications”. The first time you sign in once more, because the sync needs an " +
+                    "additional permission.",
+            consentConfirm = "Switch on and sync",
+            workingTitle = "Syncing",
+            checkingAccount = "Checking that the game account belongs to your basetool account…",
+            syncing = "Comparing your blueprints with the basetool…",
+            mismatchTitle = "A different game account?",
+            mismatchBody = { handle ->
+                "According to your basetool profile, the game account “$handle” is not yours. If the " +
+                    "logs come from another account, select your own account in the summary. Only if " +
+                    "it really is yours, sync anyway — and correct the RSI handle in your basetool profile."
+            },
+            mismatchContinue = "Sync anyway",
+            resultTitle = "Synced",
+            resultAdded = { added, owned -> "$added blueprint(s) added to “My blueprints”, $owned were already there." },
+            resultNothing = "The selected game account has no blueprints — there is nothing to sync.",
+            resultUnknownAccount =
+                "Note: your basetool profile holds no RSI handle, so it could not be checked whether " +
+                    "the game account is yours.",
+            resultRemovedElsewhere = { n ->
+                "You removed $n blueprint(s) in the basetool or another program. They were not added back:"
+            },
+            overrideButton = "Add anyway",
+            resultUnmatched = { n -> "The basetool knows no blueprint for $n name(s) — please import them on the web:" },
+            resultAmbiguous = { n -> "$n name(s) fit several blueprints — please import them on the web:" },
+            resultRefused = { n -> "$n blueprint(s) were refused:" },
         )
 }
 

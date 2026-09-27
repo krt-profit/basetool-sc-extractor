@@ -152,7 +152,7 @@ private (guardrail 1a) and live outside the repo; ask for their path.
    logs). Exported JSON goes to the user-chosen path only. What little state the app does
    keep lives under the user's data dir — `config/AppConfig.kt` writes
    `%APPDATA%\Basetool SC Extractor\config.json` (ingest URL, send consent, the last
-   channel folder, the member's installation label) — **never** the install dir, or
+   channel folder, the member's installation label, the sync opt-in) — **never** the install dir, or
    residue-free uninstall breaks. Two
    holders write that file (the blueprint step and the send flow), so every write is
    load → `copy(…)` → save; skip the reload and one silently drops the other's field.
@@ -259,6 +259,18 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   BasetoolSCExtractor/<version> (+repo URL)` and `Accept-Language`; a write carries a fresh
   `Idempotency-Key`. A failure surfaces the problem's `detail` plus the `errors[]` pointers and
   its `code` (`Codes`), which the overlay turns into plain language (`sendErrorText`).
+  **The opt-in direct blueprint sync** (`BlueprintSync`, `ui/SyncController`, REQ-XCH-015) writes
+  straight into „Meine Blueprints": pull every page of `GET /me/blueprints` first, resolve the
+  envelope's names through `catalog/resolve` (the web import's own matching — never a second
+  matcher here), then `POST /me/blueprints/changes` with `add` ops by `bt` for what the member
+  lacks. **It never sends `remove`** — a log proves a receipt, not a loss — so every sync is
+  add-only, not just the first. `REMOVED_ELSEWHERE` is reported and re-sent with `override: true`
+  only on the member's button press. Before the first sync of an account in a process it asks
+  `POST /me/account-check` (REQ-XCH-031); `mismatch` stops and asks, `unknown` syncs with a hint.
+  **The handle goes only to that check** — it is not stored, not in `config.json`, not in the
+  credential; the passed checks live in memory for the process. The opt-in itself
+  (`blueprintSyncEnabled`) is persisted; the sync asks for `SYNC_SCOPES` on top of the base
+  scopes, which forces one device login for a login that lacks them.
   `auth/DeviceGrantClient` runs the RFC 8628 device grant against the **prod** Keycloak
   (hardcoded issuer; only the ingest base URL is config) for exactly the exchange scopes —
   `BASE_SCOPES` (`offline_access`, `exchange.connect`, both draft scopes), plus `SYNC_SCOPES`
