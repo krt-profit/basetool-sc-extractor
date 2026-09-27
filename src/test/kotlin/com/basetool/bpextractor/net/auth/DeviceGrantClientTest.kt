@@ -64,6 +64,12 @@ class DeviceGrantClientTest {
         val device = client().requestDeviceCode()
         assertEquals("DEV-1", device.deviceCode)
         assertEquals("WXYZ-1234", device.userCode)
+        assertEquals("https://kc/device", device.browserUrl(), "the bare page, so the member types the code")
+    }
+
+    @Test
+    fun `the complete link is only the fallback for a server that sends no bare URI`() {
+        val device = DeviceCodeResponse("DEV-1", "WXYZ-1234", verificationUriComplete = "https://kc/device?user_code=WXYZ-1234")
         assertEquals("https://kc/device?user_code=WXYZ-1234", device.browserUrl())
     }
 

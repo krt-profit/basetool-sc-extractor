@@ -25,8 +25,12 @@ data class DeviceCodeResponse(
     /** Minimum seconds between token polls; Keycloak default is 5. */
     val interval: Long = 5,
 ) {
-    /** The URL to open in the browser: the complete form (with the code) when present. */
-    fun browserUrl(): String = verificationUriComplete.ifBlank { verificationUri }
+    /**
+     * The URL to open in the browser: the bare verification page, where the member types the shown
+     * code under the device page's phishing warning. The complete form (with the code) skips that page,
+     * so it is only the fallback for a server that sends no bare URI.
+     */
+    fun browserUrl(): String = verificationUri.ifBlank { verificationUriComplete }
 }
 
 /** The token answer (or, on the error path, [TokenErrorResponse]). */
