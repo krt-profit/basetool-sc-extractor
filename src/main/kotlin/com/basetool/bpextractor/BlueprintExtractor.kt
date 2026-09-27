@@ -2,6 +2,7 @@ package com.basetool.bpextractor
 
 import com.basetool.bpextractor.model.BlueprintEvent
 import com.basetool.bpextractor.model.BlueprintExport
+import com.basetool.bpextractor.model.LogAccount
 import com.basetool.bpextractor.model.PlayerSummary
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -36,7 +37,15 @@ data class ExtractionResult(
      */
     val localization: ScLocalization.Detected = ScLocalization.Detected.NONE,
     val formatsUsed: List<String> = BlueprintParser.BUILT_IN_FORMATS,
-)
+    /**
+     * Every account the readable log files belong to, the one with the most log files first; files
+     * naming no account form the last entry. Empty when no file could be read.
+     */
+    val accounts: List<LogAccount> = emptyList(),
+) {
+    /** The account preselected for the member: the one with the most log files, or `null` without any. */
+    val defaultAccount: LogAccount? get() = accounts.firstOrNull()
+}
 
 /**
  * Scans a folder of Game.log files, extracts every received blueprint, and
@@ -168,6 +177,8 @@ object BlueprintExtractor {
 
         val allBlueprints = mutableListOf<BlueprintEvent>()
         val countsByPlayer = linkedMapOf<String, Int>()
+        val filesByAccount = linkedMapOf<String?, Int>()
+        val eventsByAccount = linkedMapOf<String?, Int>()
         val seenEvents = HashSet<EventKey>()
         val skipped = mutableListOf<String>()
         var bytesBefore = 0L
@@ -188,9 +199,11 @@ object BlueprintExtractor {
             }
             bytesBefore += file.length()
             result ?: return@forEachIndexed
+            filesByAccount.merge(result.player?.handle, 1, Int::plus)
             for (bp in result.blueprints) {
                 if (!seenEvents.add(EventKey(bp.player, bp.productName, bp.receivedAt, bp.notificationId))) continue
                 allBlueprints += bp
+                eventsByAccount.merge(bp.player, 1, Int::plus)
                 bp.player?.let { countsByPlayer.merge(it, 1, Int::plus) }
             }
         }
@@ -214,7 +227,37 @@ object BlueprintExtractor {
             players = players,
             blueprints = sorted,
         )
-        return ExtractionResult(export, skipped, localization, formats)
+        val accounts = (filesByAccount.keys + eventsByAccount.keys)
+            .distinct()
+            .map { LogAccount(it, filesByAccount[it] ?: 0, eventsByAccount[it] ?: 0) }
+            .sortedWith(ACCOUNT_ORDER)
+        return ExtractionResult(export, skipped, localization, formats, accounts)
+    }
+
+    /**
+     * Known accounts before the files that name none, then more log files first, then more blueprints,
+     * then by handle.
+     */
+    private val ACCOUNT_ORDER: Comparator<LogAccount> =
+        compareBy<LogAccount> { it.handle == null }
+            .thenByDescending { it.logFiles }
+            .thenByDescending { it.blueprintCount }
+            .thenBy { it.handle }
+
+    /**
+     * Narrows a scan to one account: only its blueprint events, and only it in `players`.
+     *
+     * @param export the scan of every account
+     * @param account the member's own account
+     * @return the export of that account alone
+     */
+    fun exportFor(export: BlueprintExport, account: LogAccount): BlueprintExport {
+        val events = export.blueprints.filter { it.player == account.handle }
+        return export.copy(
+            blueprintCount = events.size,
+            players = account.handle?.let { listOf(PlayerSummary(it, events.size)) }.orEmpty(),
+            blueprints = events,
+        )
     }
 
     /**

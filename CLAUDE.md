@@ -452,11 +452,17 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
 - No two notifications of one blueprint share a timestamp under different ids in the corpus
   (checked 2026-09-26 because VerseKit found that for contract notifications), so the
   notification id stays in the dedup identity.
-- Characterization check: the real (private) `game-log/` dump yields exactly **179
-  blueprints** for player **`greluc`**. If a parser change moves that number, understand
-  why before accepting it. Note the dump is a *flat* archive folder (no `Game.log`, no
-  `logbackups/`) — it is readable because `collectChannelLogs` falls back to loose `*.log`
-  files; before that fallback existed the folder scanned to zero.
+- **Characterization check: the committed anonymised corpus** `src/test/resources/game-log-corpus-v1/`
+  (12 synthetic log files, only login and blueprint lines, handle `PLAYER_A`, names verbatim) yields
+  exactly **31** events of one account — `OwnAccountFilterTest` pins it. It is the twin of the
+  basetool's `game-log-corpus-v1.json`; its `README.md` says what was kept and replaced. If a parser
+  change moves that number, understand why before accepting it. The older private `game-log/` dump
+  (179 blueprints for one account) is no longer on hand and is not the reference any more.
+- **Only the member's own account leaves the PC.** Each file's account comes from its login lines
+  (`BlueprintParser.FileResult.player`); `BlueprintExtractor.extract` lists every account
+  (`ExtractionResult.accounts`, the one with the most log files first, files naming none last) and
+  `exportFor` narrows the export to the selected one. Without it a second account played on the same
+  PC would be uploaded as the member's own (the backend ignores `player`).
 
 ## UI / design
 
@@ -572,8 +578,8 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
 
 - **the JDK version** → update `jvmToolchain` *and* confirm the `javaHome` toolchain
   resolves to the same JDK; rebuild the MSI and launch the GUI from the app image.
-- **the parser/regex or model** → update `sample.log` + the tests; re-confirm the
-  179/`greluc` characterization against the local `game-log/`.
+- **the parser/regex or model** → update `sample.log` + the tests; the 31-event corpus
+  characterization (`OwnAccountFilterTest`) must stay green.
 - **`Locate`'s colour anchors or the crop geometry** → run `PanelDumpTest` over the whole sample
   corpus and LOOK at the crops, then the full `PromptSmokeTest` sweep. The game restyles the
   refinement terminal without notice, and a broken anchor does not fail — it exports a work order
