@@ -98,8 +98,8 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
                     enabled = canSend,
                     onClick = {
                         if (!canSend) return@CtaButton
-                        val json = runCatching { RefineryPipeline.toJson(extract) }.getOrNull()
-                        if (json != null) sendController.request(appScope, SendKind.REFINERY, json, langTag)
+                        val json = runCatching { RefineryPipeline.toDraftJson(extract) }.getOrNull()
+                        if (json != null) sendController.request(appScope, SendKind.REFINERY, json, langTag, strings.send.defaultLabel)
                     },
                 )
             },

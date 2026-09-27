@@ -36,7 +36,12 @@ data class TokenResponse(
     @SerialName("refresh_token") val refreshToken: String = "",
     @SerialName("token_type") val tokenType: String = "",
     @SerialName("expires_in") val expiresIn: Long = 0,
+    /** The space-separated scopes the server granted; empty when the answer did not say. */
+    val scope: String = "",
 ) {
+    /** The granted scopes as a set. */
+    fun grantedScopes(): Set<String> = scope.split(' ').filter { it.isNotBlank() }.toSet()
+
     /**
      * Whether the server bound this token to the DPoP key, i.e. answered `token_type` `DPoP`
      * (case-insensitive, RFC 9449 §5).
@@ -105,6 +110,9 @@ class DeviceGrantClient(
      */
     private val clock = ServerClock()
 
+    /** This authorization server's DPoP nonce, should it ever issue one. */
+    private val nonce = DpopNonce()
+
     init {
         require(TransportPolicy.isAllowedServerUrl(issuer)) {
             "refusing a non-https issuer (localhost excepted for dev): $issuer"
@@ -112,17 +120,18 @@ class DeviceGrantClient(
     }
 
     /**
-     * Starts the flow: asks Keycloak for a device + user code. The caller shows
+     * Starts the flow: asks Keycloak for a device + user code for [scopes]. The caller shows
      * [DeviceCodeResponse.userCode] and opens [DeviceCodeResponse.browserUrl].
      *
+     * @param scopes the scopes to request, [BASE_SCOPES] plus those of the features the member enabled
      * @return the device-code grant details
      * @throws DeviceGrantException when the request fails or the answer is unparseable
      */
-    fun requestDeviceCode(): DeviceCodeResponse {
+    fun requestDeviceCode(scopes: Set<String> = BASE_SCOPES): DeviceCodeResponse {
         val form =
             encodeForm(
                 "client_id" to clientId,
-                "scope" to "openid $INGEST_SCOPE",
+                "scope" to scopes.sorted().joinToString(" "),
             )
         val request =
             HttpRequest.newBuilder(URI.create(deviceEndpoint))
@@ -263,17 +272,19 @@ class DeviceGrantClient(
 
     /**
      * POSTs a form-encoded body, carrying a fresh DPoP proof when [dpopKey] is given. Retries exactly
-     * once, and only when the rejection materially corrected the measured server-clock offset; a nonce
-     * challenge is never retried ([DpopNonce]).
+     * once, and only when the rejection materially corrected the measured server-clock offset or was a
+     * nonce challenge that brought a new nonce (RFC 9449 §8).
      */
     private fun postForm(endpoint: String, form: String, dpopKey: DpopKey?): HttpResponse<String> {
         val offsetBefore = clock.offsetSeconds()
+        val nonceBefore = nonce.current()
         val response = postOnce(endpoint, form, dpopKey)
         if (dpopKey == null) return response
-        val clockJustCorrected =
-            (response.statusCode() == 400 || response.statusCode() == 401) &&
-                abs(clock.offsetSeconds() - offsetBefore) >= ServerClock.MATERIAL_SECONDS
-        return if (clockJustCorrected) postOnce(endpoint, form, dpopKey) else response
+        val rejected = response.statusCode() == 400 || response.statusCode() == 401
+        val clockJustCorrected = rejected && abs(clock.offsetSeconds() - offsetBefore) >= ServerClock.MATERIAL_SECONDS
+        val nonceChallenge =
+            rejected && parseError(response.body()) == DpopNonce.USE_DPOP_NONCE && nonce.current() != nonceBefore
+        return if (clockJustCorrected || nonceChallenge) postOnce(endpoint, form, dpopKey) else response
     }
 
     private fun postOnce(endpoint: String, form: String, dpopKey: DpopKey?): HttpResponse<String> {
@@ -290,15 +301,14 @@ class DeviceGrantClient(
                     htm = "POST",
                     htu = DpopKey.htu(URI.create(endpoint)),
                     issuedAt = clock.now(),
+                    nonce = nonce.current(),
                 ),
             )
         }
         val sentAt = Instant.now()
         val response = http.send(builder.build(), HttpResponse.BodyHandlers.ofString())
         observeClock(response, sentAt)
-        if (dpopKey != null && parseError(response.body()) == DpopNonce.USE_DPOP_NONCE) {
-            DpopNonce.reportChallenge(endpoint)
-        }
+        nonce.observe(response.headers().firstValue(DpopNonce.HEADER).orElse(null))
         return response
     }
 
@@ -355,13 +365,38 @@ class DeviceGrantClient(
         const val PROD_ISSUER = "https://profit-base.online/auth/realms/iri"
 
         /**
-         * The public device-grant client id in Keycloak. The ingest gateway accepts only tokens whose `azp`
-         * is on its allowlist (REQ-INGEST-011), so a new id must be allowlisted before it ships.
+         * The public device-grant client id in Keycloak. The gateway's client registry keys on it (the
+         * token's `azp`), so a new id needs a registry entry before it ships.
          */
         const val CLIENT_ID = "basetool-sc-extractor"
 
-        /** The client scope that stamps `aud=basetool-backend` on the token. */
-        const val INGEST_SCOPE = "extractor-ingest"
+        /** The base exchange capability: service document, installation label, account check. */
+        const val CONNECT_SCOPE = "exchange.connect"
+
+        /** The scope that stages blueprint drafts. */
+        const val DRAFTS_BLUEPRINTS_SCOPE = "exchange.drafts.blueprints"
+
+        /** The scope that stages refinery drafts. */
+        const val DRAFTS_REFINERY_SCOPE = "exchange.drafts.refinery"
+
+        /** The scope that reads the member's blueprints, for the direct sync. */
+        const val BLUEPRINTS_READ_SCOPE = "exchange.blueprints.read"
+
+        /** The scope that writes the member's blueprints, for the direct sync. */
+        const val BLUEPRINTS_WRITE_SCOPE = "exchange.blueprints.write"
+
+        /**
+         * The scope of a refresh token that survives the browser session, so a web logout does not end
+         * the stored login (REQ-XCH-005).
+         */
+        const val OFFLINE_ACCESS_SCOPE = "offline_access"
+
+        /** What every login requests: the drafts, the connection, and an offline refresh token. */
+        val BASE_SCOPES: Set<String> =
+            setOf(OFFLINE_ACCESS_SCOPE, CONNECT_SCOPE, DRAFTS_BLUEPRINTS_SCOPE, DRAFTS_REFINERY_SCOPE)
+
+        /** What the opt-in direct blueprint sync adds. */
+        val SYNC_SCOPES: Set<String> = setOf(BLUEPRINTS_READ_SCOPE, BLUEPRINTS_WRITE_SCOPE)
 
         private fun defaultHttp(): HttpClient =
             HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build()

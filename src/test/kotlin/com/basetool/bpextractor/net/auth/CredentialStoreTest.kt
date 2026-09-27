@@ -56,14 +56,15 @@ class CredentialStoreTest {
     fun `the stored credential holds no private key material`() {
         val keys = FakeDpopKeyStore()
         val key = assertNotNull(keys.create())
-        val blob = StoredCredential.encode(StoredCredential("RT-1", key.keyName))
+        val blob = StoredCredential.encode(StoredCredential("RT-1", key.keyName, "exchange.connect offline_access"))
 
         val json = Json.parseToJsonElement(blob).jsonObject
-        assertEquals(setOf("refreshToken", "dpopKeyName"), json.keys)
+        assertEquals(setOf("refreshToken", "dpopKeyName", "scope"), json.keys)
         assertEquals(key.keyName, json["dpopKeyName"]?.jsonPrimitive?.content)
         assertTrue(assertNotNull(key.keyName).startsWith(CngDpopKeyStore.KEY_NAME_PREFIX))
+        assertTrue("RT-1" !in StoredCredential("RT-1", key.keyName).toString(), "toString must not print the token")
         assertEquals(
-            setOf("refreshToken", "dpopKeyName"),
+            setOf("refreshToken", "dpopKeyName", "scope"),
             StoredCredential::class.java.declaredFields
                 .filterNot { java.lang.reflect.Modifier.isStatic(it.modifiers) }
                 .map { it.name }

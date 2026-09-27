@@ -27,6 +27,7 @@ dependencies {
     implementation("com.microsoft.onnxruntime:onnxruntime:1.30.0")
 
     testImplementation(kotlin("test"))
+    testImplementation("com.networknt:json-schema-validator:3.0.7")
 }
 
 val generateBuildInfo = tasks.register("generateBuildInfo") {

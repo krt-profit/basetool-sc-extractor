@@ -243,7 +243,7 @@ class BlueprintExtractorTest {
             val result = BlueprintExtractor.extract(channel)
 
             assertEquals(1, result.export.blueprintCount)
-            assertEquals(1, result.export.players.single().blueprintCount)
+            assertEquals(1, result.accounts.single().blueprintCount)
         } finally {
             channel.deleteRecursively()
         }
@@ -283,8 +283,7 @@ class BlueprintExtractorTest {
             val ptu = File(root, "PTU").apply { mkdirs() }
             File(ptu, "Game.log").writeText("x")
             val alone = BlueprintExtractor.extract(ptu).export
-            assertNull(alone.additionalSourceFolders)
-            assertTrue(BlueprintExtractor.toJson(alone).contains("\"additionalSourceFolders\": null"))
+            assertTrue(alone.additionalSourceFolders.isEmpty())
         } finally {
             root.deleteRecursively()
         }
@@ -366,14 +365,15 @@ class BlueprintExtractorTest {
     }
 
     @Test
-    fun `a normally named event serialises a null localisation key`() {
+    fun `a normally named event carries no localisation key into the envelope`() {
         val channel = tempChannel()
         try {
             File(channel, "Game.log").writeText(
                 loginLine("tester") + "\n" + blueprintLine("Yubarev Pistol", 19, "2026-03-26T16:49:31.050Z"),
             )
-            val json = BlueprintExtractor.toJson(BlueprintExtractor.extract(channel).export)
-            assertTrue(json.contains("\"localizationKey\": null"))
+            val json = BlueprintExtractor.toJson(BlueprintExtractor.envelopeOf(BlueprintExtractor.extract(channel).export))
+            assertFalse(json.contains("locKey"))
+            assertTrue(json.contains("\"name\": \"Yubarev Pistol\""))
         } finally {
             channel.deleteRecursively()
         }

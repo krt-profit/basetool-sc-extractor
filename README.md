@@ -33,17 +33,20 @@ The app ships with an **installer** (MSI) and can be **uninstalled** like any
 normal Windows program (entries in "Apps & features", Start menu, desktop
 shortcut).
 
-> **The Basetool's ingest interface may only be used by client software approved
-> by [@greluc](https://github.com/greluc).** The gateway checks the client id, the
-> scope and the payload's `tool` field against server-side allowlists and rejects
-> everything else with `403 CLIENT_NOT_ALLOWED` (`REQ-INGEST-011` in
-> `docs/specs/desktop-ingest.md` of the Basetool repo). This does not change who
-> may *use the Basetool* — every member can upload blueprints and refinery work
+> **The Basetool's exchange API may only be used by client software approved by
+> [@greluc](https://github.com/greluc).** The extractor is its first-party client:
+> it sends through `https://ingest.profit-base.online/exchange/v1`, where the
+> gateway checks the token's client id (`azp`) against the client registry, the
+> capability of each route against the token's scopes and the registry, a DPoP
+> proof on every call, and this release's version from the `User-Agent` against
+> the client's minimum (`REQ-XCH-*` in `docs/specs/external-exchange.md` of the
+> Basetool repo). Anything else is refused — `403 CLIENT_NOT_ALLOWED`,
+> `SCOPE_MISSING` or `CLIENT_VERSION_UNSUPPORTED`. This does not change who may
+> *use the Basetool* — every member can upload blueprints and refinery work
 > orders, just with the approved extractor. So use an official build from the
-> [releases page](https://github.com/krt-profit/basetool-sc-extractor/releases); a
-> self-built fork with a changed id will be rejected. Concretely,
-> `DeviceGrantClient.CLIENT_ID` and `RefineryPipeline.TOOL` are contractual
-> constants — changing them is a coordinated rollout on both sides.
+> [releases page](https://github.com/krt-profit/basetool-sc-extractor/releases).
+> `DeviceGrantClient.CLIENT_ID` (`basetool-sc-extractor`) is a contractual
+> constant — changing it means a new registry entry first.
 
 ---
 
@@ -67,6 +70,17 @@ shortcut).
 > the address is built into the app. Older builds can still read and save JSON, but
 > every send fails with `token refresh failed: (unrecognized_name)`. After the
 > update you confirm the sign-in in the browser once more.
+
+> **The move to the exchange API needs one more sign-in.** From the release that
+> sends through `/exchange/v1`, the extractor asks for new permissions
+> (`exchange.connect`, the two draft capabilities and `offline_access`), which a
+> stored sign-in cannot grow into. The first send after that update therefore opens
+> the browser once and asks for a **name for this installation** — it is how this PC
+> appears in the Basetool under „Verbundene Anwendungen", where you can also
+> disconnect it. The old endpoints (`/v1/blueprint-preview`, `/v1/refinery-extract`)
+> are switched off when that release goes live; an older build then shows
+> „Diese Schnittstelle wurde abgeschaltet. Bitte aktualisiere den SC Extractor auf
+> die neueste Version."
 
 ### Does Windows Defender warn you?
 
@@ -259,17 +273,23 @@ program folder — so the program folder itself stays completely removable:
 
 - a **`config.json`** under `%APPDATA%\Basetool SC Extractor\`, written after the
   first successful blueprint run or the first send (no secret: the channel folder
-  of the last successful blueprint run, your consent to send, and the Basetool's
-  ingest URL). Roaming data, not a program leftover.
+  of the last successful blueprint run, your consent to send, the name you gave
+  this installation, and the Basetool's ingest URL). Roaming data, not a program
+  leftover.
 - once you use **"Send to Basetool"**, a **refresh token** in the **Windows
   Credential Manager** (DPAPI-protected, per user) — so you do not have to confirm
   again on the next send. The token is bound (DPoP, RFC 9449) to a **private key**
   (EC P-256) that Windows keeps in its own key storage — in the **TPM** when the PC
   has one — and **will not hand out**: the app signs with it but can never read it.
-  The Credential Manager entry holds only the token and the key's name, so a
-  **copy of that entry is worthless** on any other computer. Neither the entry nor
-  the key is removed on **uninstall**; delete both via **Start → "Disconnect from
-  Basetool"** (which revokes the token server-side first).
+  The Credential Manager entry holds only the token, the key's name and the
+  permissions it was granted for, so a **copy of that entry is worthless** on any
+  other computer. The key is also what makes this PC *one installation* in the
+  Basetool, so it must survive a restart: on a Windows without usable key storage
+  the app does **not** send at all (save the JSON and import it in the Basetool
+  instead). Neither the entry nor the key is removed on **uninstall**; delete both
+  via **Start → "Disconnect from Basetool"** (which revokes the token server-side
+  first), or disconnect the installation in the Basetool under „Verbundene
+  Anwendungen".
 
   > Versions up to 2.9.1 stored that key **inside** the Credential Manager entry,
   > which made a copy of the entry as good as the original. The first send after
@@ -280,44 +300,44 @@ program folder — so the program folder itself stays completely removable:
 
 ## The JSON output
 
+The blueprint file — and the blueprint draft that **Send to Basetool** stages — is
+the Basetool exchange API's **v1 envelope** (`basetool.blueprints` 1.0,
+[`blueprint-draft.schema.json`](https://ingest.profit-base.online/exchange/v1/schemas/blueprint-draft.schema.json)):
+
 ```jsonc
 {
-  "schemaVersion": 1,
-  "tool": "Basetool SC Extractor",
-  "toolVersion": "2.8.2",
-  "generatedAt": "2026-05-30T21:39:45Z",   // UTC, when the export was created
-  "sourceFolder": "…\\StarCitizen\\LIVE",   // the channel folder
-  "additionalSourceFolders": [               // extra channels swept alongside it — the
-    "…\\StarCitizen\\HOTFIX"                //   sibling HOTFIX next to LIVE; absent when none
-  ],
-  "logFilesScanned": 424,                    // Game.log + logbackups\*.log
-  "blueprintCount": 179,                     // blueprints of the selected account
-  "players": [
+  "format": "basetool.blueprints",
+  "formatVersion": "1.0",
+  "generator": { "name": "basetool-sc-extractor", "version": "3.0.0" },
+  "generatedAt": "2026-09-27T12:00:00Z",        // UTC, when the file was written
+  "items": [
     {
-      "handle": "greluc",                    // the selected account (from login lines)
-      "blueprintCount": 179
-    }
-  ],
-  "blueprints": [
+      "ref": { "name": "Yubarev \"Mirage\" Pistol" }, // exact item name (quotes included)
+      "acquiredAt": "2026-03-26T16:49:31.050Z",       // first receipt any log records (UTC)
+      "provenance": { "source": "log", "observedAt": "2026-03-26T16:49:31.050Z" }
+    },
     {
-      "productName": "Yubarev \"Mirage\" Pistol", // exact item name (quotes included)
-      "category": "Weapon",                       // derived category (see below)
-      "receivedAt": "2026-03-26T16:49:31.050Z",   // when it was received (UTC)
-      "player": "greluc",                         // recipient (from the source file)
-      "notificationId": 19,                       // in-game notification index
-      "queueSize": 2,                             // reported notification queue size
-      "gameBuild": "11518367",                    // SC build no. (from the file name)
-      "sourceFile": "Game Build(11518367) 26 Mar 26 (17 24 58).log"
+      "ref": { "locKey": "Nozzle_FuelGiver_Name", "name": "Tankdüse Secure" }
+      // locKey only when the game wrote a raw @key instead of a name
     }
-    // … sorted chronologically …
+    // … one entry per product, sorted chronologically …
   ]
 }
 ```
 
-**Categories** (`category`) are derived heuristically from the name — the log
-itself names no category:
+**What is not in it, on purpose:** no player handle, no account, no channel folder
+(an absolute path can contain your Windows user name) and no log file name. Only
+the selected account's blueprints go in, each product once. The Basetool's web
+import still reads files of the older format (`{"blueprints": [...]}`) written by
+earlier versions.
+
+The refinery file is the unchanged `RefineryExtract` (see below); as a draft it is
+sent without the fields a read left empty.
+
+In the app's summary each blueprint also shows a **category**, derived
+heuristically from the name — the log itself names no category:
 `MiningTool` · `Ammo` (magazines/batteries) · `Armor` (Helmet/Core/Arms/Legs/…) ·
-`Weapon` (Pistol/Rifle/Shotgun/…) · `Other`.
+`Weapon` (Pistol/Rifle/Shotgun/…) · `Other`. It stays in the app.
 
 ---
 
@@ -467,9 +487,10 @@ basetool-sc-extractor/
 │   ├── BlueprintExtractor.kt         # folder scan, aggregation, JSON
 │   ├── Legal.kt                      # mandatory Fankit texts (trademark notice, verbatim)
 │   ├── ScLocalization.kt             # reads the game's own global.ini (blueprint label)
-│   ├── config/AppConfig.kt           # %APPDATA% config.json (ingest URL, consent, last folder)
-│   ├── net/BasetoolIngestClient.kt   # POST /v1/{blueprint-preview,refinery-extract}
-│   ├── net/auth/                     # device grant (RFC 8628), DPoP (RFC 9449) with a non-exportable CNG key, DPAPI vault
+│   ├── config/AppConfig.kt           # %APPDATA% config.json (ingest URL, consent, installation label, last folder)
+│   ├── model/BlueprintEnvelope.kt    # the exchange v1 envelope the blueprint file and draft are
+│   ├── net/ExchangeClient.kt         # /exchange/v1: drafts, installation label; DPoP + nonce, User-Agent, Idempotency-Key
+│   ├── net/auth/                     # device grant (RFC 8628), exchange login, DPoP (RFC 9449) with a non-exportable CNG key, DPAPI vault
 │   ├── update/UpdateChecker.kt       # GitHub release check, verified download, installer handoff
 │   ├── refinery/                     # refinery pipeline (pure, no UI)
 │   │   ├── Locate.kt                 #   panel detection + normalisation (CV)
