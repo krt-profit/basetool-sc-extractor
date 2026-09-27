@@ -17,16 +17,37 @@ import java.nio.charset.StandardCharsets
  *
  * @param refreshToken the Keycloak refresh token
  * @param dpopKeyName the [DpopKey.keyName] the token is bound to, or `null` for an unbound token
+ * @param scope the space-separated scopes the login requested, or `null` for a login from before the
+ *   exchange; a refresh can never widen them
  */
 @Serializable
-data class StoredCredential(val refreshToken: String, val dpopKeyName: String? = null) {
+data class StoredCredential(
+    val refreshToken: String,
+    val dpopKeyName: String? = null,
+    val scope: String? = null,
+) {
+
+    /**
+     * Whether this login can serve the exchange with [scopes]: bound to a persistent key and requested
+     * with every one of them. A refresh keeps a token's scopes, so a login that cannot is replaced.
+     *
+     * @param scopes the scopes the next call needs
+     * @return `true` when a refresh of this credential will do
+     */
+    fun covers(scopes: Set<String>): Boolean {
+        val granted = scope?.split(' ')?.filter { it.isNotBlank() }?.toSet() ?: return false
+        return dpopKeyName != null && granted.containsAll(scopes)
+    }
+
+    /** Leaves the token out, so no log or debugger view prints it. */
+    override fun toString(): String = "StoredCredential(dpopKeyName=$dpopKeyName, scope=$scope)"
 
     companion object {
         private val JSON = Json { ignoreUnknownKeys = true }
 
         /**
-         * Serializes the record for [CredentialStore.save]. The shape has exactly two fields —
-         * `refreshToken` and `dpopKeyName` — and no field that could hold key material.
+         * Serializes the record for [CredentialStore.save]. The shape has exactly three fields —
+         * `refreshToken`, `dpopKeyName` and `scope` — and no field that could hold key material.
          *
          * @param credential the record to encode
          * @return the opaque blob to hand to the vault — **secret** (it holds the token), never log it
@@ -50,7 +71,7 @@ data class StoredCredential(val refreshToken: String, val dpopKeyName: String? =
             }
             if (raw.refreshToken.isBlank()) return null
             if (raw.dpopKey != null) return CredentialRecord.LegacyExportedKey(raw.refreshToken, raw.dpopKey)
-            return CredentialRecord.Current(StoredCredential(raw.refreshToken, raw.dpopKeyName))
+            return CredentialRecord.Current(StoredCredential(raw.refreshToken, raw.dpopKeyName, raw.scope))
         }
 
         /**
@@ -73,6 +94,7 @@ data class StoredCredential(val refreshToken: String, val dpopKeyName: String? =
 private data class RawRecord(
     val refreshToken: String = "",
     val dpopKeyName: String? = null,
+    val scope: String? = null,
     /** The exported PKCS#8 and X.509 key pair of a legacy record, read only to revoke and destroy it. */
     val dpopKey: String? = null,
 )

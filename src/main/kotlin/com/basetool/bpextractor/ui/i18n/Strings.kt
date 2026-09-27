@@ -12,6 +12,12 @@ class SendStrings(
     val consentTitle: String,
     val consentBody: String,
     val consentConfirm: String,
+    /** The label field of the consent step: this installation's name in „Verbundene Anwendungen". */
+    val labelTitle: String,
+    val labelHint: String,
+    val labelInvalid: String,
+    /** The label offered until the member chooses one; never derived from the computer's name. */
+    val defaultLabel: String,
     val authTitle: String,
     val authBody: String,
     val authCode: (String) -> String,
@@ -21,6 +27,11 @@ class SendStrings(
      * (`CredentialRecord.LegacyExportedKey`) was discarded, explaining why the member signs in again.
      */
     val authKeyUpgrade: String,
+    /**
+     * Shown when the stored login lacks the scopes this call needs — the one re-login after the move to
+     * the exchange API, or after the direct sync was switched on.
+     */
+    val authScopeUpgrade: String,
     val waiting: String,
     val inProgress: String,
     val resultTitle: String,
@@ -29,22 +40,51 @@ class SendStrings(
     val saveLocally: String,
     val error: (String) -> String,
     /**
-     * The gateway's `403 CLIENT_NOT_ALLOWED` (`REQ-INGEST-011`): this client software is not on the
-     * server-side allowlist. Distinct from [error] because it is permanent — a retry is pointless —
-     * and the user needs to be told what would actually fix it.
+     * The gateway's `403 CLIENT_NOT_ALLOWED` or `CLIENT_SUSPENDED`: this client software is not approved
+     * or is suspended in the registry. Distinct from [error] because a retry is pointless and the user
+     * needs to be told what would actually fix it.
      */
     val errorClientNotAllowed: (String) -> String,
-    /**
-     * A server demanded the RFC 9449 §8 nonce handshake, which this build deliberately does not
-     * implement (see `DpopNonce`). Not something the user can fix — it needs a new release — so the
-     * message says exactly that instead of inviting a pointless retry.
-     */
-    val errorDpopNonceRequired: (String) -> String,
+    /** `403 CLIENT_VERSION_UNSUPPORTED`: this release is below the minimum version; update. */
+    val errorVersionUnsupported: (String) -> String,
+    /** `401 INSTALLATION_REVOKED` or `CLIENT_REVOKED`: the member disconnected it in the Basetool. */
+    val errorRevoked: (String) -> String,
+    /** `403 SCOPE_MISSING`: the capability was not granted to this client or its consent was withheld. */
+    val errorScopeMissing: (String) -> String,
+    /** No persistent key storage on this machine, so the exchange cannot be used; save the file instead. */
+    val errorNoPersistentKey: String,
+    /** The sign-in returned a token not bound to the key. */
+    val errorTokenNotBound: String,
     /**
      * Error shown when the clock is too far off for a DPoP proof even after correction; takes the
      * measured deviation in seconds (negative when the machine runs fast).
      */
     val errorClockSkew: (Long, String) -> String,
+)
+
+/** Strings for the opt-in direct blueprint sync, grouped under `strings.sync`. */
+class SyncStrings(
+    val button: String,
+    val consentTitle: String,
+    val consentBody: String,
+    val consentConfirm: String,
+    val workingTitle: String,
+    val checkingAccount: String,
+    val syncing: String,
+    val mismatchTitle: String,
+    /** The account check found that the log's account is not the member's; takes the handle. */
+    val mismatchBody: (String) -> String,
+    val mismatchContinue: String,
+    val resultTitle: String,
+    /** Takes the products added and the products already owned. */
+    val resultAdded: (Int, Int) -> String,
+    val resultNothing: String,
+    val resultUnknownAccount: String,
+    val resultRemovedElsewhere: (Int) -> String,
+    val overrideButton: String,
+    val resultUnmatched: (Int) -> String,
+    val resultAmbiguous: (Int) -> String,
+    val resultRefused: (Int) -> String,
 )
 
 /** Strings for the "remember me" account surface, grouped under `strings.account`. */
@@ -350,6 +390,7 @@ interface Strings {
     val pickerPathNotFound: String
     val pickerClearPath: String
     val send: SendStrings
+    val sync: SyncStrings
     val account: AccountStrings
 }
 
@@ -716,11 +757,20 @@ object StringsDe : Strings {
             consentTitle = "An Basetool senden",
             consentBody =
                 "Die erzeugte JSON-Datei wird über eine verschlüsselte Verbindung an dein eigenes " +
-                    "Basetool-Konto gesendet (enthält dein Spieler-Handle und die abgefragten " +
-                    "Mengen/Beträge). Danach öffnet sich die Basetool-Seite mit vorausgefüllten " +
-                    "Werten — gespeichert wird erst nach deiner Prüfung dort. Bilder verlassen " +
-                    "deinen Rechner nie.",
+                    "Basetool-Konto gesendet (Blueprint-Namen bzw. die abgelesenen Mengen/Beträge — " +
+                    "kein Spieler-Handle, keine Ordner- oder Dateinamen). Danach öffnet sich die " +
+                    "Basetool-Seite mit vorausgefüllten Werten — gespeichert wird erst nach deiner " +
+                    "Prüfung dort. Bilder und Logs verlassen deinen Rechner nie.",
             consentConfirm = "Senden",
+            labelTitle = "Name dieser Installation",
+            labelHint =
+                "Unter diesem Namen erscheint dieser PC im Basetool unter „Verbundene Anwendungen“, " +
+                    "wo du ihn auch trennen kannst. Höchstens 40 Zeichen: Buchstaben, Ziffern, " +
+                    "Leerzeichen, - _ und .",
+            labelInvalid =
+                "Bitte 1–40 Zeichen aus Buchstaben, Ziffern, Leerzeichen, - _ und . verwenden " +
+                    "(nicht mit einem Leerzeichen beginnen).",
+            defaultLabel = "Windows-PC",
             authTitle = "Im Browser bestätigen",
             authBody =
                 "Wir haben deinen Browser geöffnet. Melde dich an (falls nötig) und bestätige den " +
@@ -732,6 +782,11 @@ object StringsDe : Strings {
                     "mit einem Schlüssel geschützt, den Windows nicht herausgibt — eine kopierte " +
                     "Anmeldung ist damit auf keinem anderen Rechner nutzbar. Die bisherige Anmeldung " +
                     "wurde dafür abgemeldet und gelöscht.",
+            authScopeUpgrade =
+                "Einmalige Neuanmeldung: Der Extractor spricht jetzt die neue Austausch-Schnittstelle " +
+                    "des Basetools (oder du hast gerade die direkte Synchronisation eingeschaltet), und " +
+                    "dafür braucht deine Anmeldung neue Berechtigungen. Die bisherige Anmeldung wurde " +
+                    "abgemeldet und gelöscht.",
             waiting = "Warte auf Freigabe…",
             inProgress = "Sende an Basetool…",
             resultTitle = "Gesendet",
@@ -748,12 +803,29 @@ object StringsDe : Strings {
                     "GitHub-Releases) und bei bestehender Freigabe @greluc kontaktieren.\n\nMeldung " +
                     "des Basetools: $msg"
             },
-            errorDpopNonceRequired = { msg ->
-                "Versand fehlgeschlagen: Der Server verlangt ein zusätzliches Sicherheitsverfahren " +
-                    "(DPoP-Nonce), das diese Version noch nicht beherrscht. Ein erneuter Versuch " +
-                    "hilft nicht — das braucht eine neue Version des Extractors. Bitte @greluc " +
-                    "melden.\n\nMeldung des Servers: $msg"
+            errorVersionUnsupported = { msg ->
+                "Versand abgelehnt: Diese Version des SC Extractors ist zu alt. Bitte auf die neueste " +
+                    "Version aktualisieren (Startbildschirm oder GitHub-Releases).\n\nMeldung des " +
+                    "Basetools: $msg"
             },
+            errorRevoked = { msg ->
+                "Versand abgelehnt: Diese Verbindung wurde im Basetool unter „Verbundene Anwendungen“ " +
+                    "getrennt. Die gespeicherte Anmeldung wurde gelöscht; beim nächsten Senden meldest " +
+                    "du dich neu an.\n\nMeldung des Basetools: $msg"
+            },
+            errorScopeMissing = { msg ->
+                "Versand abgelehnt: Diese Funktion ist für den SC Extractor im Basetool gerade nicht " +
+                    "freigegeben, oder du hast sie bei der Anmeldung nicht bestätigt. Bitte später " +
+                    "erneut versuchen oder @greluc fragen.\n\nMeldung des Basetools: $msg"
+            },
+            errorNoPersistentKey =
+                "Senden ist auf diesem Rechner nicht möglich: Windows stellt keinen Schlüsselspeicher " +
+                    "bereit, in dem der Extractor seinen Anmeldeschlüssel dauerhaft und nicht " +
+                    "exportierbar ablegen kann. Speichere die Daten stattdessen als JSON und importiere " +
+                    "sie im Basetool.",
+            errorTokenNotBound =
+                "Versand fehlgeschlagen: Die Anmeldung hat kein an diesen Rechner gebundenes Token " +
+                    "geliefert. Bitte später erneut versuchen oder @greluc melden.",
             errorClockSkew = { seconds, msg ->
                 val direction = if (seconds < 0) "vor" else "nach"
                 "Versand fehlgeschlagen: Deine Systemuhr geht rund ${abs(seconds)} Sekunden " +
@@ -773,6 +845,46 @@ object StringsDe : Strings {
                 "Die gespeicherte Anmeldung wird zurückgezogen und vom Rechner gelöscht. Beim " +
                     "nächsten Senden wird die Freigabe erneut abgefragt.",
             disconnectConfirm = "Trennen",
+        )
+    override val sync =
+        SyncStrings(
+            button = "Blueprints synchronisieren",
+            consentTitle = "Blueprints synchronisieren",
+            consentBody =
+                "Die Blueprints des gewählten Spielkontos werden direkt in „Meine Blueprints“ " +
+                    "eingetragen — ohne Prüfung im Browser. Der Abgleich fügt nur hinzu, was dort noch " +
+                    "fehlt; er entfernt nie etwas. Was du im Basetool gelöscht hast, wird nur auf deine " +
+                    "ausdrückliche Bestätigung wieder hinzugefügt. Rückgängig machen kannst du jeden " +
+                    "Abgleich im Basetool unter „Verbundene Anwendungen“. Beim ersten Mal meldest du " +
+                    "dich einmal neu an, weil der Abgleich eine zusätzliche Berechtigung braucht.",
+            consentConfirm = "Einschalten und synchronisieren",
+            workingTitle = "Synchronisiere",
+            checkingAccount = "Prüfe, ob das Spielkonto zu deinem Basetool-Konto gehört…",
+            syncing = "Gleiche deine Blueprints mit dem Basetool ab…",
+            mismatchTitle = "Anderes Spielkonto?",
+            mismatchBody = { handle ->
+                "Laut deinem Basetool-Profil gehört das Spielkonto „$handle“ nicht zu dir. Wenn die " +
+                    "Logs von einem anderen Konto stammen, wähle in der Zusammenfassung dein eigenes " +
+                    "Konto aus. Nur wenn es wirklich deins ist, trotzdem synchronisieren — und das " +
+                    "RSI-Handle im Basetool-Profil korrigieren."
+            },
+            mismatchContinue = "Trotzdem synchronisieren",
+            resultTitle = "Synchronisiert",
+            resultAdded = { added, owned ->
+                "$added Blueprint(s) neu in „Meine Blueprints“ eingetragen, $owned waren schon da."
+            },
+            resultNothing = "Das gewählte Spielkonto hat keine Blueprints — es gibt nichts abzugleichen.",
+            resultUnknownAccount =
+                "Hinweis: In deinem Basetool-Profil ist kein RSI-Handle hinterlegt, deshalb konnte " +
+                    "nicht geprüft werden, ob das Spielkonto zu dir gehört.",
+            resultRemovedElsewhere = { n ->
+                "$n Blueprint(s) hast du im Basetool oder in einem anderen Programm entfernt. Sie " +
+                    "wurden nicht wieder hinzugefügt:"
+            },
+            overrideButton = "Trotzdem hinzufügen",
+            resultUnmatched = { n -> "$n Name(n) kennt das Basetool nicht — bitte im Web importieren:" },
+            resultAmbiguous = { n -> "$n Name(n) passen auf mehrere Blueprints — bitte im Web importieren:" },
+            resultRefused = { n -> "$n Blueprint(s) wurden abgelehnt:" },
         )
 }
 
@@ -1138,10 +1250,17 @@ object StringsEn : Strings {
             consentTitle = "Send to basetool",
             consentBody =
                 "The generated JSON file is sent over an encrypted connection to your own basetool " +
-                    "account (it includes your player handle and the quoted amounts/balances). The " +
-                    "basetool page then opens pre-filled — nothing is saved until you review it " +
-                    "there. Images never leave your machine.",
+                    "account (blueprint names, or the amounts/balances read — no player handle, no " +
+                    "folder or file names). The basetool page then opens pre-filled — nothing is saved " +
+                    "until you review it there. Images and logs never leave your machine.",
             consentConfirm = "Send",
+            labelTitle = "Name of this installation",
+            labelHint =
+                "This PC appears under this name in the basetool's “Connected applications”, where you " +
+                    "can also disconnect it. At most 40 characters: letters, digits, spaces, - _ and .",
+            labelInvalid =
+                "Please use 1–40 letters, digits, spaces, - _ and . (not starting with a space).",
+            defaultLabel = "Windows PC",
             authTitle = "Confirm in the browser",
             authBody =
                 "We opened your browser. Sign in (if needed) and confirm the code shown below to " +
@@ -1152,6 +1271,10 @@ object StringsEn : Strings {
                 "One-time sign-in after the update: your saved sign-in is now protected by a key " +
                     "Windows will not hand out, so a copied sign-in is useless on any other computer. " +
                     "Your previous sign-in was signed out and deleted for this.",
+            authScopeUpgrade =
+                "One-time sign-in: the extractor now talks to the basetool's new exchange interface (or " +
+                    "you just switched on the direct sync), and your sign-in needs new permissions for " +
+                    "it. Your previous sign-in was signed out and deleted.",
             waiting = "Waiting for approval…",
             inProgress = "Sending to basetool…",
             resultTitle = "Sent",
@@ -1165,11 +1288,27 @@ object StringsEn : Strings {
                     "of the Basetool SC Extractor (see the GitHub releases) and contact @greluc if you " +
                     "believe it should be approved.\n\nBasetool said: $msg"
             },
-            errorDpopNonceRequired = { msg ->
-                "Send failed: the server requires an additional security handshake (DPoP nonce) that " +
-                    "this version does not implement yet. Trying again will not help — this needs a " +
-                    "new build of the extractor. Please tell @greluc.\n\nServer said: $msg"
+            errorVersionUnsupported = { msg ->
+                "Send refused: this version of the SC Extractor is too old. Please update to the latest " +
+                    "version (start screen or GitHub releases).\n\nBasetool said: $msg"
             },
+            errorRevoked = { msg ->
+                "Send refused: this connection was disconnected in the basetool's “Connected " +
+                    "applications”. The saved sign-in was deleted; you sign in again on the next " +
+                    "send.\n\nBasetool said: $msg"
+            },
+            errorScopeMissing = { msg ->
+                "Send refused: this function is not enabled for the SC Extractor in the basetool right " +
+                    "now, or you did not confirm it when signing in. Please try again later or ask " +
+                    "@greluc.\n\nBasetool said: $msg"
+            },
+            errorNoPersistentKey =
+                "Sending is not possible on this computer: Windows offers no key storage where the " +
+                    "extractor can keep its sign-in key permanently and non-exportable. Save the data as " +
+                    "JSON instead and import it in the basetool.",
+            errorTokenNotBound =
+                "Send failed: the sign-in did not return a token bound to this computer. Please try " +
+                    "again later or tell @greluc.",
             errorClockSkew = { seconds, msg ->
                 val direction = if (seconds < 0) "fast" else "slow"
                 "Send failed: your system clock is about ${abs(seconds)} seconds $direction. Sign-in " +
@@ -1188,6 +1327,42 @@ object StringsEn : Strings {
                 "The saved login is revoked and removed from this machine. The next send will ask " +
                     "for approval again.",
             disconnectConfirm = "Disconnect",
+        )
+    override val sync =
+        SyncStrings(
+            button = "Sync blueprints",
+            consentTitle = "Sync blueprints",
+            consentBody =
+                "The selected game account's blueprints are written straight into “My blueprints” — " +
+                    "without a review in the browser. The sync only adds what is missing there; it " +
+                    "never removes anything. What you deleted in the basetool is only added back when " +
+                    "you confirm it. You can undo any sync in the basetool under “Connected " +
+                    "applications”. The first time you sign in once more, because the sync needs an " +
+                    "additional permission.",
+            consentConfirm = "Switch on and sync",
+            workingTitle = "Syncing",
+            checkingAccount = "Checking that the game account belongs to your basetool account…",
+            syncing = "Comparing your blueprints with the basetool…",
+            mismatchTitle = "A different game account?",
+            mismatchBody = { handle ->
+                "According to your basetool profile, the game account “$handle” is not yours. If the " +
+                    "logs come from another account, select your own account in the summary. Only if " +
+                    "it really is yours, sync anyway — and correct the RSI handle in your basetool profile."
+            },
+            mismatchContinue = "Sync anyway",
+            resultTitle = "Synced",
+            resultAdded = { added, owned -> "$added blueprint(s) added to “My blueprints”, $owned were already there." },
+            resultNothing = "The selected game account has no blueprints — there is nothing to sync.",
+            resultUnknownAccount =
+                "Note: your basetool profile holds no RSI handle, so it could not be checked whether " +
+                    "the game account is yours.",
+            resultRemovedElsewhere = { n ->
+                "You removed $n blueprint(s) in the basetool or another program. They were not added back:"
+            },
+            overrideButton = "Add anyway",
+            resultUnmatched = { n -> "The basetool knows no blueprint for $n name(s) — please import them on the web:" },
+            resultAmbiguous = { n -> "$n name(s) fit several blueprints — please import them on the web:" },
+            resultRefused = { n -> "$n blueprint(s) were refused:" },
         )
 }
 

@@ -36,9 +36,17 @@ class StringsCatalogueTest {
         for (catalogue in listOf<Strings>(StringsDe, StringsEn)) {
             val name = catalogue::class.simpleName
             with(catalogue.send) {
-                listOf(button, consentTitle, consentBody, consentConfirm, authTitle, authBody,
-                    authOpenBrowser, waiting, inProgress, resultTitle, resultBody, openInBasetool, saveLocally)
+                listOf(button, consentTitle, consentBody, consentConfirm, labelTitle, labelHint, labelInvalid,
+                    defaultLabel, authTitle, authBody, authOpenBrowser, authKeyUpgrade, authScopeUpgrade, waiting,
+                    inProgress, resultTitle, resultBody, openInBasetool, saveLocally, errorNoPersistentKey,
+                    errorTokenNotBound)
                     .forEach { assertTrue(it.isNotBlank(), "$name.send has a blank entry") }
+                assertTrue(
+                    com.basetool.bpextractor.net.InstallationLabel.isValid(defaultLabel),
+                    "$name: the offered label must be one the server accepts",
+                )
+                listOf(errorVersionUnsupported, errorRevoked, errorScopeMissing)
+                    .forEach { assertTrue(it("boom").contains("boom"), "$name: a code explanation keeps the detail") }
                 assertTrue(authCode("WXYZ-1234").contains("WXYZ-1234"))
                 assertTrue(error("boom").contains("boom"))
                 assertTrue(errorClientNotAllowed("boom").contains("boom"))
@@ -46,7 +54,6 @@ class StringsCatalogueTest {
                     errorClientNotAllowed("boom").length > error("boom").length,
                     "$name: a permanent refusal needs more than the generic failure line",
                 )
-                assertTrue(errorDpopNonceRequired("boom").contains("boom"))
                 assertTrue(errorClockSkew(-42, "boom").contains("boom"))
                 assertTrue(errorClockSkew(-42, "boom").contains("42"), "$name: state the measurement")
                 assertTrue(errorClockSkew(42, "boom").contains("42"))
@@ -54,6 +61,15 @@ class StringsCatalogueTest {
                     errorClockSkew(-42, "x") != errorClockSkew(42, "x"),
                     "$name: fast and slow must not read the same",
                 )
+            }
+            with(catalogue.sync) {
+                listOf(button, consentTitle, consentBody, consentConfirm, workingTitle, checkingAccount, syncing,
+                    mismatchTitle, mismatchContinue, resultTitle, resultNothing, resultUnknownAccount, overrideButton)
+                    .forEach { assertTrue(it.isNotBlank(), "$name.sync has a blank entry") }
+                assertTrue(mismatchBody("Pilot_7").contains("Pilot_7"))
+                assertTrue(resultAdded(3, 9).contains("3") && resultAdded(3, 9).contains("9"))
+                listOf(resultRemovedElsewhere, resultUnmatched, resultAmbiguous, resultRefused)
+                    .forEach { assertTrue(it(4).contains("4"), "$name: a sync count is rendered") }
             }
             with(catalogue.account) {
                 listOf(connected, disconnected, disconnect, disconnectTitle, disconnectBody, disconnectConfirm)

@@ -44,7 +44,8 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.basetool.bpextractor.config.AppConfigStore
-import com.basetool.bpextractor.model.BlueprintExport
+import com.basetool.bpextractor.model.BlueprintEnvelope
+import com.basetool.bpextractor.model.BlueprintScan
 import com.basetool.bpextractor.model.LogAccount
 import com.basetool.bpextractor.resources.Res
 import com.basetool.bpextractor.resources.basetool_extractor_icon
@@ -74,6 +75,8 @@ import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.SendController
 import com.basetool.bpextractor.ui.SendKind
 import com.basetool.bpextractor.ui.SendOverlay
+import com.basetool.bpextractor.ui.SyncController
+import com.basetool.bpextractor.ui.SyncOverlay
 import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.UpdateUiState
 import com.basetool.bpextractor.ui.hudBox
@@ -135,7 +138,7 @@ private class AppState {
      * The last successful export, feeding the summary screen and the config screen's "last run" line.
      * Not cleared by "Erneut"; only a new run replaces it.
      */
-    var resultExport by mutableStateOf<BlueprintExport?>(null)
+    var resultExport by mutableStateOf<BlueprintScan?>(null)
 
     /** The accounts the last run found, the preselected one first. */
     var resultAccounts by mutableStateOf<List<LogAccount>>(emptyList())
@@ -144,7 +147,7 @@ private class AppState {
     var selectedAccount by mutableStateOf<LogAccount?>(null)
 
     /** [resultExport] narrowed to [selectedAccount]. */
-    val selectedExport: BlueprintExport?
+    val selectedExport: BlueprintScan?
         get() {
             val export = resultExport ?: return null
             val account = selectedAccount ?: return export
@@ -462,6 +465,7 @@ private fun BpSummaryStep(state: AppState) {
     val canOpenFiles = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
     val export = state.selectedExport
     val sendController = remember { SendController() }
+    val syncController = remember { SyncController() }
     val langTag = if (strings === StringsEn) "en" else "de"
     val saveBlueprintJson = {
         val export = state.selectedExport
@@ -475,7 +479,7 @@ private fun BpSummaryStep(state: AppState) {
                 ) { path ->
                     scope.launch {
                         runCatching {
-                            withContext(Dispatchers.IO) { BlueprintExtractor.writeJson(export, File(path)) }
+                            withContext(Dispatchers.IO) { BlueprintExtractor.writeJson(BlueprintExtractor.envelopeOf(export), File(path)) }
                         }
                             .onSuccess { state.resultFile = File(path) }
                             .onFailure { t ->
@@ -498,11 +502,27 @@ private fun BpSummaryStep(state: AppState) {
         footer = {
             GhostButton(strings.bpCtaExport, onClick = saveBlueprintJson)
             Spacer(Modifier.weight(1f))
+            GhostButton(
+                strings.sync.button,
+                onClick = {
+                    val selected = state.selectedExport
+                    if (selected != null) {
+                        syncController.request(
+                            scope,
+                            BlueprintExtractor.envelopeOf(selected).items,
+                            state.selectedAccount?.handle,
+                            langTag,
+                            strings.send.defaultLabel,
+                        )
+                    }
+                },
+            )
+            Spacer(Modifier.width(10.dp))
             CtaButton(
                 strings.send.button,
                 onClick = {
-                    val json = state.selectedExport?.let { BlueprintExtractor.toJson(it) }
-                    if (json != null) sendController.request(scope, SendKind.BLUEPRINT, json, langTag)
+                    val json = state.selectedExport?.let { BlueprintExtractor.toJson(BlueprintExtractor.envelopeOf(it)) }
+                    if (json != null) sendController.request(scope, SendKind.BLUEPRINT, json, langTag, strings.send.defaultLabel)
                 },
             )
         },
@@ -532,7 +552,7 @@ private fun BpSummaryStep(state: AppState) {
                 Spacer(Modifier.height(4.dp))
                 val savedPrefix = state.resultFile?.let { "${it.absolutePath} · " } ?: ""
                 Text(
-                    savedPrefix + "schemaVersion ${export.schemaVersion} · " +
+                    savedPrefix + "${BlueprintEnvelope.FORMAT} ${BlueprintEnvelope.FORMAT_VERSION} · " +
                         strings.bpSumSuccessDetail(export.blueprintCount, export.logFilesScanned),
                     style = MaterialTheme.typography.bodySmall,
                     color = Krt.Gray2,
@@ -697,6 +717,7 @@ private fun BpSummaryStep(state: AppState) {
         }
     }
         SendOverlay(sendController, scope, onSaveLocally = saveBlueprintJson)
+        SyncOverlay(syncController, scope)
     }
 }
 

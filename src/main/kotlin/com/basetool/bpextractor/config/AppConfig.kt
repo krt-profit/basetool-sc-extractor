@@ -12,12 +12,17 @@ import java.io.File
  * @param consentGiven `true` once the user accepted the first-send consent
  * @param lastChannelFolder the folder of the last successful extraction, pre-filled on the next
  *   start; `null` until the first run
+ * @param installationLabel the label the member chose for this installation in the Basetool's
+ *   „Verbundene Anwendungen" (REQ-XCH-007); `null` until they chose one
+ * @param blueprintSyncEnabled `true` once the member switched the direct blueprint sync on
  */
 @Serializable
 data class AppConfig(
     val ingestBaseUrl: String = DEFAULT_INGEST_BASE_URL,
     val consentGiven: Boolean = false,
     val lastChannelFolder: String? = null,
+    val installationLabel: String? = null,
+    val blueprintSyncEnabled: Boolean = false,
 ) {
     companion object {
         /** Prod ingest gateway host (behind the basetool's edge proxy); override in config.json for dev. */

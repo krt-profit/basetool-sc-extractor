@@ -104,6 +104,7 @@ class DpopKey internal constructor(private val signer: DpopSigner, val keyName: 
      *   endpoint
      * @param issuedAt the `iat` instant, normally [ServerClock.now]
      * @param jti the proof's unique id, fresh per proof
+     * @param nonce the server's current `DPoP-Nonce` (RFC 9449 §8), or `null` when it issued none
      * @return the serialized `header.payload.signature` proof
      */
     fun proof(
@@ -112,6 +113,7 @@ class DpopKey internal constructor(private val signer: DpopSigner, val keyName: 
         accessToken: String? = null,
         issuedAt: Instant = Instant.now(),
         jti: String = UUID.randomUUID().toString(),
+        nonce: String? = null,
     ): String {
         val header =
             buildJsonObject {
@@ -126,6 +128,7 @@ class DpopKey internal constructor(private val signer: DpopSigner, val keyName: 
                 put("htu", htu)
                 put("iat", issuedAt.epochSecond)
                 if (accessToken != null) put("ath", base64Url(sha256(accessToken.toByteArray(Charsets.US_ASCII))))
+                if (nonce != null) put("nonce", nonce)
             }
         val signingInput = "${base64Url(canonicalJson(header))}.${base64Url(canonicalJson(claims))}"
         val signature = signer.signEs256(signingInput.toByteArray(Charsets.US_ASCII))
@@ -276,30 +279,34 @@ class ServerClock {
 }
 
 /**
- * Detects RFC 9449 §8's nonce challenge without implementing it: a challenge fails the send with
- * [CODE] so the UI can report that the server requires an unsupported handshake.
+ * The RFC 9449 §8 nonce handshake: a server that wants a nonce answers with [USE_DPOP_NONCE] and a fresh
+ * nonce in [HEADER], and the client retries once with it. One instance per server; the nonce is kept
+ * from every answer, so the next proof carries the current one.
  */
-object DpopNonce {
+class DpopNonce {
 
-    /** The response header carrying a nonce; its mere presence on a 4xx is the challenge. */
-    const val HEADER = "DPoP-Nonce"
+    @Volatile private var current: String? = null
 
-    /** The RFC 9449 §8 error code an authorization server names in the challenge. */
-    const val USE_DPOP_NONCE = "use_dpop_nonce"
-
-    /** The reason code the UI keys its explanation off (client-synthesized, not a server code). */
-    const val CODE = "DPOP_NONCE_REQUIRED"
+    /** The nonce to put into the next proof, or `null` while the server has issued none. */
+    fun current(): String? = current
 
     /**
-     * Reports a nonce challenge on standard error for a developer running from a terminal; the user sees
-     * the UI message keyed on [CODE]. The nonce itself is not printed.
+     * Keeps the nonce an answer carried.
      *
-     * @param endpoint the URL that issued the challenge
+     * @param header the answer's [HEADER] value, or `null` when it had none
+     * @return `true` when the answer carried a nonce different from the one kept before
      */
-    fun reportChallenge(endpoint: String) {
-        System.err.println(
-            "DPoP: $endpoint demanded a nonce (RFC 9449 §8). This build does not implement the " +
-                "nonce handshake; the request was NOT retried. This needs a new release.",
-        )
+    fun observe(header: String?): Boolean {
+        if (header.isNullOrBlank() || header == current) return false
+        current = header
+        return true
+    }
+
+    companion object {
+        /** The response header carrying a nonce. */
+        const val HEADER = "DPoP-Nonce"
+
+        /** The RFC 9449 §8 error code a server names in the challenge. */
+        const val USE_DPOP_NONCE = "use_dpop_nonce"
     }
 }

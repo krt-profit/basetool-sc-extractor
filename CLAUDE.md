@@ -38,9 +38,10 @@ repositories, without exception.**
 
 - **Read it before you start any task**, not after. Enter through its root map
   (`00 Maps/Basetool.md`); its own `CLAUDE.md` explains how it is written. For this repo start with
-  `SC Extractor`, `Ingest`, `Keycloak`, `Raffinerie` and `Blueprints` — the ingest contract, the
-  device grant, the DPoP binding and the two allowlists are all documented there, and the server
-  half of each is in the `basetool` repo where you cannot see it from here.
+  `SC Extractor`, `Ingest`, `Keycloak`, `Raffinerie`, `Blueprints` and the plan
+  `External Client Exchange` — the exchange contract, the device grant, the DPoP binding and the
+  client registry are all documented there, and the server half of each is in the `basetool`
+  repo where you cannot see it from here.
 - **Every change here updates the knowledge base in the same unit of work**: a workflow change, a
   new field in the export contract, an auth or DPoP behaviour, a packaging decision, a guardrail
   learned the hard way. It is not written afterwards and never "caught up later".
@@ -151,7 +152,8 @@ private (guardrail 1a) and live outside the repo; ask for their path.
    logs). Exported JSON goes to the user-chosen path only. What little state the app does
    keep lives under the user's data dir — `config/AppConfig.kt` writes
    `%APPDATA%\Basetool SC Extractor\config.json` (ingest URL, send consent, the last
-   channel folder) — **never** the install dir, or residue-free uninstall breaks. Two
+   channel folder, the member's installation label, the sync opt-in) — **never** the install dir, or
+   residue-free uninstall breaks. Two
    holders write that file (the blueprint step and the send flow), so every write is
    load → `copy(…)` → save; skip the reload and one silently drops the other's field.
    Pasted/dropped refinery images without a picked folder follow this rule via a session
@@ -169,16 +171,20 @@ private (guardrail 1a) and live outside the repo; ask for their path.
    (or any second font family) into version control.
 5. **Don't re-litigate the packaging decision.** Single-exe/portable approaches
    (warp-packer, IExpress, .NET bootstrapper) were explored and rejected. Ship the MSI.
-6. **The basetool ingest interface is for clients @greluc has approved — only.** The
-   gateway matches the token's `azp`, its scope and the payload's `tool` field against
-   server-side allowlists and answers `403 CLIENT_NOT_ALLOWED` to anything else
-   (`REQ-INGEST-011`; spec `docs/specs/desktop-ingest.md` in the basetool repo). That
-   gates the *software*, not the people — every member may upload, with the approved
-   extractor. Practically: `DeviceGrantClient.CLIENT_ID` and `RefineryPipeline.TOOL`
-   (both `"basetool-sc-extractor"`) are **contractual constants**. Never rename them as
-   a drive-by; it is a two-sided rotation (add the new value to the server allowlist,
-   ship, drop the old one once its `client_id` metric is quiet). Don't add a second
-   ingest client, and don't work around a 403 — ask for an allowlist entry instead.
+6. **The basetool's exchange API is for clients @greluc has approved — only.** The extractor
+   is its first-party client (`/exchange/v1`, spec `docs/specs/external-exchange.md` in the
+   basetool repo, `REQ-XCH-*`). The gateway looks the token's `azp` up in the client registry
+   (`403 CLIENT_NOT_ALLOWED` / `CLIENT_SUSPENDED`), requires each route's capability in the
+   token **and** the registry (`403 SCOPE_MISSING`), a DPoP proof with the server nonce on
+   every call, and the `User-Agent` version at or above the registry's minimum
+   (`403 CLIENT_VERSION_UNSUPPORTED`). That gates the *software*, not the people — every member
+   may upload, with the approved extractor. `DeviceGrantClient.CLIENT_ID`,
+   `RefineryPipeline.TOOL` and `BlueprintExtractor.GENERATOR_NAME` are all
+   `"basetool-sc-extractor"` (`ExchangeContractTest` pins that they agree); the client id is a
+   **contractual constant** — renaming it needs a registry entry first. Don't add a second
+   client, and don't work around a 403 — ask for a registry change instead. The legacy
+   `/v1/blueprint-preview` and `/v1/refinery-extract` routes are gone from this code and are
+   switched off server-side at the go-live (`410 LEGACY_ENDPOINT_GONE`).
 
 ## Architecture / data flow
 
@@ -194,13 +200,14 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   also appends its sibling `HOTFIX` channel's logs and a HOTFIX folder its sibling `LIVE`, via
   `siblingChannelFolder`; a folder with neither `Game.log` nor `logbackups/` but loose
   `*.log` files in it is read as an **archive**, non-recursively, via `looseLogsIn`)
-  → parse each → aggregate per-player counts → resolve untranslated `@key` names through the
+  → parse each → record each file's account → resolve untranslated `@key` names through the
   installed `global.ini` files (`localizationKey` keeps the key) → sort
-  chronologically → assemble `BlueprintExport`. `extract` returns `ExtractionResult`
-  (export + `skippedFiles`): an unreadable log is skipped and reported, never fatal,
+  chronologically → assemble the in-memory `BlueprintScan`. `extract` returns `ExtractionResult`
+  (scan + `skippedFiles` + `accounts`): an unreadable log is skipped and reported, never fatal,
   and events whose identity (player/name/timestamp/notification id) was already seen
-  in another file are counted once (guards against manually copied logs).
-  `writeJson`/`toJson` serialize the export to disk/string. No line-level parsing here.
+  in another file are counted once (guards against manually copied logs). `exportFor` narrows
+  the scan to the member's account, `envelopeOf` turns it into the exchange v1 envelope, and
+  `writeJson`/`toJson` serialize that envelope. No line-level parsing here.
 - **`ScInstallLocator.kt`** — pre-fills the channel folder: the remembered folder, else its
   LIVE/HOTFIX sibling (the launcher renames LIVE to HOTFIX to patch), else the folder the RSI
   Launcher last started LIVE/HOTFIX from (`%APPDATA%\rsilauncher\logs\log.log` — only the
@@ -216,8 +223,12 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   exception. The pure line parsers are separate and unit-tested without a disk. `Detected` also
   names the installed languages whose `global.ini` lacks the key (the zero-result hint), and
   `resolveKeys` looks up raw item keys for the `@key` resolution.
-- **`model/Models.kt`** — `@Serializable` data classes (`BlueprintEvent`,
-  `PlayerSummary`, `BlueprintExport`). The exported JSON *is* this shape.
+- **`model/Models.kt`** — the in-memory scan (`BlueprintEvent`, `LogAccount`, `BlueprintScan`),
+  **never serialised**: it holds the handle, the folder and the file names. What leaves the PC
+  is **`model/BlueprintEnvelope.kt`** — the exchange v1 envelope (`basetool.blueprints` 1.0,
+  `blueprint-draft.schema.json`): one item per product with its name, its `locKey` when the
+  game wrote a raw key, the earliest `acquiredAt` and `provenance: log`. No handle, player,
+  source folder or file name — `ExchangeContractTest` fails if one appears.
 - **`update/UpdateChecker.kt`** — the GUI's startup update check against this repo's
   GitHub releases (`releases/latest`). Pure/testable parts:
   version compare, release-JSON parsing, MSI-asset selection, installer-command
@@ -241,11 +252,31 @@ private (guardrail 1a) and live outside the repo; ask for their path.
     own functions in real Windows PowerShell with `Start-Process` stubbed, so that property
     is tested, not just grepped. Never loosen either check to make an odd release work —
     fix the release.
-- **`net/`** — the only outbound path besides the update check. `BasetoolIngestClient`
-  POSTs an export to the gateway and surfaces the RFC 7807 `detail` (+ `fieldErrors`);
+- **`net/`** — the only outbound path besides the update check. `ExchangeClient` talks to
+  `/exchange/v1` on the gateway: the two draft routes (`drafts/blueprints`,
+  `drafts/refinery-orders`) and the installation label. Every call carries `Authorization:
+  DPoP`, a proof with `ath` and the server's current nonce, `User-Agent:
+  BasetoolSCExtractor/<version> (+repo URL)` and `Accept-Language`; a write carries a fresh
+  `Idempotency-Key`. A failure surfaces the problem's `detail` plus the `errors[]` pointers and
+  its `code` (`Codes`), which the overlay turns into plain language (`sendErrorText`).
+  **The opt-in direct blueprint sync** (`BlueprintSync`, `ui/SyncController`, REQ-XCH-015) writes
+  straight into „Meine Blueprints": pull every page of `GET /me/blueprints` first, resolve the
+  envelope's names through `catalog/resolve` (the web import's own matching — never a second
+  matcher here), then `POST /me/blueprints/changes` with `add` ops by `bt` for what the member
+  lacks. **It never sends `remove`** — a log proves a receipt, not a loss — so every sync is
+  add-only, not just the first. `REMOVED_ELSEWHERE` is reported and re-sent with `override: true`
+  only on the member's button press. Before the first sync of an account in a process it asks
+  `POST /me/account-check` (REQ-XCH-031); `mismatch` stops and asks, `unknown` syncs with a hint.
+  **The handle goes only to that check** — it is not stored, not in `config.json`, not in the
+  credential; the passed checks live in memory for the process. The opt-in itself
+  (`blueprintSyncEnabled`) is persisted; the sync asks for `SYNC_SCOPES` on top of the base
+  scopes, which forces one device login for a login that lacks them.
   `auth/DeviceGrantClient` runs the RFC 8628 device grant against the **prod** Keycloak
-  (hardcoded issuer; only the ingest base URL is config), `auth/CredentialStore` is the
-  DPAPI-backed vault for the one "remember me" `StoredCredential`. Both clients accept a
+  (hardcoded issuer; only the ingest base URL is config) for exactly the exchange scopes —
+  `BASE_SCOPES` (`offline_access`, `exchange.connect`, both draft scopes), plus `SYNC_SCOPES`
+  for the opt-in sync; **never** `openid` or `extractor-ingest`. `auth/ExchangeLogin` decides
+  between a silent refresh and a device login, and `auth/CredentialStore` is the DPAPI-backed
+  vault for the one "remember me" `StoredCredential`. Both clients accept a
   server URL only through `net/TransportPolicy` — **parsed** with `java.net.URI`: `https`, or
   plain `http` to exactly `localhost` / `127.0.0.1`, and never with user-info. A prefix check
   (`startsWith("http://localhost")`) let `http://localhost.attacker.tld` and
@@ -264,42 +295,53 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   key** (`auth/CngDpopKeyStore`, FFM against `ncrypt.dll`): the TPM (Microsoft Platform Crypto
   Provider) when there is one, else the Software Key Storage Provider with export policy 0.
   Proofs are signed with `NCryptSignHash`; the private half never enters the JVM. The
-  Credential Manager record holds **only the refresh token and the key's name**
-  (`StoredCredential(refreshToken, dpopKeyName)`), so a copied record is useless on any other
-  machine.
+  Credential Manager record holds **only the refresh token, the key's name and the scopes the
+  login requested** (`StoredCredential(refreshToken, dpopKeyName, scope)`), so a copied record
+  is useless on any other machine.
+  - **A refresh never widens a token's scopes, so a record that does not `cover` the call's
+    scopes is replaced.** A record from before the exchange has no `scope`; one from before the
+    sync was switched on lacks `SYNC_SCOPES`. `ExchangeLogin` revokes it with its own key,
+    deletes it and its key, and runs one device login (`LoginReason.SCOPE_UPGRADE`, which the
+    overlay explains). The **requested** scopes are stored, not the granted ones: a scope the
+    server withholds then shows up once as `SCOPE_MISSING` instead of a re-login on every send.
+  - **The key is the installation.** The gateway identifies an installation by the key's
+    thumbprint, so a key held only in memory would make every launch a new installation (and
+    trip `ExchangeInstallationSurge`). Without a persistent CNG key the exchange is **not used
+    at all** (`NoPersistentKeyException`, owner decision 2026-09-27) — saving the JSON still
+    works. A fresh device login is a new installation, and the send labels it with the
+    member's `installationLabel` (asked on the consent step, never a host name, rule in
+    `InstallationLabel`). `INSTALLATION_REVOKED` / `CLIENT_REVOKED` drop the record and its key.
   - **Corrected 2026-09-22 (SIB-SEC-04).** This file used to say "the refresh token sitting on
     disk is worthless if copied" while `CredentialStore` stored the refresh token **and** the
     exported PKCS#8 key in the *same* blob — so a copied record was the whole login, and DPoP
     only protected against the token leaking *alone*. That record shape is now read only as
     `CredentialRecord.LegacyExportedKey`: on the next send (or disconnect) its token is revoked
     with a proof from the old key, the record is deleted, and the member signs in once more
-    (the overlay says why: `SendState.Authenticating.keyUpgrade`). What remains true of the
+    (the overlay says why: `LoginReason.KEY_UPGRADE`). What remains true of the
     software fallback: code already running as this user on this machine can still *ask*
     Windows to sign; only the TPM path resists an administrator.
   - **Keys never leak.** Every key a login does not end up naming is deleted again (failed
-    grant, dead token, key replaced, disconnect). Without a usable key storage the send falls
-    back to an in-memory session key, and a token bound to it is **not** remembered.
-    `NCryptDeleteKey` takes no `NCRYPT_SILENT_FLAG` — the TPM provider refuses it there and
+    grant, dead token, key replaced, disconnect). `NCryptDeleteKey` takes no `NCRYPT_SILENT_FLAG` — the TPM provider refuses it there and
     the key silently stayed behind until `CngDpopKeyStoreTest` caught it.
-  - The proof is **always offered** at the token endpoint but the `DPoP` scheme is used at the
-    gateway **only when the answer's `token_type` says the server actually bound the
-    token**, which is what keeps a released build working against a Keycloak or gateway
-    that has DPoP off (presenting an *unbound* token under the DPoP scheme is a hard 401).
-    Proof construction is pure JDK code — no JOSE dependency, no extra jlink module (FFM is
-    `java.base` too). Never log a key, a proof or a token.
+  - The proof is **always offered** at the token endpoint, and the exchange **requires** a bound
+    token (`REQ-XCH-006`): a token whose `token_type` is not `DPoP` is refused before any call
+    (`UnboundTokenException`). There is no bearer path any more. Proof construction is pure
+    JDK code — no JOSE dependency, no extra jlink module (FFM is `java.base` too). Never log a
+    key, a proof or a token (`StoredCredential.toString` leaves the token out).
   - **Clock drift is a real failure mode** — Keycloak accepts `iat` only in −25s…+15s and
     checks the proof *before* the grant, so a desktop clock ~15s fast breaks login
     outright, where the timestamp-free bearer builds were immune. `ServerClock` measures
     the offset from each server's `Date` header and corrects `iat`; a rejected proof is
-    retried **exactly once** from the corrected clock (that is the *only* retry, and it
-    cannot repeat). If it still fails, the measured offset reaches the UI so the user is
-    told to sync their clock — but only then, never for a drift we already fixed.
-  - **The RFC 9449 §8 nonce handshake is deliberately NOT implemented.** Neither server
-    issues a challenge (Spring Security 7.1 has no resource-server nonce support at all;
-    `use_dpop_nonce` appears nowhere in Keycloak), so an implementation would be code
-    nobody has watched run. A challenge is instead *detected*, reported on stderr and
-    named in the UI (`DpopNonce.CODE`) — a loud, once-only event that needs a release.
-    Don't "complete" it speculatively; do implement it if a challenge ever shows up.
+    retried **exactly once** from the corrected clock. If it still fails, the measured offset
+    reaches the UI so the user is told to sync their clock — but only then, never for a drift
+    we already fixed.
+  - **The RFC 9449 §8 nonce handshake is implemented, because the exchange gateway requires
+    it** (`REQ-XCH-006`: a stateless five-minute nonce, `401 DPOP_INVALID` with
+    `WWW-Authenticate: DPoP …, error="use_dpop_nonce"` and a fresh `DPoP-Nonce`). `DpopNonce`
+    keeps each server's latest nonce from every answer and puts it into the next proof; a
+    challenge is answered **once**, with the same `Idempotency-Key`. The clock correction and
+    the nonce share that single retry — never a loop. Keycloak issues no nonce today; the
+    device-grant client handles one the same way should it start.
 - **`Main.kt`** — entry point: opens the Compose GUI (`guiMain`). Keep
   the GUI a thin shell over `BlueprintExtractor`; business logic stays in the parser/
   extractor so tests cover it without a UI. `guiMain` also owns the update flow state
@@ -313,7 +355,7 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   `UpdateBanner.kt` (the start screen's update offer: `UpdateUiState`
   Hidden/Available/Downloading/Installing/Failed; install is that screen's one filled
   CTA, "Später" hides it for the session — no persisted skip; `config.json` keeps only the
-  three fields named in guardrail 2),
+  fields named in guardrail 2),
   `RefineryScreen.kt` (refinery workflow surface), `refinery/` (the five step screens +
   `RefineryUiState` — per-image checkboxes decide which images get extracted; while the
   images step is on screen the picked folder is polled once per second
@@ -353,9 +395,11 @@ private (guardrail 1a) and live outside the repo; ask for their path.
     explicit type on the override, e.g. `override val foo: (Int) -> String = { n -> … }`).
     Verify by launching the GUI, not just by tests.
 - **Model fields are nullable when the log may omit them** (`player`, `notificationId`,
-  `queueSize`, `gameBuild`). `productName`/`receivedAt` are always present. JSON uses
-  `encodeDefaults = true` + `prettyPrint`; `schemaVersion` is explicit — bump it if you
-  change the export shape.
+  `queueSize`, `gameBuild`). `productName`/`receivedAt` are always present. The envelope is
+  written with `explicitNulls = false`, because the v1 schemas type their optional fields
+  without `null`; the same holds for the refinery **draft** (`RefineryPipeline.toDraftJson`),
+  while the saved refinery file keeps every field explicit. The envelope's
+  `formatVersion` is `major.minor` — within v1 only additive changes (ADR-0219).
 - **`geid`/`accountId` are intentionally NOT stored or exported.** The parser reads the
   char-status line for the *handle* only; do not add the numeric IDs back to the model.
 
@@ -603,16 +647,23 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
 - **the bundled `/ocr/` models** → the `OcrCandidateEval` round (above) with and without the verify
   model, every disputed cell settled against the pixels, then a new `OcrDigestTest` baseline,
   `suggestRuntimeModules` and a GUI-launch test from the app image.
-- **the export shape** → bump `schemaVersion` for any breaking change. Additive optional
-  (nullable) fields may stay within the current version (basetool ADR-0008 evolution
-  rule — precedents: `capturedAt` on `sourceImages`, 2026-06-11; `additionalSourceFolders`
-  on `BlueprintExport`, 2026-06-12); mirror them in the basetool's DTOs/spec and BOTH
-  repos' contract tests in the same change.
+- **what is sent** → the exchange v1 contract is the basetool's, not ours: the blueprint
+  envelope and the refinery draft must validate against the schemas vendored under
+  `src/test/resources/exchange-v1` (`ExchangeContractTest`). Within v1 the contract only grows
+  (ADR-0219); if the extractor starts using something new, refresh the vendored copy from the
+  basetool and record the commit in its `README.md`. The refinery extract's own
+  `schemaVersion` still follows ADR-0008 (additive nullable fields stay within the version —
+  precedent `capturedAt` on `sourceImages`, 2026-06-11); mirror such a field in the basetool's
+  DTOs, spec and `refinery-draft.schema.json` in the same change.
 - **the released version** → don't edit it anywhere by hand; it comes from the git tag
   (see *Releases*). CI sets `project.version`, the `generateBuildInfo` task writes it into
   the generated `BuildInfo.VERSION`, and `BlueprintExtractor.TOOL_VERSION` (the app's
-  reported version + the export `toolVersion`) reads that — so the MSI and the app's
-  reported version stay in lockstep. The dev fallback in `build.gradle.kts` stays `1.0.0`.
+  reported version, the envelope's `generator.version`, the refinery `toolVersion` and the
+  `User-Agent` the gateway's minimum-version gate reads) reads that — so the MSI and the
+  app's reported version stay in lockstep. The dev fallback in `build.gradle.kts` stays
+  `1.0.0`. The registry's `minClientVersion` for `basetool-sc-extractor` is raised to the
+  migration release, 2.10.0, at the go-live; after that a dev build (`1.0.0`) is refused by prod,
+  which is correct — develop against the sandbox.
 
 ## Releases (CI)
 

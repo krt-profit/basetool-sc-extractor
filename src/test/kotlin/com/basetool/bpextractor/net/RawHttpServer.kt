@@ -17,8 +17,16 @@ import java.util.concurrent.CopyOnWriteArrayList
  */
 class RawHttpServer(private val handler: (attempt: Int, request: Request) -> String) : AutoCloseable {
 
-    /** One received request, parsed just far enough to assert on its headers. */
-    class Request(val head: String) {
+    /**
+     * One received request, parsed just far enough to assert on it.
+     *
+     * @param head the request line and headers
+     * @param body the body, decoded as UTF-8
+     */
+    class Request(val head: String, val body: String = "") {
+
+        /** The request line's target, e.g. `/exchange/v1/me/drafts/blueprints`. */
+        val target: String get() = head.lineSequence().first().split(' ').getOrElse(1) { "" }
 
         /**
          * One request header, case-insensitively.
@@ -46,7 +54,7 @@ class RawHttpServer(private val handler: (attempt: Int, request: Request) -> Str
             runCatching {
                 while (!server.isClosed) {
                     server.accept().use { client ->
-                        val request = Request(readRequest(client.getInputStream()))
+                        val request = readRequest(client.getInputStream())
                         received += request
                         client.getOutputStream().apply {
                             write(handler(received.size, request).toByteArray())
@@ -63,7 +71,7 @@ class RawHttpServer(private val handler: (attempt: Int, request: Request) -> Str
     override fun close() = server.close()
 
     /** Reads the head, then drains the declared body so the client's write always completes. */
-    private fun readRequest(input: InputStream): String {
+    private fun readRequest(input: InputStream): Request {
         val head = StringBuilder()
         while (!head.endsWith("\r\n\r\n")) {
             val byte = input.read()
@@ -76,8 +84,8 @@ class RawHttpServer(private val handler: (attempt: Int, request: Request) -> Str
                 ?.substringAfter(':')
                 ?.trim()
                 ?.toIntOrNull() ?: 0
-        repeat(length) { if (input.read() == -1) return@repeat }
-        return head.toString()
+        val body = input.readNBytes(length)
+        return Request(head.toString(), String(body, Charsets.UTF_8))
     }
 
     companion object {
@@ -88,9 +96,15 @@ class RawHttpServer(private val handler: (attempt: Int, request: Request) -> Str
          * @param status the status line remainder, e.g. `200 OK`
          * @param body the JSON body (may be empty)
          * @param clockSkewSeconds how far the pretend server runs ahead of local time
+         * @param headers further response headers, e.g. `DPoP-Nonce`
          * @return the raw response text
          */
-        fun response(status: String, body: String, clockSkewSeconds: Long = 0): String {
+        fun response(
+            status: String,
+            body: String,
+            clockSkewSeconds: Long = 0,
+            headers: Map<String, String> = emptyMap(),
+        ): String {
             val date =
                 DateTimeFormatter.RFC_1123_DATE_TIME.format(
                     ZonedDateTime.now(ZoneOffset.UTC).plusSeconds(clockSkewSeconds),
@@ -98,6 +112,7 @@ class RawHttpServer(private val handler: (attempt: Int, request: Request) -> Str
             return "HTTP/1.1 $status\r\n" +
                 "Content-Type: application/json\r\n" +
                 "Date: $date\r\n" +
+                headers.entries.joinToString("") { (name, value) -> "$name: $value\r\n" } +
                 "Content-Length: ${body.toByteArray().size}\r\n" +
                 "Connection: close\r\n\r\n" +
                 body
