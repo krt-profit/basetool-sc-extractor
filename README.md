@@ -329,7 +329,7 @@ the Basetool exchange API's **v1 envelope** (`basetool.blueprints` 1.0,
 {
   "format": "basetool.blueprints",
   "formatVersion": "1.0",
-  "generator": { "name": "basetool-sc-extractor", "version": "3.0.0" },
+  "generator": { "name": "basetool-sc-extractor", "version": "<release>" },
   "generatedAt": "2026-09-27T12:00:00Z",        // UTC, when the file was written
   "items": [
     {
