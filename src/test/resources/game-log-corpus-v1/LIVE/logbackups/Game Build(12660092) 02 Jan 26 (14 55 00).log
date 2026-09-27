@@ -1,3 +1,0 @@
-<2026-01-02T14:55:00.000Z> [Notice] <Legacy login response> [CIG-net] User Login Success - Handle[PLAYER_A] - Time[0] [Team_GameServices][Login]
-<2026-01-02T15:00:00.000Z> [Notice] <SHUDEvent_OnNotification> Added notification "Received Blueprint: BUL-H4 Armor Snow Camo: " [84] to queue. New queue size: 9, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]
-<2026-01-02T16:00:00.000Z> [Notice] <SHUDEvent_OnNotification> Added notification "Received Blueprint: BUL-H4 Helmet Snow Camo: " [85] to queue. New queue size: 10, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]

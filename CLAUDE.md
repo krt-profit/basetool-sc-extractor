@@ -485,8 +485,11 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
 - **The one exception to "verbatim": an untranslated `@key`.** When a pack lacks an item's
   translation the game writes the raw key (`@Item_Name_…`) into the notification. That is no
   name at all, so the extractor looks the key up in every installed `global.ini` (active language
-  first) and exports the value as `productName`, keeping the key in `localizationKey`; an
-  unresolvable key stays `@key`. None occurs in our corpus; VerseKit saw it on a lagging German pack.
+  first) and exports the value as `productName`, keeping the key in `localizationKey` (the envelope's
+  `locKey`); an unresolvable key stays `@key`. None occurs in the 31-event corpus, but it is real:
+  the owner's HOTFIX logbackups (June and August 2026) hold two — `@item_Name_mrai_flightsuit_helmet_01_07_18`
+  and `@item_Name_cds_combat_superheavy_backpack_01_01_01`, in lower-case `item_Name` — and VerseKit saw
+  it on a lagging German pack.
 - The account-wide blueprint library is **not** in the log — the game fetches it from a backend
   service and only a channel-reuse line reaches the file. The export therefore means "received
   while a log existed", never "owned". Negative result, already searched; don't redo it.

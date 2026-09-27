@@ -1,3 +1,2 @@
 <2026-01-01T12:55:00.000Z> [Notice] <Legacy login response> [CIG-net] User Login Success - Handle[PLAYER_A] - Time[0] [Team_GameServices][Login]
 <2026-01-01T13:00:00.000Z> [Notice] <SHUDEvent_OnNotification> Added notification "Received Blueprint: R97 RGHT Shotgun: " [47] to queue. New queue size: 2, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]
-<2026-01-01T14:00:00.000Z> [Notice] <SHUDEvent_OnNotification> Added notification "Received Blueprint: R97 KS Shotgun: " [127] to queue. New queue size: 3, MissionId: [00000000-0000-0000-0000-000000000000], ObjectiveId: [] [Team_CoreGameplayFeatures][Missions][Comms]
