@@ -1,9 +1,13 @@
 package com.basetool.bpextractor
 
+import com.basetool.bpextractor.model.BlueprintEnvelope
 import com.basetool.bpextractor.model.BlueprintEvent
-import com.basetool.bpextractor.model.BlueprintExport
+import com.basetool.bpextractor.model.BlueprintItem
+import com.basetool.bpextractor.model.BlueprintScan
+import com.basetool.bpextractor.model.Generator
+import com.basetool.bpextractor.model.ItemRef
 import com.basetool.bpextractor.model.LogAccount
-import com.basetool.bpextractor.model.PlayerSummary
+import com.basetool.bpextractor.model.Provenance
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.IOException
@@ -23,12 +27,11 @@ typealias ProgressListener = (
 ) -> Unit
 
 /**
- * Outcome of one extraction run: the export document plus the names of any log
- * files that could not be read (locked/corrupt) and were skipped. Skips are
- * reported to the user but deliberately kept out of the export JSON.
+ * Outcome of one extraction run: the scan plus the names of any log files that could not be read
+ * (locked/corrupt) and were skipped. Skips are reported to the user but kept out of the envelope.
  */
 data class ExtractionResult(
-    val export: BlueprintExport,
+    val export: BlueprintScan,
     val skippedFiles: List<String>,
     /**
      * The localisation the picked folder declared and the notification formats the run matched with;
@@ -54,10 +57,14 @@ data class ExtractionResult(
  */
 object BlueprintExtractor {
 
-    const val TOOL_NAME = "Basetool SC Extractor"
+    /**
+     * The machine name the envelope's `generator` carries: the same value as the Keycloak client id and
+     * the refinery extract's `tool`, so every payload names the extractor one way.
+     */
+    const val GENERATOR_NAME = "basetool-sc-extractor"
 
     /**
-     * App version shown in the GUI and written as the export's `toolVersion`, generated from the
+     * App version shown in the GUI and written as the envelope's `generator.version`, generated from the
      * project version by the `generateBuildInfo` task ([BuildInfo]).
      */
     val TOOL_VERSION: String = BuildInfo.VERSION
@@ -65,6 +72,7 @@ object BlueprintExtractor {
     private val json = Json {
         prettyPrint = true
         encodeDefaults = true
+        explicitNulls = false
     }
 
     /** The channel folder a user normally points the tool at. */
@@ -176,7 +184,6 @@ object BlueprintExtractor {
         val patterns = BlueprintParser.compile(formats)
 
         val allBlueprints = mutableListOf<BlueprintEvent>()
-        val countsByPlayer = linkedMapOf<String, Int>()
         val filesByAccount = linkedMapOf<String?, Int>()
         val eventsByAccount = linkedMapOf<String?, Int>()
         val seenEvents = HashSet<EventKey>()
@@ -204,7 +211,6 @@ object BlueprintExtractor {
                 if (!seenEvents.add(EventKey(bp.player, bp.productName, bp.receivedAt, bp.notificationId))) continue
                 allBlueprints += bp
                 eventsByAccount.merge(bp.player, 1, Int::plus)
-                bp.player?.let { countsByPlayer.merge(it, 1, Int::plus) }
             }
         }
         progress?.invoke(files.size, files.size, bytesTotal, bytesTotal, "")
@@ -212,19 +218,10 @@ object BlueprintExtractor {
         val named = resolveRawKeys(allBlueprints, listOfNotNull(channelFolder, sibling), localization.activeLanguage)
         val sorted = named.sortedBy { it.receivedAt.ifEmpty { "￿" } }
 
-        val players = countsByPlayer.entries
-            .sortedByDescending { it.value }
-            .map { (handle, count) -> PlayerSummary(handle = handle, blueprintCount = count) }
-
-        val export = BlueprintExport(
-            tool = TOOL_NAME,
-            toolVersion = TOOL_VERSION,
-            generatedAt = Instant.now().toString(),
+        val export = BlueprintScan(
             sourceFolder = channelFolder.absolutePath,
-            additionalSourceFolders = sibling?.let { listOf(it.absolutePath) },
+            additionalSourceFolders = listOfNotNull(sibling?.absolutePath),
             logFilesScanned = files.size - skipped.size,
-            blueprintCount = sorted.size,
-            players = players,
             blueprints = sorted,
         )
         val accounts = (filesByAccount.keys + eventsByAccount.keys)
@@ -245,19 +242,47 @@ object BlueprintExtractor {
             .thenBy { it.handle }
 
     /**
-     * Narrows a scan to one account: only its blueprint events, and only it in `players`.
+     * Narrows a scan to one account's blueprint events.
      *
      * @param export the scan of every account
      * @param account the member's own account
-     * @return the export of that account alone
+     * @return the scan of that account alone
      */
-    fun exportFor(export: BlueprintExport, account: LogAccount): BlueprintExport {
-        val events = export.blueprints.filter { it.player == account.handle }
-        return export.copy(
-            blueprintCount = events.size,
-            players = account.handle?.let { listOf(PlayerSummary(it, events.size)) }.orEmpty(),
-            blueprints = events,
+    fun exportFor(export: BlueprintScan, account: LogAccount): BlueprintScan =
+        export.copy(blueprints = export.blueprints.filter { it.player == account.handle })
+
+    /**
+     * Builds the v1 envelope of a scan: one item per product — the game's name, and its localisation key
+     * when the game wrote one — first received at the earliest time any log records. Nothing about the
+     * account, the folder or the files goes in.
+     *
+     * @param export the scan, already narrowed to the member's account ([exportFor])
+     * @param generatedAt the envelope's timestamp
+     * @return the envelope
+     */
+    fun envelopeOf(export: BlueprintScan, generatedAt: Instant = Instant.now()): BlueprintEnvelope {
+        val earliest = linkedMapOf<ItemRef, String?>()
+        for (event in export.blueprints) {
+            val ref = refOf(event)
+            val at = event.receivedAt.ifBlank { null }
+            val known = earliest[ref]
+            if (ref !in earliest || (at != null && (known == null || at < known))) earliest[ref] = at
+        }
+        val items = earliest.map { (ref, at) ->
+            BlueprintItem(ref = ref, acquiredAt = at, provenance = Provenance(Provenance.LOG, at))
+        }
+        return BlueprintEnvelope(
+            generator = Generator(GENERATOR_NAME, TOOL_VERSION),
+            generatedAt = generatedAt.toString(),
+            items = items.sortedBy { it.acquiredAt ?: "￿" },
         )
+    }
+
+    /** An event's reference: its name, and its key when the game wrote one; a raw `@key` is no name. */
+    private fun refOf(event: BlueprintEvent): ItemRef {
+        val key = event.localizationKey
+        val name = event.productName.takeUnless { key != null && ScLocalization.rawKeyOf(it) != null }
+        return ItemRef(locKey = key, name = name)
     }
 
     /**
@@ -285,12 +310,12 @@ object BlueprintExtractor {
         }
     }
 
-    /** Serialize an export to pretty JSON text. */
-    fun toJson(export: BlueprintExport): String = json.encodeToString(BlueprintExport.serializer(), export)
+    /** Serializes an envelope to pretty JSON text, leaving absent fields out. */
+    fun toJson(envelope: BlueprintEnvelope): String = json.encodeToString(BlueprintEnvelope.serializer(), envelope)
 
-    /** Write an export to [output] as UTF-8 JSON, creating parent folders as needed. */
-    fun writeJson(export: BlueprintExport, output: File) {
+    /** Writes an envelope to [output] as UTF-8 JSON, creating parent folders as needed. */
+    fun writeJson(envelope: BlueprintEnvelope, output: File) {
         output.absoluteFile.parentFile?.mkdirs()
-        output.writeText(toJson(export), Charsets.UTF_8)
+        output.writeText(toJson(envelope), Charsets.UTF_8)
     }
 }

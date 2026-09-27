@@ -1,15 +1,13 @@
 package com.basetool.bpextractor.model
 
-import kotlinx.serialization.Serializable
-
 /**
  * One received-blueprint event, parsed from a single
- * `Added notification "Received Blueprint: <name>: " [id]` line in a `Game.log`.
+ * `Added notification "Received Blueprint: <name>: " [id]` line in a `Game.log`. It stays on the PC;
+ * what leaves it is a [BlueprintItem].
  *
  * All fields except [productName] and [receivedAt] are nullable because not every log build writes
  * them.
  */
-@Serializable
 data class BlueprintEvent(
     /** Localised item name, e.g. `Yubarev "Mirage" Pistol`, `Palatino Core Daystar`. */
     val productName: String,
@@ -37,7 +35,7 @@ data class BlueprintEvent(
 
 /**
  * One game account the scanned logs belong to, detected per log file from its login lines. Shown to the
- * member to pick their own account; never exported as such.
+ * member to pick their own account; never exported.
  *
  * @param handle the account's handle, or `null` for the log files that name no account
  * @param logFiles how many readable log files belong to it
@@ -49,28 +47,21 @@ data class LogAccount(
     val blueprintCount: Int,
 )
 
-/** A player seen across the scanned logs, with how many blueprints they received. */
-@Serializable
-data class PlayerSummary(
-    val handle: String,
-    val blueprintCount: Int,
-)
-
-/** Top-level JSON document written to the user-chosen output file. */
-@Serializable
-data class BlueprintExport(
-    val schemaVersion: Int = 1,
-    val tool: String,
-    val toolVersion: String,
-    val generatedAt: String,
+/**
+ * What a scan found, held in memory for the summary screen and never serialised; the file and the
+ * draft are a [BlueprintEnvelope] built from it.
+ *
+ * @param sourceFolder the channel folder the member picked
+ * @param additionalSourceFolders extra channel folders swept besides it (the sibling LIVE/HOTFIX)
+ * @param logFilesScanned how many log files were read
+ * @param blueprints the events, sorted chronologically
+ */
+data class BlueprintScan(
     val sourceFolder: String,
-    /**
-     * Extra channel folders swept besides [sourceFolder] (the sibling HOTFIX channel), or `null` when
-     * only [sourceFolder] was scanned.
-     */
-    val additionalSourceFolders: List<String>? = null,
+    val additionalSourceFolders: List<String> = emptyList(),
     val logFilesScanned: Int,
-    val blueprintCount: Int,
-    val players: List<PlayerSummary>,
     val blueprints: List<BlueprintEvent>,
-)
+) {
+    /** How many events the scan holds. */
+    val blueprintCount: Int get() = blueprints.size
+}

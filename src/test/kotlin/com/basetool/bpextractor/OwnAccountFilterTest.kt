@@ -4,6 +4,7 @@ import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -75,11 +76,13 @@ class OwnAccountFilterTest {
             val ownExport = BlueprintExtractor.exportFor(result.export, own)
             assertEquals(31, ownExport.blueprintCount)
             assertTrue(ownExport.blueprints.all { it.player == "PLAYER_A" })
-            assertEquals(listOf("PLAYER_A"), ownExport.players.map { it.handle })
+            val envelope = BlueprintExtractor.toJson(BlueprintExtractor.envelopeOf(ownExport))
+            assertFalse("PLAYER" in envelope)
+            assertFalse("Arclight Pistol" in envelope)
 
             val other = BlueprintExtractor.exportFor(result.export, result.accounts[1])
             assertEquals(3, other.blueprintCount)
-            assertEquals(listOf("PLAYER_B"), other.players.map { it.handle })
+            assertTrue(other.blueprints.all { it.player == "PLAYER_B" })
         } finally {
             channel.deleteRecursively()
         }
@@ -127,7 +130,6 @@ class OwnAccountFilterTest {
             assertEquals(2, unknown.logFiles)
             val export = BlueprintExtractor.exportFor(result.export, unknown)
             assertEquals(listOf("Loose Item", "Other Loose Item"), export.blueprints.map { it.productName })
-            assertTrue(export.players.isEmpty())
         } finally {
             channel.deleteRecursively()
         }

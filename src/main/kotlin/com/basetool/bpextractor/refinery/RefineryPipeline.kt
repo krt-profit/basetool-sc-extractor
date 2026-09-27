@@ -281,8 +281,8 @@ class RefineryPipeline(
 
     companion object {
         /**
-         * Contract `tool` field (provenance). The ingest gateway accepts only allowlisted values
-         * (REQ-INGEST-011), so change it only together with that server-side list.
+         * Contract `tool` field (provenance): the extractor's machine name, the same value as its Keycloak
+         * client id and the blueprint envelope's generator.
          */
         const val TOOL = "basetool-sc-extractor"
 
@@ -291,9 +291,21 @@ class RefineryPipeline(
             encodeDefaults = true
         }
 
+        private val DRAFT_JSON = Json {
+            encodeDefaults = true
+            explicitNulls = false
+        }
+
         /** Serialize the contract document to the exact JSON [writeJson] writes, without disk I/O. */
         fun toJson(extract: RefineryExtract): String =
             JSON.encodeToString(RefineryExtract.serializer(), extract)
+
+        /**
+         * Serialize the contract document as the exchange's refinery draft: every value the read produced,
+         * and no field it left unread, because `refinery-draft.schema.json` admits no `null`.
+         */
+        fun toDraftJson(extract: RefineryExtract): String =
+            DRAFT_JSON.encodeToString(RefineryExtract.serializer(), extract)
 
         /** Write the contract document as pretty-printed JSON (every field explicit). */
         fun writeJson(extract: RefineryExtract, target: File) {

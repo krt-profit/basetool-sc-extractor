@@ -176,7 +176,7 @@ class DeviceGrantClientTest {
     }
 
     @Test
-    fun `a nonce challenge fails loudly and by name instead of being answered`() {
+    fun `a nonce challenge is answered exactly once with the nonce`() {
         tokenEndpointRecording { ex, _ ->
             ex.responseHeaders.add(DpopNonce.HEADER, "N-1")
             respond(ex, 400, """{"error":"use_dpop_nonce","error_description":"nonce required"}""")
@@ -187,9 +187,10 @@ class DeviceGrantClientTest {
                 client().refreshAccessToken("OLD-RT", DpopKey.generate())
             }
 
-        assertEquals(DpopNonce.USE_DPOP_NONCE, failure.oauthError, "the UI keys its wording off this")
-        assertEquals(1, proofs.size, "the challenge must not be answered")
-        assertNull(DpopProofs.claims(proofs.single()!!)["nonce"], "no proof ever carries a nonce")
+        assertEquals(DpopNonce.USE_DPOP_NONCE, failure.oauthError)
+        assertEquals(2, proofs.size, "the challenge is answered once, and only once")
+        assertNull(DpopProofs.claims(proofs[0]!!)["nonce"], "the first proof has no nonce to carry")
+        assertEquals("N-1", DpopProofs.claim(proofs[1]!!, "nonce"))
     }
 
     @Test

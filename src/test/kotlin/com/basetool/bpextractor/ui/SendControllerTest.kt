@@ -2,91 +2,96 @@ package com.basetool.bpextractor.ui
 
 import com.basetool.bpextractor.config.AppConfig
 import com.basetool.bpextractor.config.AppConfigStore
+import com.basetool.bpextractor.net.Codes
 import com.basetool.bpextractor.net.auth.DeviceGrantClient
-import com.basetool.bpextractor.net.auth.DpopKey
 import com.basetool.bpextractor.net.auth.DpopProofs
 import com.basetool.bpextractor.net.auth.FakeCredentialStore
 import com.basetool.bpextractor.net.auth.FakeDpopKeyStore
+import com.basetool.bpextractor.net.auth.LoginReason
+import com.basetool.bpextractor.net.auth.NoPersistentKeyException
 import com.basetool.bpextractor.net.auth.StoredCredential
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.nio.file.Files
-import java.security.KeyPairGenerator
-import java.security.spec.ECGenParameterSpec
-import java.util.Base64
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.runBlocking
 
 /**
- * Exercises the [SendController] "remember me" path against a local stand-in for Keycloak and the
- * ingest gateway ([HttpServer]): the silent refresh skips the browser and re-persists the rotated
- * token, and a dead stored token is dropped.
+ * The send flow against one local stand-in for Keycloak and the exchange gateway ([HttpServer]):
+ * consent with the installation label, the fresh login that labels the installation, the silent send
+ * that does not, the two draft routes, and what a disconnect in the Basetool does to the stored login.
  */
 class SendControllerTest {
 
     private lateinit var server: HttpServer
     private lateinit var base: String
-    private val deviceCalls = AtomicInteger(0)
-    private var browseCount = 0
 
-    /** The `Authorization` / `DPoP` headers the gateway stand-in last saw (DPoP assertions). */
-    private var ingestAuth: String? = null
-    private var ingestProof: String? = null
+    /** The exchange requests the gateway stand-in received: path, `Authorization`, `DPoP`, body. */
+    private data class Seen(val path: String, val auth: String?, val proof: String?, val body: String)
 
-    /** Per-test override for the gateway answer — the contexts are registered once, in [setUp]. */
-    private var ingestHandler: ((HttpExchange, String) -> Unit)? = null
+    private val seen = CopyOnWriteArrayList<Seen>()
 
-    /** Per-test override for the device-authorization answer (default: fail fast, no poll). */
-    private var deviceHandler: ((HttpExchange) -> Unit)? = null
+    /** Per-test override of the draft answer. */
+    private var draftAnswer: ((HttpExchange) -> Unit)? = null
 
-    /** The persistent-key storage stand-in — in memory, no CNG (the non-Windows test seam). */
     private val keys = FakeDpopKeyStore()
+    private var browsed = 0
 
-    /** The send state at the moment the browser was opened (the Authenticating step). */
-    private var stateAtBrowse: SendState? = null
+    private val baseScope = DeviceGrantClient.BASE_SCOPES.joinToString(" ")
 
     @BeforeTest
     fun setUp() {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server.createContext("/protocol/openid-connect/auth/device") { ex ->
-            deviceCalls.incrementAndGet()
-            val override = deviceHandler
-            if (override != null) {
-                override(ex)
-            } else {
-                respond(ex, 400, """{"error":"unauthorized_client"}""")
-            }
+            ex.requestBody.readAllBytes()
+            respond(ex, 200, """{"device_code":"DC","user_code":"WXYZ","verification_uri":"https://kc/device","expires_in":60,"interval":1}""")
         }
-        server.createContext("/v1/refinery-extract") { ex ->
-            ingest(ex, """{"handoffId":"H1","kind":"REFINERY","frontendUrl":"https://app/x?handoff=H1"}""")
+        server.createContext("/protocol/openid-connect/token") { ex ->
+            ex.requestBody.readAllBytes()
+            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-NEW","token_type":"DPoP","expires_in":300}""")
         }
-        server.createContext("/v1/blueprint-preview") { ex ->
-            ingest(ex, """{"handoffId":"B1","kind":"BLUEPRINT","frontendUrl":"https://app/bp?handoff=B1"}""")
+        server.createContext("/protocol/openid-connect/revoke") { ex ->
+            ex.requestBody.readAllBytes()
+            respond(ex, 200, "{}")
+        }
+        server.createContext("/exchange/v1/me/installation") { ex ->
+            record(ex)
+            respond(ex, 200, """{"label":"Spiele-PC","installationId":"inst-1"}""")
+        }
+        server.createContext("/exchange/v1/me/drafts/blueprints") { ex ->
+            record(ex)
+            draftAnswer?.invoke(ex)
+                ?: respond(ex, 200, """{"frontendUrl":"https://app/bp?handoff=B1","handoffId":"B1","kind":"BLUEPRINT"}""")
+        }
+        server.createContext("/exchange/v1/me/drafts/refinery-orders") { ex ->
+            record(ex)
+            respond(ex, 200, """{"frontendUrl":"https://app/rf?handoff=R1","handoffId":"R1","kind":"REFINERY"}""")
         }
         server.start()
         base = "http://localhost:${server.address.port}"
     }
 
-    /** Records what the send actually presented, then answers [ok] unless a test overrode it. */
-    private fun ingest(ex: HttpExchange, ok: String) {
-        ingestAuth = ex.requestHeaders.getFirst("Authorization")
-        ingestProof = ex.requestHeaders.getFirst("DPoP")
-        val override = ingestHandler
-        if (override != null) override(ex, ok) else respond(ex, 200, ok)
-    }
-
     @AfterTest
     fun tearDown() {
         server.stop(0)
+    }
+
+    private fun record(ex: HttpExchange) {
+        seen +=
+            Seen(
+                ex.requestURI.path,
+                ex.requestHeaders.getFirst("Authorization"),
+                ex.requestHeaders.getFirst("DPoP"),
+                ex.requestBody.readAllBytes().toString(Charsets.UTF_8),
+            )
     }
 
     private fun respond(ex: HttpExchange, code: Int, body: String) {
@@ -96,312 +101,154 @@ class SendControllerTest {
         ex.responseBody.use { it.write(bytes) }
     }
 
-    /** A consented config store pointing the ingest base URL at the local stand-in. */
-    private fun consentedConfig(): AppConfigStore {
-        val dir = Files.createTempDirectory("sc-send-test").toFile()
-        val store = AppConfigStore(dir)
-        store.save(AppConfig(ingestBaseUrl = base, consentGiven = true))
+    private fun config(consent: Boolean, label: String?): AppConfigStore {
+        val store = AppConfigStore(Files.createTempDirectory("sc-send-test").toFile())
+        store.save(AppConfig(ingestBaseUrl = base, consentGiven = consent, installationLabel = label))
         return store
     }
 
-    private fun controller(store: FakeCredentialStore, keyStore: FakeDpopKeyStore = keys): SendController {
+    private fun controller(
+        store: FakeCredentialStore,
+        config: AppConfigStore = config(true, "Spiele-PC"),
+        keyStore: FakeDpopKeyStore = keys,
+    ) = SendController(
+        configStore = config,
+        deviceGrant = DeviceGrantClient(issuer = base),
+        credentialStore = store,
+        keyStore = keyStore,
+        browse = { browsed++ },
+    )
+
+    private fun stored(): Pair<FakeCredentialStore, String> {
+        val name = assertNotNull(assertNotNull(keys.create()).keyName)
+        return FakeCredentialStore(StoredCredential.encode(StoredCredential("RT-OLD", name, baseScope))) to name
+    }
+
+    @Test
+    fun `the first send asks for consent and a label before anything leaves the machine`() {
+        val config = config(false, null)
+        val controller = controller(FakeCredentialStore(), config)
+
+        runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
+
+        assertEquals(SendState.Consent("Windows-PC"), controller.state)
+        assertTrue(seen.isEmpty())
+        assertEquals(0, browsed)
+    }
+
+    @Test
+    fun `an invalid label is refused on the consent step and nothing is saved`() {
+        val config = config(false, null)
+        val controller = controller(FakeCredentialStore(), config)
+        runBlocking {
+            controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC")
+            controller.editLabel(" <script>")
+            controller.confirmConsent(this)
+        }
+
+        assertEquals(SendState.Consent(" <script>", labelInvalid = true), controller.state)
+        assertTrue(!config.load().consentGiven)
+        assertNull(config.load().installationLabel)
+    }
+
+    @Test
+    fun `a first send logs in, labels the new installation, then stages the draft`() {
+        val config = config(false, null)
+        val credentials = FakeCredentialStore()
+        val controller = controller(credentials, config)
+        runBlocking {
+            controller.request(this, SendKind.BLUEPRINT, """{"format":"basetool.blueprints"}""", "de", "Windows-PC")
+            controller.editLabel("Spiele-PC")
+            controller.confirmConsent(this)
+        }
+
+        assertEquals(SendState.Done("https://app/bp?handoff=B1"), controller.state)
+        assertEquals("Spiele-PC", config.load().installationLabel)
+        assertEquals(listOf("/exchange/v1/me/installation", "/exchange/v1/me/drafts/blueprints"), seen.map { it.path })
+        assertEquals("""{"label":"Spiele-PC"}""", seen[0].body)
+        assertEquals("""{"format":"basetool.blueprints"}""", seen[1].body)
+        assertEquals("DPoP AT", seen[1].auth)
+        assertEquals(DpopProofs.expectedAth("AT"), DpopProofs.claim(assertNotNull(seen[1].proof), "ath"))
+        val remembered = assertNotNull(StoredCredential.decode(assertNotNull(credentials.stored)))
+        assertEquals("RT-NEW", remembered.refreshToken)
+        assertTrue(remembered.covers(DeviceGrantClient.BASE_SCOPES))
+        assertEquals(1, browsed)
+    }
+
+    @Test
+    fun `a stored login sends silently and does not relabel`() {
+        val (store, name) = stored()
+        val controller = controller(store)
+
+        runBlocking { controller.request(this, SendKind.REFINERY, """{"schemaVersion":1}""", "de", "Windows-PC") }
+
+        assertEquals(SendState.Done("https://app/rf?handoff=R1"), controller.state)
+        assertEquals(listOf("/exchange/v1/me/drafts/refinery-orders"), seen.map { it.path })
+        assertEquals(name, StoredCredential.decode(assertNotNull(store.stored))?.dpopKeyName)
+        assertEquals(0, browsed)
+    }
+
+    @Test
+    fun `a login from before the exchange is replaced once, and the overlay says why`() {
+        val name = assertNotNull(assertNotNull(keys.create()).keyName)
+        val store = FakeCredentialStore(StoredCredential.encode(StoredCredential("RT-OLD", name)))
+        val reasons = mutableListOf<LoginReason>()
         lateinit var controller: SendController
         controller =
             SendController(
-                configStore = consentedConfig(),
+                configStore = config(true, "Spiele-PC"),
                 deviceGrant = DeviceGrantClient(issuer = base),
                 credentialStore = store,
-                keyStore = keyStore,
-                browse = {
-                    browseCount++
-                    stateAtBrowse = controller.state
-                },
+                keyStore = keys,
+                browse = { (controller.state as? SendState.Authenticating)?.let { reasons += it.reason } },
             )
-        return controller
+
+        runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
+
+        assertEquals(listOf(LoginReason.SCOPE_UPGRADE), reasons)
+        assertTrue(controller.state is SendState.Done)
+        assertTrue(name in keys.deleted)
     }
 
     @Test
-    fun `a stored token sends silently and re-persists the rotated token`() {
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-ROTATED","token_type":"Bearer","expires_in":300}""")
+    fun `a disconnected installation drops the stored login and its key`() {
+        draftAnswer = { ex ->
+            respond(ex, 401, """{"status":401,"code":"INSTALLATION_REVOKED","detail":"Diese Installation wurde getrennt."}""")
         }
-        val store = FakeCredentialStore("RT-STORED")
+        val (store, name) = stored()
         val controller = controller(store)
 
-        runBlocking { controller.request(this, SendKind.REFINERY, """{"x":1}""", "de") }
+        runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
 
-        assertTrue(controller.state is SendState.Done, "expected Done, was ${controller.state}")
-        assertEquals("https://app/x?handoff=H1", (controller.state as SendState.Done).frontendUrl)
-        assertEquals(
-            "RT-ROTATED",
-            StoredCredential.decode(assertNotNull(store.stored))?.refreshToken,
-            "the rotated refresh token must be persisted",
-        )
-        assertEquals(1, store.saveCount)
-        assertEquals(0, deviceCalls.get(), "the silent path must not start a device grant")
-        assertEquals(0, browseCount, "the silent path must not open the browser")
-    }
-
-    @Test
-    fun `a dead stored token is cleared before falling back to a fresh login`() {
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            respond(ex, 400, """{"error":"invalid_grant"}""")
-        }
-        val store = FakeCredentialStore("RT-DEAD")
-        val controller = controller(store)
-
-        runBlocking { controller.request(this, SendKind.REFINERY, """{"x":1}""", "de") }
-
-        assertNull(store.stored, "the dead token must be dropped")
-        assertEquals(1, deviceCalls.get(), "it must fall back to a device grant")
-        assertTrue(controller.state is SendState.Error, "the stubbed device grant fails, so we end in Error")
-        assertTrue(keys.keys.isEmpty(), "no persistent key may be left behind by a failed login")
-    }
-
-    @Test
-    fun `a dead token bound to a persistent key takes that key with it`() {
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            respond(ex, 400, """{"error":"invalid_grant"}""")
-        }
-        val key = assertNotNull(keys.create())
-        val store = FakeCredentialStore(StoredCredential.encode(StoredCredential("RT-DEAD", key.keyName)))
-
-        runBlocking { controller(store).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
-
+        val error = controller.state as SendState.Error
+        assertEquals(Codes.INSTALLATION_REVOKED, error.code)
         assertNull(store.stored)
-        assertTrue(key.keyName in keys.deleted, "the dead credential's key must be deleted too")
-        assertTrue(keys.keys.isEmpty())
+        assertTrue(name in keys.deleted)
     }
 
     @Test
-    fun `a credential whose key is gone is dropped instead of redeemed`() {
-        val tokenCalls = AtomicInteger(0)
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            tokenCalls.incrementAndGet()
-            respond(ex, 400, """{"error":"invalid_grant"}""")
-        }
-        val store =
-            FakeCredentialStore(StoredCredential.encode(StoredCredential("RT-ORPHAN", "Basetool SC Extractor DPoP gone")))
+    fun `without key storage the send stops before any sign-in`() {
+        val controller = controller(FakeCredentialStore(), keyStore = FakeDpopKeyStore(available = false))
 
-        runBlocking { controller(store).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
+        runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
 
-        assertNull(store.stored)
-        assertEquals(0, tokenCalls.get(), "an unredeemable token is not sent anywhere")
-        assertEquals(1, deviceCalls.get(), "the member signs in afresh")
+        assertEquals(NoPersistentKeyException.CODE, (controller.state as SendState.Error).code)
+        assertEquals(0, browsed)
+        assertTrue(seen.isEmpty())
     }
 
     @Test
-    fun `a bound token goes to the gateway under DPoP with a proof, and its key is persisted`() {
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-ROTATED","token_type":"DPoP","expires_in":300}""")
+    fun `a refusal reaches the overlay with its code and the server's detail`() {
+        draftAnswer = { ex ->
+            respond(ex, 403, """{"status":403,"code":"CLIENT_VERSION_UNSUPPORTED","detail":"Bitte aktualisieren."}""")
         }
-        val store = FakeCredentialStore("RT-STORED")
-
-        runBlocking { controller(store).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
-
-        assertEquals("DPoP AT", ingestAuth, "a bound token goes out under the DPoP scheme")
-        assertNotNull(ingestProof, "and carries the proof the gateway validates")
-
-        val stored = assertNotNull(StoredCredential.decode(assertNotNull(store.stored)))
-        assertEquals("RT-ROTATED", stored.refreshToken)
-        val key = assertNotNull(keys.open(assertNotNull(stored.dpopKeyName)))
-        assertEquals(
-            key.thumbprint,
-            DpopProofs.thumbprint(assertNotNull(ingestProof)),
-            "the gateway proof is signed by the stored key",
-        )
-        assertEquals(1, keys.keys.size, "exactly one persistent key")
-    }
-
-    @Test
-    fun `a bound token with no persistent key available is used but not remembered`() {
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-ROTATED","token_type":"DPoP","expires_in":300}""")
-        }
-        val store = FakeCredentialStore("RT-STORED")
-
-        runBlocking {
-            controller(store, FakeDpopKeyStore(available = false))
-                .request(this, SendKind.REFINERY, """{"x":1}""", "de")
-        }
-
-        assertEquals("DPoP AT", ingestAuth, "the send itself still works under DPoP")
-        assertEquals("RT-STORED", store.stored, "the unredeemable-after-exit token is not stored")
-        assertEquals(0, store.saveCount)
-    }
-
-    @Test
-    fun `an unbound token keeps the plain bearer — the extractor follows the server`() {
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-ROTATED","token_type":"Bearer","expires_in":300}""")
-        }
-
-        runBlocking { controller(FakeCredentialStore("RT-STORED")).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
-
-        assertEquals("Bearer AT", ingestAuth)
-        assertNull(ingestProof, "an unbound token must not be accompanied by a proof")
-    }
-
-    @Test
-    fun `a legacy stored token still refreshes and is upgraded to a keyed record`() {
-        val proofs = mutableListOf<String?>()
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            proofs.add(ex.requestHeaders.getFirst("DPoP"))
-            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-BOUND","token_type":"DPoP","expires_in":300}""")
-        }
-        val store = FakeCredentialStore("plain-legacy-refresh-token")
-
-        runBlocking { controller(store).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
-
-        assertNotNull(proofs.single(), "the refresh of a legacy token still carries a proof")
-        assertEquals(0, deviceCalls.get(), "and must not force an interactive login")
-        val stored = assertNotNull(StoredCredential.decode(assertNotNull(store.stored)))
-        assertEquals("RT-BOUND", stored.refreshToken)
-        assertNotNull(keys.open(assertNotNull(stored.dpopKeyName, "the record is rewritten in the keyed shape")))
-    }
-
-    @Test
-    fun `the stored key is the one reused on the next send`() {
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT","token_type":"DPoP","expires_in":300}""")
-        }
-        val store = FakeCredentialStore("RT-STORED")
-
-        runBlocking { controller(store).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
-        val firstKey = assertNotNull(StoredCredential.decode(assertNotNull(store.stored))?.dpopKeyName)
-        runBlocking { controller(store).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
-        val secondKey = assertNotNull(StoredCredential.decode(assertNotNull(store.stored))?.dpopKeyName)
-
-        assertEquals(firstKey, secondKey, "a persisted key must be reused, never regenerated")
-        assertEquals(setOf(firstKey), keys.keys.keys, "and no second key is created along the way")
-    }
-
-    @Test
-    fun `a record with an exported key is revoked, deleted, and the member signs in once more`() {
-        val legacyPair =
-            KeyPairGenerator.getInstance("EC").apply { initialize(ECGenParameterSpec("secp256r1")) }.generateKeyPair()
-        val legacyExport =
-            Base64.getEncoder().encodeToString(legacyPair.private.encoded) + "." +
-                Base64.getEncoder().encodeToString(legacyPair.public.encoded)
-        val store = FakeCredentialStore("""{"refreshToken":"RT-OLD","dpopKey":"$legacyExport"}""")
-        var revokedBody = ""
-        var revokeProof: String? = null
-        server.createContext("/protocol/openid-connect/revoke") { ex ->
-            revokedBody = ex.requestBody.readBytes().decodeToString()
-            revokeProof = ex.requestHeaders.getFirst("DPoP")
-            ex.sendResponseHeaders(200, -1)
-            ex.close()
-        }
-        val refreshed = mutableListOf<String>()
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            refreshed += ex.requestBody.readBytes().decodeToString()
-            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-NEW","token_type":"DPoP","expires_in":300}""")
-        }
-        deviceHandler = { ex ->
-            respond(
-                ex,
-                200,
-                """{"device_code":"DC","user_code":"ABCD-EFGH","verification_uri":"https://sso.example/device",""" +
-                    """"expires_in":60,"interval":1}""",
-            )
-        }
+        val (store, _) = stored()
         val controller = controller(store)
 
-        runBlocking { controller.request(this, SendKind.REFINERY, """{"x":1}""", "de") }
+        runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
 
-        assertTrue(revokedBody.contains("token=RT-OLD"), "the legacy token must be revoked")
-        val legacyThumbprint = assertNotNull(DpopKey.fromLegacyExport(legacyExport)).thumbprint
-        assertEquals(legacyThumbprint, DpopProofs.thumbprint(assertNotNull(revokeProof)))
-        assertTrue(refreshed.none { it.contains("RT-OLD") }, "the legacy token must not be refreshed")
-        assertEquals(1, deviceCalls.get(), "the member signs in once via the device grant")
-        val shown = stateAtBrowse
-        assertTrue(shown is SendState.Authenticating && shown.keyUpgrade, "was $shown")
-        assertTrue(controller.state is SendState.Done, "was ${controller.state}")
-        val blob = assertNotNull(store.stored)
-        assertFalse(blob.contains(legacyExport.substringBefore('.')))
-        assertFalse(blob.contains("\"dpopKey\""))
-        val stored = assertNotNull(StoredCredential.decode(blob))
-        assertEquals("RT-NEW", stored.refreshToken)
-        assertNotNull(keys.open(assertNotNull(stored.dpopKeyName)))
-    }
-
-    @Test
-    fun `an ordinary interactive login does not claim to be the key upgrade`() {
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT","token_type":"DPoP","expires_in":300}""")
-        }
-        deviceHandler = { ex ->
-            respond(
-                ex,
-                200,
-                """{"device_code":"DC","user_code":"ABCD-EFGH","verification_uri":"https://sso.example/device",""" +
-                    """"expires_in":60,"interval":1}""",
-            )
-        }
-
-        runBlocking { controller(FakeCredentialStore()).request(this, SendKind.REFINERY, """{"x":1}""", "de") }
-
-        val shown = stateAtBrowse
-        assertTrue(shown is SendState.Authenticating && !shown.keyUpgrade, "was $shown")
-    }
-
-    @Test
-    fun `a rejected proof does not cost the user their stored login`() {
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            respond(ex, 400, """{"error":"invalid_request","error_description":"DPoP proof is not active"}""")
-        }
-        val store = FakeCredentialStore("RT-STILL-VALID")
-        val controller = controller(store)
-
-        runBlocking { controller.request(this, SendKind.REFINERY, """{"x":1}""", "de") }
-
-        assertEquals("RT-STILL-VALID", store.stored, "a proof error must not destroy the credential")
-        assertTrue(keys.keys.isEmpty(), "the key minted for the refresh attempt is not left behind")
-        assertEquals(0, deviceCalls.get(), "and must not start a doomed interactive grant")
-        assertEquals(0, browseCount)
-        val state = controller.state
-        assertTrue(state is SendState.Error, "expected Error, was $state")
-        assertTrue(
-            state.message.contains("DPoP proof is not active"),
-            "the reason must reach the user, was: ${state.message}",
-        )
-    }
-
-    @Test
-    fun `a 403 CLIENT_NOT_ALLOWED ends the flow with its code and no second attempt`() {
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT","token_type":"Bearer","expires_in":300}""")
-        }
-        val attempts = AtomicInteger(0)
-        ingestHandler = { ex, _ ->
-            attempts.incrementAndGet()
-            respond(
-                ex,
-                403,
-                """{"title":"Client not allowed","detail":"This client is not approved for the basetool """ +
-                    """ingest path.","status":403,"code":"CLIENT_NOT_ALLOWED"}""",
-            )
-        }
-        val controller = controller(FakeCredentialStore("RT-STORED"))
-
-        runBlocking { controller.request(this, SendKind.BLUEPRINT, """{"x":1}""", "de") }
-
-        val state = controller.state
-        assertTrue(state is SendState.Error, "expected Error, was $state")
-        assertEquals("CLIENT_NOT_ALLOWED", state.code)
-        assertEquals(1, attempts.get(), "a permanent refusal is never re-sent")
-    }
-
-    @Test
-    fun `a blueprint send posts to the blueprint endpoint`() {
-        server.createContext("/protocol/openid-connect/token") { ex ->
-            respond(ex, 200, """{"access_token":"AT","refresh_token":"RT-ROTATED","token_type":"Bearer","expires_in":300}""")
-        }
-        val controller = controller(FakeCredentialStore("RT-STORED"))
-
-        runBlocking { controller.request(this, SendKind.BLUEPRINT, """{"schemaVersion":1}""", "en") }
-
-        assertTrue(controller.state is SendState.Done, "expected Done, was ${controller.state}")
-        assertEquals("https://app/bp?handoff=B1", (controller.state as SendState.Done).frontendUrl)
+        val error = controller.state as SendState.Error
+        assertEquals(SendState.Error("Bitte aktualisieren.", Codes.CLIENT_VERSION_UNSUPPORTED), error)
+        assertNotNull(store.stored)
     }
 }

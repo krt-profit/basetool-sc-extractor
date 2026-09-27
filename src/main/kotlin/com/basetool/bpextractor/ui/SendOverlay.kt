@@ -26,10 +26,37 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.basetool.bpextractor.net.IngestProblem
-import com.basetool.bpextractor.net.auth.DpopNonce
+import com.basetool.bpextractor.net.Codes
+import com.basetool.bpextractor.net.auth.LoginReason
+import com.basetool.bpextractor.net.auth.NoPersistentKeyException
+import com.basetool.bpextractor.net.auth.UnboundTokenException
 import com.basetool.bpextractor.ui.i18n.LocalStrings
+import com.basetool.bpextractor.ui.i18n.SendStrings
 import kotlinx.coroutines.CoroutineScope
+
+/**
+ * The plain-language text for a failed send: what the code means and what fixes it, else the clock
+ * hint, else the server's detail.
+ *
+ * @param strings the send strings of the active language
+ * @param error the failure
+ * @return the text to show
+ */
+fun sendErrorText(strings: SendStrings, error: SendState.Error): String =
+    when (error.code) {
+        Codes.CLIENT_NOT_ALLOWED, Codes.CLIENT_SUSPENDED -> strings.errorClientNotAllowed(error.message)
+        Codes.CLIENT_VERSION_UNSUPPORTED -> strings.errorVersionUnsupported(error.message)
+        Codes.INSTALLATION_REVOKED, Codes.CLIENT_REVOKED -> strings.errorRevoked(error.message)
+        Codes.SCOPE_MISSING -> strings.errorScopeMissing(error.message)
+        NoPersistentKeyException.CODE -> strings.errorNoPersistentKey
+        UnboundTokenException.CODE -> strings.errorTokenNotBound
+        else ->
+            if (error.clockOffsetSeconds != 0L) {
+                strings.errorClockSkew(error.clockOffsetSeconds, error.message)
+            } else {
+                strings.error(error.message)
+            }
+    }
 
 /**
  * The "An Basetool senden" scrim modal that walks the user through consent, browser approval, sending
@@ -118,16 +145,32 @@ fun SendOverlay(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 when (state) {
-                    is SendState.Consent ->
+                    is SendState.Consent -> {
                         Text(
                             strings.send.consentBody,
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )
+                        FieldLabel(strings.send.labelTitle)
+                        KrtTextField(
+                            value = state.label,
+                            onValueChange = { controller.editLabel(it) },
+                            placeholder = strings.send.defaultLabel,
+                            isError = state.labelInvalid,
+                            supportingText = if (state.labelInvalid) strings.send.labelInvalid else strings.send.labelHint,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
                     is SendState.Authenticating -> {
-                        if (state.keyUpgrade) {
+                        val reasonText =
+                            when (state.reason) {
+                                LoginReason.KEY_UPGRADE -> strings.send.authKeyUpgrade
+                                LoginReason.SCOPE_UPGRADE -> strings.send.authScopeUpgrade
+                                LoginReason.NONE -> null
+                            }
+                        if (reasonText != null) {
                             Text(
-                                strings.send.authKeyUpgrade,
+                                reasonText,
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = Krt.White,
                             )
@@ -162,15 +205,7 @@ fun SendOverlay(
                         )
                     is SendState.Error ->
                         Text(
-                            when {
-                                state.code == IngestProblem.CLIENT_NOT_ALLOWED ->
-                                    strings.send.errorClientNotAllowed(state.message)
-                                state.code == DpopNonce.CODE ->
-                                    strings.send.errorDpopNonceRequired(state.message)
-                                state.clockOffsetSeconds != 0L ->
-                                    strings.send.errorClockSkew(state.clockOffsetSeconds, state.message)
-                                else -> strings.send.error(state.message)
-                            },
+                            sendErrorText(strings.send, state),
                             style = MaterialTheme.typography.bodyMedium,
                             color = Krt.Gray1,
                         )
