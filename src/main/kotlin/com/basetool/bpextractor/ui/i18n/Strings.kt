@@ -162,6 +162,9 @@ interface Strings {
     val cannotOpen: (String, String) -> String
     val bpSummaryPlayers: String
     val bpSummaryNoPlayer: String
+    val bpAccountUnknown: String
+    val bpAccountDetail: (Int, Int) -> String
+    val bpAccountHint: String
     val bpSummaryByCategory: String
     val bpSummaryRecent: String
 
@@ -474,8 +477,13 @@ object StringsDe : Strings {
     override val bpShowInFolder = "Im Ordner anzeigen"
     override val bpOpenJson = "JSON öffnen"
     override val cannotOpen: (String, String) -> String = { name, msg -> "Konnte „$name\" nicht öffnen: $msg" }
-    override val bpSummaryPlayers = "Spieler:"
+    override val bpSummaryPlayers = "Spielkonto:"
     override val bpSummaryNoPlayer = "(keiner erkannt)"
+    override val bpAccountUnknown = "(ohne Anmeldezeile)"
+    override val bpAccountDetail: (Int, Int) -> String = { files, count -> "$files Log(s) · $count" }
+    override val bpAccountHint =
+        "Die Logs stammen von mehreren Spielkonten. Gespeichert und gesendet werden nur die " +
+            "Blueprints des gewählten Kontos."
     override val bpSummaryByCategory = "Blueprints nach Kategorie:"
     override val bpSummaryRecent = "Letzte erhaltene Blueprints:"
 
@@ -892,8 +900,13 @@ object StringsEn : Strings {
     override val bpShowInFolder = "Show in folder"
     override val bpOpenJson = "Open JSON"
     override val cannotOpen: (String, String) -> String = { name, msg -> "Could not open \"$name\": $msg" }
-    override val bpSummaryPlayers = "Players:"
+    override val bpSummaryPlayers = "Game account:"
     override val bpSummaryNoPlayer = "(none detected)"
+    override val bpAccountUnknown = "(no login line)"
+    override val bpAccountDetail: (Int, Int) -> String = { files, count -> "$files log(s) · $count" }
+    override val bpAccountHint =
+        "The logs come from several game accounts. Only the selected account's blueprints are " +
+            "saved and sent."
     override val bpSummaryByCategory = "Blueprints by category:"
     override val bpSummaryRecent = "Most recently received blueprints:"
 

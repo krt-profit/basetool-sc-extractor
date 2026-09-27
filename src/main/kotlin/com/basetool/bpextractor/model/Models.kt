@@ -35,6 +35,20 @@ data class BlueprintEvent(
     val localizationKey: String? = null,
 )
 
+/**
+ * One game account the scanned logs belong to, detected per log file from its login lines. Shown to the
+ * member to pick their own account; never exported as such.
+ *
+ * @param handle the account's handle, or `null` for the log files that name no account
+ * @param logFiles how many readable log files belong to it
+ * @param blueprintCount how many distinct blueprint events it received
+ */
+data class LogAccount(
+    val handle: String?,
+    val logFiles: Int,
+    val blueprintCount: Int,
+)
+
 /** A player seen across the scanned logs, with how many blueprints they received. */
 @Serializable
 data class PlayerSummary(

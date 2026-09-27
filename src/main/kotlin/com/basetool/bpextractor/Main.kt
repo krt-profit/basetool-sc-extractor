@@ -2,6 +2,7 @@ package com.basetool.bpextractor
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +44,8 @@ import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import com.basetool.bpextractor.config.AppConfigStore
+import com.basetool.bpextractor.model.BlueprintExport
+import com.basetool.bpextractor.model.LogAccount
 import com.basetool.bpextractor.resources.Res
 import com.basetool.bpextractor.resources.basetool_extractor_icon
 import com.basetool.bpextractor.resources.made_by_the_community_black
@@ -132,7 +135,21 @@ private class AppState {
      * The last successful export, feeding the summary screen and the config screen's "last run" line.
      * Not cleared by "Erneut"; only a new run replaces it.
      */
-    var resultExport by mutableStateOf<com.basetool.bpextractor.model.BlueprintExport?>(null)
+    var resultExport by mutableStateOf<BlueprintExport?>(null)
+
+    /** The accounts the last run found, the preselected one first. */
+    var resultAccounts by mutableStateOf<List<LogAccount>>(emptyList())
+
+    /** The member's own account among [resultAccounts]; only its blueprints are shown, saved and sent. */
+    var selectedAccount by mutableStateOf<LogAccount?>(null)
+
+    /** [resultExport] narrowed to [selectedAccount]. */
+    val selectedExport: BlueprintExport?
+        get() {
+            val export = resultExport ?: return null
+            val account = selectedAccount ?: return export
+            return BlueprintExtractor.exportFor(export, account)
+        }
     var isError by mutableStateOf(false)
     var channelError by mutableStateOf<String?>(null)
     var outputError by mutableStateOf<String?>(null)
@@ -368,13 +385,13 @@ private fun BpConfigStep(state: AppState, appScope: CoroutineScope) {
                 Spacer(Modifier.height(10.dp))
                 Text(strings.bpCtxLastRun.uppercase(), style = MaterialTheme.typography.labelMedium, color = Krt.Gray2)
                 Spacer(Modifier.height(6.dp))
-                val export = state.resultExport
+                val export = state.selectedExport
                 if (export == null) {
                     Text(strings.bpCtxNoRun, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
                 } else {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            export.players.joinToString(" · ") { it.handle }.ifBlank { strings.bpSummaryNoPlayer },
+                            state.selectedAccount?.handle ?: strings.bpSummaryNoPlayer,
                             style = MaterialTheme.typography.bodySmall,
                             color = Krt.Gray2,
                             modifier = Modifier.weight(1f),
@@ -443,11 +460,11 @@ private fun BpSummaryStep(state: AppState) {
     val strings = LocalStrings.current
     val scope = rememberCoroutineScope()
     val canOpenFiles = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
-    val export = state.resultExport
+    val export = state.selectedExport
     val sendController = remember { SendController() }
     val langTag = if (strings === StringsEn) "en" else "de"
     val saveBlueprintJson = {
-        val export = state.resultExport
+        val export = state.selectedExport
         if (export != null) {
             state.picker =
                 PickerRequest(
@@ -484,7 +501,7 @@ private fun BpSummaryStep(state: AppState) {
             CtaButton(
                 strings.send.button,
                 onClick = {
-                    val json = state.resultExport?.let { BlueprintExtractor.toJson(it) }
+                    val json = state.selectedExport?.let { BlueprintExtractor.toJson(it) }
                     if (json != null) sendController.request(scope, SendKind.BLUEPRINT, json, langTag)
                 },
             )
@@ -632,16 +649,7 @@ private fun BpSummaryStep(state: AppState) {
                         color = Krt.Gray2,
                     )
                     Spacer(Modifier.height(4.dp))
-                    if (export.players.isEmpty()) {
-                        Text(strings.bpSummaryNoPlayer, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
-                    } else {
-                        export.players.forEach { p ->
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                Text(p.handle, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1, modifier = Modifier.weight(1f))
-                                Text("${p.blueprintCount}", style = KrtDataStyle, color = Krt.Gray1)
-                            }
-                        }
-                    }
+                    AccountSelector(state)
                 }
 
                 Column(modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Gray3)) {
@@ -689,6 +697,48 @@ private fun BpSummaryStep(state: AppState) {
         }
     }
         SendOverlay(sendController, scope, onSaveLocally = saveBlueprintJson)
+    }
+}
+
+/**
+ * The accounts the logs belong to, as a single-choice list: the selected one is marked orange, and a
+ * click selects another. With several accounts a hint says that only the selected one leaves the PC.
+ */
+@Composable
+private fun AccountSelector(state: AppState) {
+    val strings = LocalStrings.current
+    val accounts = state.resultAccounts
+    if (accounts.isEmpty()) {
+        Text(strings.bpSummaryNoPlayer, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+        return
+    }
+    accounts.forEach { account ->
+        val selected = account == state.selectedAccount
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = accounts.size > 1) { state.selectedAccount = account }
+                .padding(vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            StatusDot(if (selected) Krt.Orange else Krt.Gray3)
+            Text(
+                account.handle ?: strings.bpAccountUnknown,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (selected) Krt.White else Krt.Gray2,
+                modifier = Modifier.weight(1f),
+            )
+            Text(
+                strings.bpAccountDetail(account.logFiles, account.blueprintCount),
+                style = KrtDataStyle,
+                color = if (selected) Krt.Gray1 else Krt.Gray2,
+            )
+        }
+    }
+    if (accounts.size > 1) {
+        Spacer(Modifier.height(4.dp))
+        Text(strings.bpAccountHint, style = MaterialTheme.typography.bodySmall, color = Krt.Orange)
     }
 }
 
@@ -766,6 +816,8 @@ private fun runExtraction(
             state.status = ""
             state.resultFile = null
             state.resultExport = export
+            state.resultAccounts = result.accounts
+            state.selectedAccount = result.defaultAccount
             state.resultSummary = strings.bpSumSuccessTitle
             state.toast = ToastInfo(strings.bpToastDoneTitle, strings.bpToastDoneBody(export.blueprintCount), error = false)
         } catch (t: Throwable) {

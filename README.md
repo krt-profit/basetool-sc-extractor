@@ -148,10 +148,16 @@ and GitHub publishes its SHA-256 checksum; otherwise the app simply offers nothi
    later choose to save the result as a file (default: `Documents\blueprints.json`).
 4. Click **Extract blueprints**.
 
-After the run the app shows a summary (detected players, blueprints by category,
+After the run the app shows a summary (the game account, blueprints by category,
 the most recently received blueprints). **Nothing is written automatically** — from
 the summary you either **Send to Basetool** or **Export as JSON**, which opens the
 save dialog at the output path from step 3.
+
+**Only your own account is exported.** Each log file names the account that played
+it. When the logs come from several accounts — a second account played on the same
+PC — the summary lists them all and preselects the one with the most log files;
+click another to switch. Only the selected account's blueprints are shown, saved
+and sent; the others never leave your PC.
 
 ### Using it — Refinery (screenshot extraction)
 
@@ -285,10 +291,10 @@ program folder — so the program folder itself stays completely removable:
     "…\\StarCitizen\\HOTFIX"                //   sibling HOTFIX next to LIVE; absent when none
   ],
   "logFilesScanned": 424,                    // Game.log + logbackups\*.log
-  "blueprintCount": 179,                     // total blueprints received
+  "blueprintCount": 179,                     // blueprints of the selected account
   "players": [
     {
-      "handle": "greluc",                    // player name (from login lines)
+      "handle": "greluc",                    // the selected account (from login lines)
       "blueprintCount": 179
     }
   ],
@@ -352,7 +358,9 @@ handles the real-world quirks of these lines:
   (`User Login Success - Handle[…]`, the character-status line with `geid` and
   `accountId`, or a `nickname="…"` handshake line; first match wins, and only the
   handle is kept) — the `MissionId` on the blueprint line is always `0000…` and
-  therefore useless.
+  therefore useless. The same lines decide which **account** a file belongs to;
+  the export holds only the account you selected (by default the one with the
+  most log files).
 - **The build number** comes from the file name (`Game Build(11518367) …`). The
   live `Game.log` has none, so for that one file it is read from the
   `BackupNameAttachment="… Build(<n>) …"` header on line 1 — read once, on the
