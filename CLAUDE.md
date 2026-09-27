@@ -274,7 +274,10 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   `auth/DeviceGrantClient` runs the RFC 8628 device grant against the **prod** Keycloak
   (hardcoded issuer; only the ingest base URL is config) for exactly the exchange scopes —
   `BASE_SCOPES` (`offline_access`, `exchange.connect`, both draft scopes), plus `SYNC_SCOPES`
-  for the opt-in sync; **never** `openid` or `extractor-ingest`. `auth/ExchangeLogin` decides
+  for the opt-in sync; **never** `openid` or `extractor-ingest`. The browser opens the **bare
+  `verification_uri`** and the member types the code shown in the app: `verification_uri_complete`
+  skips the device page's phishing warning (review finding M1), so it is only the fallback for a
+  server that sends no bare URI (`DeviceCodeResponse.browserUrl`). `auth/ExchangeLogin` decides
   between a silent refresh and a device login, and `auth/CredentialStore` is the DPAPI-backed
   vault for the one "remember me" `StoredCredential`. Both clients accept a
   server URL only through `net/TransportPolicy` — **parsed** with `java.net.URI`: `https`, or

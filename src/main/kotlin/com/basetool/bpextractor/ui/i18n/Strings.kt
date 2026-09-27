@@ -773,8 +773,9 @@ object StringsDe : Strings {
             defaultLabel = "Windows-PC",
             authTitle = "Im Browser bestätigen",
             authBody =
-                "Wir haben deinen Browser geöffnet. Melde dich an (falls nötig) und bestätige den " +
-                    "unten gezeigten Code, um den Versand freizugeben.",
+                "Wir haben deinen Browser geöffnet. Melde dich an (falls nötig), gib dort den unten " +
+                    "gezeigten Code ein und bestätige die Freigabe. Gib nur Codes ein, die dir diese " +
+                    "App gerade anzeigt.",
             authCode = { code -> "Code: $code" },
             authOpenBrowser = "Browser erneut öffnen",
             authKeyUpgrade =
@@ -1263,8 +1264,8 @@ object StringsEn : Strings {
             defaultLabel = "Windows PC",
             authTitle = "Confirm in the browser",
             authBody =
-                "We opened your browser. Sign in (if needed) and confirm the code shown below to " +
-                    "authorize the send.",
+                "We opened your browser. Sign in (if needed), enter the code shown below there and " +
+                    "approve. Only ever enter a code this app is showing you right now.",
             authCode = { code -> "Code: $code" },
             authOpenBrowser = "Open browser again",
             authKeyUpgrade =
