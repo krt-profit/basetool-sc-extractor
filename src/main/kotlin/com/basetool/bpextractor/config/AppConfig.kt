@@ -14,6 +14,7 @@ import java.io.File
  *   start; `null` until the first run
  * @param installationLabel the label the member chose for this installation in the Basetool's
  *   „Verbundene Anwendungen" (REQ-XCH-007); `null` until they chose one
+ * @param blueprintSyncEnabled `true` once the member switched the direct blueprint sync on
  */
 @Serializable
 data class AppConfig(
@@ -21,6 +22,7 @@ data class AppConfig(
     val consentGiven: Boolean = false,
     val lastChannelFolder: String? = null,
     val installationLabel: String? = null,
+    val blueprintSyncEnabled: Boolean = false,
 ) {
     companion object {
         /** Prod ingest gateway host (behind the basetool's edge proxy); override in config.json for dev. */

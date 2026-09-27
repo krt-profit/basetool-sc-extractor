@@ -75,6 +75,8 @@ import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.SendController
 import com.basetool.bpextractor.ui.SendKind
 import com.basetool.bpextractor.ui.SendOverlay
+import com.basetool.bpextractor.ui.SyncController
+import com.basetool.bpextractor.ui.SyncOverlay
 import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.UpdateUiState
 import com.basetool.bpextractor.ui.hudBox
@@ -463,6 +465,7 @@ private fun BpSummaryStep(state: AppState) {
     val canOpenFiles = remember { Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN) }
     val export = state.selectedExport
     val sendController = remember { SendController() }
+    val syncController = remember { SyncController() }
     val langTag = if (strings === StringsEn) "en" else "de"
     val saveBlueprintJson = {
         val export = state.selectedExport
@@ -499,6 +502,22 @@ private fun BpSummaryStep(state: AppState) {
         footer = {
             GhostButton(strings.bpCtaExport, onClick = saveBlueprintJson)
             Spacer(Modifier.weight(1f))
+            GhostButton(
+                strings.sync.button,
+                onClick = {
+                    val selected = state.selectedExport
+                    if (selected != null) {
+                        syncController.request(
+                            scope,
+                            BlueprintExtractor.envelopeOf(selected).items,
+                            state.selectedAccount?.handle,
+                            langTag,
+                            strings.send.defaultLabel,
+                        )
+                    }
+                },
+            )
+            Spacer(Modifier.width(10.dp))
             CtaButton(
                 strings.send.button,
                 onClick = {
@@ -698,6 +717,7 @@ private fun BpSummaryStep(state: AppState) {
         }
     }
         SendOverlay(sendController, scope, onSaveLocally = saveBlueprintJson)
+        SyncOverlay(syncController, scope)
     }
 }
 

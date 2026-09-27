@@ -62,6 +62,15 @@ class StringsCatalogueTest {
                     "$name: fast and slow must not read the same",
                 )
             }
+            with(catalogue.sync) {
+                listOf(button, consentTitle, consentBody, consentConfirm, workingTitle, checkingAccount, syncing,
+                    mismatchTitle, mismatchContinue, resultTitle, resultNothing, resultUnknownAccount, overrideButton)
+                    .forEach { assertTrue(it.isNotBlank(), "$name.sync has a blank entry") }
+                assertTrue(mismatchBody("Pilot_7").contains("Pilot_7"))
+                assertTrue(resultAdded(3, 9).contains("3") && resultAdded(3, 9).contains("9"))
+                listOf(resultRemovedElsewhere, resultUnmatched, resultAmbiguous, resultRefused)
+                    .forEach { assertTrue(it(4).contains("4"), "$name: a sync count is rendered") }
+            }
             with(catalogue.account) {
                 listOf(connected, disconnected, disconnect, disconnectTitle, disconnectBody, disconnectConfirm)
                     .forEach { assertTrue(it.isNotBlank(), "$name.account has a blank entry") }

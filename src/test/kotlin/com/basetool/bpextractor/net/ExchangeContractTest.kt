@@ -184,6 +184,53 @@ class ExchangeContractTest {
     }
 
     @Test
+    fun `the sync's requests are valid change sets, resolve requests and account checks`() {
+        val codec = Json { encodeDefaults = true; explicitNulls = false }
+        val add =
+            BlueprintAdd(
+                ref = com.basetool.bpextractor.model.ItemRef(bt = "bp-cf-337-panther-repeater", name = "CF-337 Panther Repeater"),
+                acquiredAt = "2026-01-01T10:00:00.000Z",
+                provenance = com.basetool.bpextractor.model.Provenance("log", "2026-01-01T10:00:00.000Z"),
+                opId = "0",
+            )
+        val changeSet = BlueprintChangeSet(listOf(add, add.copy(override = true, opId = "1")))
+        val errors =
+            registry.getSchema(SchemaLocation.of(BASE + "change-set.schema.json#/\$defs/blueprintChangeSet"))
+                .validate(codec.encodeToString(BlueprintChangeSet.serializer(), changeSet), InputFormat.JSON)
+        assertTrue(errors.isEmpty(), errors.toString())
+        assertValid(
+            "resolve-request.schema.json",
+            codec.encodeToString(
+                ResolveRequest.serializer(),
+                ResolveRequest("BLUEPRINT", listOf(com.basetool.bpextractor.model.ItemRef(locKey = "Nozzle_FuelGiver_Name", name = "x"))),
+            ),
+        )
+        assertValid("account-check-request.schema.json", """{"handle":"Some_Pilot-01"}""")
+        assertTrue(isCheckableHandle("Some_Pilot-01"))
+        assertTrue(!isCheckableHandle("no spaces"))
+        assertTrue(!isCheckableHandle("ab"))
+    }
+
+    @Test
+    fun `the sync reads every valid page, resolve, change-result and account-check fixture`() {
+        fixtures("page--blueprintPage").forEach { f ->
+            val page = json.decodeFromString<BlueprintPage>(f.readText())
+            assertTrue(page.items.all { it.key.isNotBlank() }, f.name)
+        }
+        fixtures("resolve-response").forEach { f ->
+            val response = json.decodeFromString<ResolveResponse>(f.readText())
+            assertTrue(response.results.any { it.status == ResolveResult.RESOLVED && it.ref?.bt != null }, f.name)
+        }
+        fixtures("change-result").forEach { f ->
+            val result = json.decodeFromString<ChangeResult>(f.readText())
+            assertEquals(result.notApplied, result.results.size, f.name)
+        }
+        fixtures("account-check-response").forEach { f ->
+            assertTrue(json.decodeFromString<AccountCheckResult>(f.readText()).result.isNotBlank(), f.name)
+        }
+    }
+
+    @Test
     fun `every client name agrees`() {
         assertEquals(BlueprintExtractor.GENERATOR_NAME, RefineryPipeline.TOOL)
         assertEquals(BlueprintExtractor.GENERATOR_NAME, com.basetool.bpextractor.net.auth.DeviceGrantClient.CLIENT_ID)
