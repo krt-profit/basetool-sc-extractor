@@ -47,7 +47,7 @@ class StringsCatalogueTest {
                 )
                 listOf(errorVersionUnsupported, errorRevoked, errorScopeMissing)
                     .forEach { assertTrue(it("boom").contains("boom"), "$name: a code explanation keeps the detail") }
-                assertTrue(authCode("WXYZ-1234").contains("WXYZ-1234"))
+                listOf(authCodeLabel, authCopyCode, authCodeCopied).forEach { assertTrue(it.isNotBlank()) }
                 assertTrue(error("boom").contains("boom"))
                 assertTrue(errorClientNotAllowed("boom").contains("boom"))
                 assertTrue(

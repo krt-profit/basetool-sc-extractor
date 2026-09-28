@@ -20,7 +20,11 @@ class SendStrings(
     val defaultLabel: String,
     val authTitle: String,
     val authBody: String,
-    val authCode: (String) -> String,
+    val authCodeLabel: String,
+    /** The button that copies the device code to the clipboard. */
+    val authCopyCode: String,
+    /** The same button once the code is on the clipboard. */
+    val authCodeCopied: String,
     val authOpenBrowser: String,
     /**
      * Shown on the one-time re-login after a stored login with an exportable DPoP key
@@ -803,7 +807,9 @@ object StringsDe : Strings {
                 "Wir haben deinen Browser geöffnet. Melde dich an (falls nötig), gib dort den unten " +
                     "gezeigten Code ein und bestätige die Freigabe. Gib nur Codes ein, die dir diese " +
                     "App gerade anzeigt.",
-            authCode = { code -> "Code: $code" },
+            authCodeLabel = "Code:",
+            authCopyCode = "Code kopieren",
+            authCodeCopied = "Kopiert",
             authOpenBrowser = "Browser erneut öffnen",
             authKeyUpgrade =
                 "Einmalige Neuanmeldung nach dem Update: Deine gespeicherte Anmeldung wird ab jetzt " +
@@ -1340,7 +1346,9 @@ object StringsEn : Strings {
             authBody =
                 "We opened your browser. Sign in (if needed), enter the code shown below there and " +
                     "approve. Only ever enter a code this app is showing you right now.",
-            authCode = { code -> "Code: $code" },
+            authCodeLabel = "Code:",
+            authCopyCode = "Copy code",
+            authCodeCopied = "Copied",
             authOpenBrowser = "Open browser again",
             authKeyUpgrade =
                 "One-time sign-in after the update: your saved sign-in is now protected by a key " +
