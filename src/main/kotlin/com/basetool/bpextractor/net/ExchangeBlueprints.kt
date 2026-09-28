@@ -228,7 +228,7 @@ fun ExchangeClient.resolveBlueprints(credentials: ExchangeCredentials, refs: Lis
  * Applies a blueprint change set (`POST /me/blueprints/changes`), with a fresh idempotency key.
  *
  * @param credentials the member's token and its key
- * @param changes at most [BATCH_MAX] adds
+ * @param changes at most [CHANGE_SET_MAX] adds
  * @param acceptLanguage the UI locale to relay
  * @return the outcome
  * @throws ExchangeException on any refusal or transport failure
@@ -247,5 +247,11 @@ fun ExchangeClient.addBlueprints(credentials: ExchangeCredentials, changes: Blue
 /** The largest page the extractor asks for; the contract allows 1000. */
 const val PAGE_SIZE = 1000
 
-/** The most references or ops one request may carry. */
+/** The most references one `catalog/resolve` request may carry. */
 const val BATCH_MAX = 500
+
+/**
+ * The most ops one change set carries: the contract allows 500, but a set above 100 ops may be refused
+ * `503 RELAY_BUSY` while the gateway relays other large sets.
+ */
+const val CHANGE_SET_MAX = 100

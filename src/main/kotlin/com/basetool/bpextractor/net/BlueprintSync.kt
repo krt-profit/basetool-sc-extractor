@@ -115,7 +115,7 @@ class BlueprintSync(
         val unmatched = mutableListOf<String>()
         val ambiguous = mutableListOf<String>()
         val refused = mutableListOf<Pair<String, String>>()
-        adds.chunked(BATCH_MAX).forEach { chunk ->
+        adds.chunked(CHANGE_SET_MAX).forEach { chunk ->
             val ops =
                 chunk.mapIndexed { index, add ->
                     BlueprintAdd(

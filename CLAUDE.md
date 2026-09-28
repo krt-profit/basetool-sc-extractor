@@ -280,7 +280,8 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   straight into „Meine Blueprints": pull every page of `GET /me/blueprints` first, resolve the
   envelope's names through `catalog/resolve` (the web import's own matching — never a second
   matcher here), then `POST /me/blueprints/changes` with `add` ops by `bt` for what the member
-  lacks. **It never sends `remove`** — a log proves a receipt, not a loss — so every sync is
+  lacks — in change sets of at most **100** ops (`CHANGE_SET_MAX`), because a larger set may be
+  refused `503 RELAY_BUSY` while the gateway relays others; `catalog/resolve` still takes 500. **It never sends `remove`** — a log proves a receipt, not a loss — so every sync is
   add-only, not just the first. `REMOVED_ELSEWHERE` is reported and re-sent with `override: true`
   only on the member's button press. Before the first sync of an account in a process it asks
   `POST /me/account-check` (REQ-XCH-031), once per handle and process; `match` syncs, while
