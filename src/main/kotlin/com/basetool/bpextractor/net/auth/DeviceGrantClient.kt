@@ -27,10 +27,10 @@ data class DeviceCodeResponse(
 ) {
     /**
      * The URL to open in the browser: the bare verification page, where the member types the shown
-     * code under the device page's phishing warning. The complete form (with the code) skips that page,
-     * so it is only the fallback for a server that sends no bare URI.
+     * code under the device page's phishing warning. `verification_uri_complete` is never used: it
+     * skips that page.
      */
-    fun browserUrl(): String = verificationUri.ifBlank { verificationUriComplete }
+    fun browserUrl(): String = verificationUri
 }
 
 /** The token answer (or, on the error path, [TokenErrorResponse]). */
@@ -154,11 +154,16 @@ class DeviceGrantClient(
         if (response.statusCode() != 200) {
             throw DeviceGrantException("device-authorization request failed: HTTP ${response.statusCode()}")
         }
-        return try {
-            json.decodeFromString<DeviceCodeResponse>(response.body())
-        } catch (e: Exception) {
-            throw DeviceGrantException("device-authorization answer was not parseable: ${e.message}")
+        val device =
+            try {
+                json.decodeFromString<DeviceCodeResponse>(response.body())
+            } catch (e: Exception) {
+                throw DeviceGrantException("device-authorization answer was not parseable: ${e.message}")
+            }
+        if (device.verificationUri.isBlank()) {
+            throw DeviceGrantException("device-authorization answer carries no verification_uri")
         }
+        return device
     }
 
     /**

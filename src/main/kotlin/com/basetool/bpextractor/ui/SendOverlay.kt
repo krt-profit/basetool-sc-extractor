@@ -15,28 +15,40 @@ import com.basetool.bpextractor.ui.i18n.SendStrings
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * The plain-language text for a failed send or sync: what the code means and what fixes it, else the
- * clock hint, else the server's detail.
+ * The plain-language text for a failed send or sync, decided by its code: what it means and what fixes
+ * it, else the clock hint, else the server's detail; followed by the request's reference when there is one.
  *
  * @param strings the send strings of the active language
  * @param error the failure
  * @return the text to show
  */
-fun sendErrorText(strings: SendStrings, error: SendState.Error): String =
-    when (error.code) {
-        Codes.CLIENT_NOT_ALLOWED, Codes.CLIENT_SUSPENDED -> strings.errorClientNotAllowed(error.message)
-        Codes.CLIENT_VERSION_UNSUPPORTED -> strings.errorVersionUnsupported(error.message)
-        Codes.INSTALLATION_REVOKED, Codes.CLIENT_REVOKED -> strings.errorRevoked(error.message)
-        Codes.SCOPE_MISSING -> strings.errorScopeMissing(error.message)
-        NoPersistentKeyException.CODE -> strings.errorNoPersistentKey
-        UnboundTokenException.CODE -> strings.errorTokenNotBound
-        else ->
-            if (error.clockOffsetSeconds != 0L) {
-                strings.errorClockSkew(error.clockOffsetSeconds, error.message)
-            } else {
-                strings.error(error.message)
-            }
-    }
+fun sendErrorText(strings: SendStrings, error: SendState.Error): String {
+    val text =
+        when (error.code) {
+            SendController.REFUSED_LOCALLY -> error.message
+            Codes.CLIENT_NOT_ALLOWED, Codes.CLIENT_SUSPENDED -> strings.errorClientNotAllowed(error.message)
+            Codes.CLIENT_VERSION_UNSUPPORTED -> strings.errorVersionUnsupported(error.message)
+            Codes.INSTALLATION_REVOKED, Codes.CLIENT_REVOKED -> strings.errorRevoked(error.message)
+            Codes.SCOPE_MISSING -> strings.errorScopeMissing(error.message)
+            Codes.UNAUTHENTICATED -> strings.errorUnauthenticated
+            Codes.TERMS_NOT_ACCEPTED -> strings.errorTermsNotAccepted
+            Codes.PENDING_APPROVAL -> strings.errorPendingApproval
+            in Codes.ACCOUNT_REFUSED -> strings.errorAccountRefused
+            in Codes.SLOW_DOWN -> strings.errorSlowDown(error.retryAfterSeconds)
+            Codes.QUOTA_EXCEEDED -> strings.errorQuota(error.retryAfterSeconds)
+            in Codes.UNAVAILABLE -> strings.errorUnavailable(error.retryAfterSeconds)
+            in Codes.REJECTED -> strings.errorRejected(error.message)
+            NoPersistentKeyException.CODE -> strings.errorNoPersistentKey
+            UnboundTokenException.CODE -> strings.errorTokenNotBound
+            else ->
+                if (error.clockOffsetSeconds != 0L) {
+                    strings.errorClockSkew(error.clockOffsetSeconds, error.message)
+                } else {
+                    strings.error(error.message)
+                }
+        }
+    return if (error.reference.isEmpty()) text else text + "\n\n" + strings.errorReference(error.reference)
+}
 
 /**
  * The "An Basetool senden" scrim modal that walks the user through consent, browser approval, sending

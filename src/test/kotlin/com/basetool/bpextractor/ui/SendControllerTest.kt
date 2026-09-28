@@ -10,6 +10,7 @@ import com.basetool.bpextractor.net.auth.FakeDpopKeyStore
 import com.basetool.bpextractor.net.auth.LoginReason
 import com.basetool.bpextractor.net.auth.NoPersistentKeyException
 import com.basetool.bpextractor.net.auth.StoredCredential
+import com.basetool.bpextractor.ui.i18n.StringsDe
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
@@ -44,6 +45,7 @@ class SendControllerTest {
 
     private val keys = FakeDpopKeyStore()
     private var browsed = 0
+    private var serviceDocuments = 0
 
     private val baseScope = DeviceGrantClient.BASE_SCOPES.joinToString(" ")
 
@@ -61,6 +63,14 @@ class SendControllerTest {
         server.createContext("/protocol/openid-connect/revoke") { ex ->
             ex.requestBody.readAllBytes()
             respond(ex, 200, "{}")
+        }
+        server.createContext("/exchange/v1") { ex ->
+            serviceDocuments++
+            respond(
+                ex,
+                200,
+                """{"capabilities":["exchange.connect","exchange.drafts.blueprints","exchange.drafts.refinery"],"minClientVersion":"1.0.0"}""",
+            )
         }
         server.createContext("/exchange/v1/me/installation") { ex ->
             record(ex)
@@ -250,5 +260,79 @@ class SendControllerTest {
         val error = controller.state as SendState.Error
         assertEquals(SendState.Error("Bitte aktualisieren.", Codes.CLIENT_VERSION_UNSUPPORTED), error)
         assertNotNull(store.stored)
+    }
+
+    @Test
+    fun `every send reads the service document first`() {
+        val (store, _) = stored()
+
+        runBlocking { controller(store).request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
+
+        assertEquals(1, serviceDocuments)
+    }
+
+    @Test
+    fun `an unauthenticated answer is met with one refreshed retry`() {
+        var calls = 0
+        draftAnswer = { ex ->
+            if (calls++ == 0) {
+                respond(ex, 401, """{"status":401,"code":"UNAUTHENTICATED","detail":"The token is not valid."}""")
+            } else {
+                respond(ex, 200, """{"frontendUrl":"https://app/bp?handoff=B2","handoffId":"B2","kind":"BLUEPRINT"}""")
+            }
+        }
+        val (store, _) = stored()
+        val controller = controller(store)
+
+        runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
+
+        assertEquals(SendState.Done("https://app/bp?handoff=B2"), controller.state)
+        assertEquals(2, calls)
+        assertEquals(0, browsed)
+    }
+
+    @Test
+    fun `an unauthenticated answer after the retry is not retried again`() {
+        var calls = 0
+        draftAnswer = { ex ->
+            calls++
+            ex.responseHeaders.add("X-Correlation-Id", "req-7f3a")
+            respond(ex, 401, """{"status":401,"code":"UNAUTHENTICATED","detail":"The token is not valid."}""")
+        }
+        val (store, _) = stored()
+        val controller = controller(store)
+
+        runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
+
+        val error = controller.state as SendState.Error
+        assertEquals(Codes.UNAUTHENTICATED, error.code)
+        assertEquals("req-7f3a", error.reference)
+        assertEquals(2, calls)
+        assertNotNull(store.stored, "the stored login stays; only a dead refresh token ends it")
+    }
+
+    @Test
+    fun `a slow-down carries the server's wait to the overlay`() {
+        draftAnswer = { ex ->
+            ex.responseHeaders.add("Retry-After", "42")
+            respond(ex, 429, """{"status":429,"code":"RATE_LIMITED","detail":"Too many requests."}""")
+        }
+        val (store, _) = stored()
+        val controller = controller(store)
+
+        runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
+
+        assertEquals(42L, (controller.state as SendState.Error).retryAfterSeconds)
+    }
+
+    @Test
+    fun `a locally refused payload is shown as it is and nothing is sent`() {
+        val controller = controller(stored().first)
+
+        controller.refuse("Zu viele.")
+
+        val error = controller.state as SendState.Error
+        assertEquals("Zu viele.", sendErrorText(StringsDe.send, error))
+        assertTrue(seen.isEmpty())
     }
 }

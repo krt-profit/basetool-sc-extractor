@@ -61,12 +61,24 @@ class StringsCatalogueTest {
                     errorClockSkew(-42, "x") != errorClockSkew(42, "x"),
                     "$name: fast and slow must not read the same",
                 )
+                listOf(errorUnauthenticated, errorTermsNotAccepted, errorPendingApproval, errorAccountRefused)
+                    .forEach { assertTrue(it.isNotBlank(), "$name.send has a blank refusal") }
+                listOf(errorSlowDown, errorUnavailable).forEach { text ->
+                    assertTrue(text(37).contains("37"), "$name: the server's wait is rendered")
+                    assertTrue(text(null).isNotBlank())
+                }
+                assertTrue(errorQuota(7200).contains("2"), "$name: the quota wait is rendered in hours")
+                assertTrue(errorRejected("boom").contains("boom"))
+                assertTrue(errorTooManyItems(2345).contains("2345"))
+                assertTrue(errorReference("abc-123").contains("abc-123"))
             }
             with(catalogue.sync) {
                 listOf(button, consentTitle, consentBody, consentConfirm, workingTitle, checkingAccount, syncing,
-                    mismatchTitle, mismatchContinue, resultTitle, resultNothing, resultUnknownAccount, overrideButton)
+                    mismatchTitle, mismatchContinue, unconfirmedTitle, unconfirmedContinue, resultTitle, resultNothing,
+                    overrideButton)
                     .forEach { assertTrue(it.isNotBlank(), "$name.sync has a blank entry") }
                 assertTrue(mismatchBody("Pilot_7").contains("Pilot_7"))
+                assertTrue(unconfirmedBody("Pilot_7").contains("Pilot_7"))
                 assertTrue(resultAdded(3, 9).contains("3") && resultAdded(3, 9).contains("9"))
                 listOf(resultRemovedElsewhere, resultUnmatched, resultAmbiguous, resultRefused)
                     .forEach { assertTrue(it(4).contains("4"), "$name: a sync count is rendered") }

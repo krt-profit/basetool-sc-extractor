@@ -165,7 +165,10 @@ and GitHub publishes its SHA-256 checksum; otherwise the app simply offers nothi
 After the run the app shows a summary (the game account, blueprints by category,
 the most recently received blueprints). **Nothing is written automatically** — from
 the summary you either **Send to Basetool** or **Export as JSON**, which opens the
-save dialog at the output path from step 3.
+save dialog at the output path from step 3. One send carries at most 2000
+blueprints (the web import takes no more per file); above that the app says so and
+sends nothing — use *Sync blueprints* instead, which has no such cap. When the Basetool refuses a send, the message says what
+to do and ends with a **reference** — quote it when you report the problem.
 
 **Only your own account is exported.** Each log file names the account that played
 it. When the logs come from several accounts — a second account played on the same
@@ -190,7 +193,8 @@ because the sync needs two more permissions (`exchange.blueprints.read` /
 - before the first sync of an account in a session, asks the Basetool whether that
   game account belongs to you (`account-check`). The handle goes to that check only
   and is never stored. On a mismatch it stops and asks; without an RSI handle in
-  your Basetool profile it syncs and says it could not check.
+  your Basetool profile it cannot check, so it asks you to confirm the account is
+  yours before anything is read or written. Your answer holds until the app closes.
 
 Every sync can be undone in the Basetool under „Verbundene Anwendungen".
 
@@ -510,7 +514,8 @@ basetool-sc-extractor/
 │   ├── ScLocalization.kt             # reads the game's own global.ini (blueprint label)
 │   ├── config/AppConfig.kt           # %APPDATA% config.json (ingest URL, consent, installation label, sync opt-in, last folder)
 │   ├── model/BlueprintEnvelope.kt    # the exchange v1 envelope the blueprint file and draft are
-│   ├── net/ExchangeClient.kt         # /exchange/v1: drafts, installation label; DPoP + nonce, User-Agent, Idempotency-Key
+│   ├── net/ExchangeClient.kt         # /exchange/v1: service document, drafts, installation label; DPoP + nonce, User-Agent, Idempotency-Key
+│   ├── net/ExchangeSession.kt        # one action: login, label, service-document checks, one retry after UNAUTHENTICATED
 │   ├── net/ExchangeBlueprints.kt     # account check, blueprint pages, catalog/resolve, blueprint changes
 │   ├── net/BlueprintSync.kt          # the opt-in direct sync: pull, resolve, add only what is missing
 │   ├── net/auth/                     # device grant (RFC 8628), exchange login, DPoP (RFC 9449) with a non-exportable CNG key, DPAPI vault

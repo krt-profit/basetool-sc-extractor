@@ -57,6 +57,7 @@ data class ProblemError(val pointer: String = "", val message: String? = null)
  * @param retryAfterSeconds how long to wait before a retry, when the server says
  * @param confirmationUrl where the member confirms a staged mass change
  * @param errors the fields a `SCHEMA_INVALID` problem points at
+ * @param correlationId the request's id, the same value as the `X-Correlation-Id` header
  */
 @Serializable
 data class ExchangeProblem(
@@ -67,6 +68,7 @@ data class ExchangeProblem(
     val retryAfterSeconds: Int? = null,
     val confirmationUrl: String? = null,
     val errors: List<ProblemError> = emptyList(),
+    val correlationId: String? = null,
 )
 
 /**
@@ -76,16 +78,72 @@ data class ExchangeProblem(
  * @param status the HTTP status, `0` when the server was not reached
  * @param code the problem's stable code (see [Codes]), empty when the answer carried none
  * @param confirmationUrl where the member confirms a staged mass change, for `MASS_CHANGE_CONFIRMATION_REQUIRED`
+ * @param correlationId the request's `X-Correlation-Id`, for a problem report; empty when unknown
+ * @param retryAfterSeconds the answer's `Retry-After`, or `null` when it carried none
  */
 class ExchangeException(
     message: String,
     val status: Int = 0,
     val code: String = "",
     val confirmationUrl: String? = null,
+    val correlationId: String = "",
+    val retryAfterSeconds: Long? = null,
 ) : Exception(message)
+
+/**
+ * The service document (`GET /exchange/v1`, `service-document.schema.json`) — the fields the extractor
+ * acts on.
+ *
+ * @param capabilities the exchange scopes this token may use, granted by both the token and the registry
+ * @param minClientVersion the registry's minimum version for this client, or `null`
+ * @param installationId the server's opaque id of this installation
+ */
+@Serializable
+data class ServiceDocument(
+    val capabilities: List<String> = emptyList(),
+    val minClientVersion: String? = null,
+    val installationId: String? = null,
+)
 
 /** The exchange error codes this client acts on (`docs/exchange/errors.md`). */
 object Codes {
+    /** The token is missing, invalid, expired, or not issued for the gateway; refresh once and retry. */
+    const val UNAUTHENTICATED = "UNAUTHENTICATED"
+
+    /** The member has not accepted the current terms of use. */
+    const val TERMS_NOT_ACCEPTED = "TERMS_NOT_ACCEPTED"
+
+    /** The member's registration awaits approval. */
+    const val PENDING_APPROVAL = "PENDING_APPROVAL"
+
+    /** The member may not use the Basetool this way: no role, unknown or disabled, or not permitted. */
+    val ACCOUNT_REFUSED: Set<String> = setOf("NO_ROLE", "ACTING_MEMBER_REFUSED", "NOT_PERMITTED")
+
+    /** A per-minute limit or the member's cap of live DPoP proofs is used up. */
+    val SLOW_DOWN: Set<String> = setOf("RATE_LIMITED", "DPOP_PROOF_LIMIT")
+
+    /** The daily write quota is used up. */
+    const val QUOTA_EXCEEDED = "QUOTA_EXCEEDED"
+
+    /** The exchange cannot serve the request right now; retry later. */
+    val UNAVAILABLE: Set<String> = setOf(
+        "EXCHANGE_DISABLED",
+        "REGISTRY_UNAVAILABLE",
+        "EXCHANGE_BUDGET_EXHAUSTED",
+        "SERVICE_UNAVAILABLE",
+        "BACKEND_RELAY_FAILED",
+        "IDEMPOTENCY_IN_PROGRESS",
+    )
+
+    /** The Basetool refused what was sent. */
+    val REJECTED: Set<String> = setOf(
+        "SCHEMA_INVALID",
+        "PAYLOAD_TOO_LARGE",
+        "BATCH_TOO_LARGE",
+        "IDEMPOTENCY_KEY_MISSING",
+        "IDEMPOTENCY_KEY_REUSED",
+    )
+
     /** The client is not in the registry. */
     const val CLIENT_NOT_ALLOWED = "CLIENT_NOT_ALLOWED"
 
@@ -192,6 +250,18 @@ class ExchangeClient(
         )
 
     /**
+     * Reads the service document (`GET /exchange/v1`): which capabilities this token may use and the
+     * client's minimum version.
+     *
+     * @param credentials the member's token and its key
+     * @param acceptLanguage the UI locale to relay
+     * @return the service document
+     * @throws ExchangeException on any refusal or transport failure
+     */
+    fun serviceDocument(credentials: ExchangeCredentials, acceptLanguage: String): ServiceDocument =
+        decode(get("", null, credentials, acceptLanguage))
+
+    /**
      * Sends an authenticated `GET` and returns the answer's body.
      *
      * @param path the path below `/exchange/v1`
@@ -270,6 +340,11 @@ class ExchangeClient(
             response.statusCode(),
             problem?.code.orEmpty(),
             problem?.confirmationUrl,
+            response.headers().firstValue(CORRELATION_HEADER).orElse(null)?.takeIf { CORRELATION_ID.matches(it) }
+                ?: problem?.correlationId?.takeIf { CORRELATION_ID.matches(it) }
+                ?: "",
+            (response.headers().firstValue("Retry-After").orElse(null)?.trim()?.toLongOrNull()
+                ?: problem?.retryAfterSeconds?.toLong())?.takeIf { it >= 0 },
         )
     }
 
@@ -338,6 +413,12 @@ class ExchangeClient(
     companion object {
         /** The exchange API's path prefix on the gateway. */
         const val PREFIX = "/exchange/v1"
+
+        /** The header every exchange answer carries with the request's id. */
+        const val CORRELATION_HEADER = "X-Correlation-Id"
+
+        /** The shape a correlation id has; anything else is not shown. */
+        private val CORRELATION_ID = Regex("^[A-Za-z0-9._-]{1,128}$")
 
         /** The `User-Agent` the minimum-version gate reads: product, version and the project URL. */
         val USER_AGENT = "BasetoolSCExtractor/${BuildInfo.VERSION} (+https://github.com/krt-profit/basetool-sc-extractor)"

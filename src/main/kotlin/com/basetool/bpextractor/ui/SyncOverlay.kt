@@ -29,6 +29,7 @@ fun SyncOverlay(controller: SyncController, appScope: CoroutineScope) {
         when (state) {
             is SyncState.Authenticating -> strings.send.authTitle
             is SyncState.AccountMismatch -> strings.sync.mismatchTitle
+            is SyncState.AccountUnconfirmed -> strings.sync.unconfirmedTitle
             is SyncState.CheckingAccount, is SyncState.Syncing -> strings.sync.workingTitle
             is SyncState.Done -> strings.sync.resultTitle
             else -> strings.sync.consentTitle
@@ -52,7 +53,9 @@ fun SyncOverlay(controller: SyncController, appScope: CoroutineScope) {
                     Text(strings.sync.syncing, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
                 is SyncState.AccountMismatch ->
                     Text(strings.sync.mismatchBody(state.handle), style = MaterialTheme.typography.bodyMedium, color = Krt.White)
-                is SyncState.Done -> ReportBody(strings.sync, state)
+                is SyncState.AccountUnconfirmed ->
+                    Text(strings.sync.unconfirmedBody(state.handle), style = MaterialTheme.typography.bodyMedium, color = Krt.White)
+                is SyncState.Done -> ReportBody(strings.sync, state.report)
                 is SyncState.Error ->
                     Text(sendErrorText(strings.send, state.error), style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
                 is SyncState.Idle -> {}
@@ -72,9 +75,14 @@ fun SyncOverlay(controller: SyncController, appScope: CoroutineScope) {
                 }
                 is SyncState.CheckingAccount, is SyncState.Syncing -> Spacer(Modifier.height(1.dp))
                 is SyncState.AccountMismatch -> {
-                    GhostButton(strings.sync.mismatchContinue, onClick = { controller.continueDespiteMismatch(appScope) })
+                    GhostButton(strings.sync.mismatchContinue, onClick = { controller.continueWithAccount(appScope) })
                     Spacer(Modifier.weight(1f))
                     CtaButton(strings.cancel, onClick = { controller.dismiss() })
+                }
+                is SyncState.AccountUnconfirmed -> {
+                    GhostButton(strings.cancel, onClick = { controller.dismiss() })
+                    Spacer(Modifier.weight(1f))
+                    CtaButton(strings.sync.unconfirmedContinue, onClick = { controller.continueWithAccount(appScope) })
                 }
                 is SyncState.Done -> {
                     if (state.report?.removedElsewhere?.isNotEmpty() == true) {
@@ -95,8 +103,7 @@ fun SyncOverlay(controller: SyncController, appScope: CoroutineScope) {
 
 /** The report of a finished sync: the counts, then each list of names that needs the member. */
 @Composable
-private fun ReportBody(strings: SyncStrings, state: SyncState.Done) {
-    val report: SyncReport? = state.report
+private fun ReportBody(strings: SyncStrings, report: SyncReport?) {
     if (report == null) {
         Text(strings.resultNothing, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
     } else {
@@ -105,9 +112,6 @@ private fun ReportBody(strings: SyncStrings, state: SyncState.Done) {
         NameList(strings.resultUnmatched(report.unmatched.size), report.unmatched)
         NameList(strings.resultAmbiguous(report.ambiguous.size), report.ambiguous)
         NameList(strings.resultRefused(report.refused.size), report.refused.map { (name, reason) -> "$name ($reason)" })
-    }
-    if (state.unknownAccount) {
-        Text(strings.resultUnknownAccount, style = MaterialTheme.typography.bodySmall, color = Krt.Orange)
     }
 }
 

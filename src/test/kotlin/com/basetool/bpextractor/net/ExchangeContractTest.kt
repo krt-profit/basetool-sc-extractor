@@ -1,6 +1,7 @@
 package com.basetool.bpextractor.net
 
 import com.basetool.bpextractor.BlueprintExtractor
+import com.basetool.bpextractor.net.auth.DeviceGrantClient
 import com.basetool.bpextractor.refinery.RefineryPipeline
 import com.basetool.bpextractor.refinery.model.RefineryExtract
 import com.basetool.bpextractor.refinery.model.RefineryExtractGood
@@ -168,6 +169,17 @@ class ExchangeContractTest {
     }
 
     @Test
+    fun `the label rule agrees with every installation fixture`() {
+        val label = Regex("\"label\"\\s*:\\s*\"([^\"]*)\"")
+        fun labelOf(f: File) = label.find(f.readText())?.groupValues?.get(1)
+        fixtures("installation").mapNotNull(::labelOf).forEach { assertTrue(InstallationLabel.isValid(it), it) }
+        fixtures("installation", "invalid")
+            .filter { "installationId" !in it.readText() }
+            .mapNotNull(::labelOf)
+            .forEach { assertTrue(!InstallationLabel.isValid(it), it) }
+    }
+
+    @Test
     fun `the answers the extractor reads decode from every valid fixture`() {
         fixtures("draft-result").forEach { f ->
             val result = json.decodeFromString<DraftResult>(f.readText())
@@ -176,6 +188,10 @@ class ExchangeContractTest {
         fixtures("problem").forEach { f ->
             val problem = json.decodeFromString<ExchangeProblem>(f.readText())
             assertTrue(problem.code.isNotBlank() && problem.status >= 400, f.name)
+        }
+        fixtures("service-document").forEach { f ->
+            val document = json.decodeFromString<ServiceDocument>(f.readText())
+            assertTrue(DeviceGrantClient.CONNECT_SCOPE in document.capabilities, f.name)
         }
         val installation = json.decodeFromString<Installation>(
             File(requireNotNull(javaClass.getResource("/exchange-v1/examples/installation/valid/response.json")).toURI()).readText(),

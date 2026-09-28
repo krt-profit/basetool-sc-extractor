@@ -68,9 +68,18 @@ class DeviceGrantClientTest {
     }
 
     @Test
-    fun `the complete link is only the fallback for a server that sends no bare URI`() {
-        val device = DeviceCodeResponse("DEV-1", "WXYZ-1234", verificationUriComplete = "https://kc/device?user_code=WXYZ-1234")
-        assertEquals("https://kc/device?user_code=WXYZ-1234", device.browserUrl())
+    fun `an answer without the bare page is refused, the complete link is never opened`() {
+        server.removeContext("/protocol/openid-connect/auth/device")
+        server.createContext("/protocol/openid-connect/auth/device") { ex ->
+            respond(
+                ex,
+                200,
+                """{"device_code":"DEV-1","user_code":"WXYZ-1234",
+                   "verification_uri_complete":"https://kc/device?user_code=WXYZ-1234",
+                   "expires_in":600,"interval":1}""",
+            )
+        }
+        assertFailsWith<DeviceGrantException> { client().requestDeviceCode() }
     }
 
     @Test
