@@ -296,7 +296,11 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   for the opt-in sync; **never** `openid` or `extractor-ingest`. The browser opens the **bare
   `verification_uri`** and the member types the code shown in the app: `verification_uri_complete`
   skips the device page's phishing warning (review finding M1), so it is **never** opened or shown
-  (the exchange's client-security rule); an answer without the bare URI fails the login. `auth/ExchangeLogin` decides
+  (the exchange's client-security rule); an answer without the bare URI fails the login. A device
+  authorization refused with `invalid_scope` / `unauthorized_client` (`LOGIN_NOT_READY`) means the
+  Keycloak client does not offer the exchange scopes yet — the go-live window between publishing a
+  release and the provisioner apply — and the overlay says "not switched on yet, try later, save as
+  JSON" instead of the raw HTTP 400. `auth/ExchangeLogin` decides
   between a silent refresh and a device login, and `auth/CredentialStore` is the DPAPI-backed
   vault for the one "remember me" `StoredCredential`. Both clients accept a
   server URL only through `net/TransportPolicy` — **parsed** with `java.net.URI`: `https`, or

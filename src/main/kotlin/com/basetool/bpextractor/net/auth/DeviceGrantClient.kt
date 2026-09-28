@@ -84,6 +84,13 @@ class DeviceGrantException(
          * a 5xx, a dropped connection — leaves the stored credential alone.
          */
         val TOKEN_REJECTED = setOf("invalid_grant", "invalid_token")
+
+        /**
+         * The OAuth2 error codes with which the device-authorization endpoint refuses a login the
+         * Keycloak client is not set up for yet: the requested scopes are not offered to it, or it may
+         * not use the device grant.
+         */
+        val LOGIN_NOT_READY = setOf("invalid_scope", "unauthorized_client")
     }
 }
 
@@ -152,7 +159,17 @@ class DeviceGrantClient(
                 throw DeviceGrantException("device-authorization request failed: ${e.message}")
             }
         if (response.statusCode() != 200) {
-            throw DeviceGrantException("device-authorization request failed: HTTP ${response.statusCode()}")
+            val error =
+                try {
+                    json.decodeFromString<TokenErrorResponse>(response.body()).error
+                } catch (_: Exception) {
+                    ""
+                }
+            throw DeviceGrantException(
+                "device-authorization request failed: HTTP ${response.statusCode()}" +
+                    if (error.isEmpty()) "" else " ($error)",
+                oauthError = error,
+            )
         }
         val device =
             try {

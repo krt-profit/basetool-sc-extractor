@@ -222,6 +222,9 @@ class SendController(
     companion object {
         /** The code of a failure raised before anything was sent; its message is shown as it is. */
         const val REFUSED_LOCALLY = "REFUSED_LOCALLY"
+
+        /** The code of a sign-in the Basetool's Keycloak is not set up for yet; nothing was sent. */
+        const val LOGIN_NOT_READY = "LOGIN_NOT_READY"
     }
 }
 
@@ -234,7 +237,12 @@ class SendController(
  */
 fun failureOf(e: Exception): SendState.Error =
     when (e) {
-        is DeviceGrantException -> SendState.Error(e.message ?: "authentication failed", "", e.clockOffsetSeconds)
+        is DeviceGrantException ->
+            SendState.Error(
+                e.message ?: "authentication failed",
+                if (e.oauthError in DeviceGrantException.LOGIN_NOT_READY) SendController.LOGIN_NOT_READY else "",
+                e.clockOffsetSeconds,
+            )
         is NoPersistentKeyException -> SendState.Error(e.message.orEmpty(), NoPersistentKeyException.CODE)
         is UnboundTokenException -> SendState.Error(e.message.orEmpty(), UnboundTokenException.CODE)
         is ExchangeException ->
