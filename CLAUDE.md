@@ -410,7 +410,8 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   call site; add a property to BOTH catalogues.
 - **Everything on GitHub is English** — issues, pull requests, commit messages, releases
   (including the notes the VirusTotal step renders), this file and the README. The GUI is
-  the only German-facing surface, and it goes through the i18n catalogue. The README was
+  the only German-facing surface, and it goes through the i18n catalogue — besides the member
+  part of a release's notes (`.github/release-notes/<tag>.md`, see *Releases*). The README was
   German until 2026-08-19; don't reintroduce German prose outside `Strings.kt`.
   - **`Strings` is an `interface`, `StringsDe`/`StringsEn` are `object`s — keep it that
     way.** A flat `class Strings(val …: String, …)` hits the JVM's 254-value-parameter
@@ -710,7 +711,11 @@ GitHub Actions — [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 - **Push a `v*` tag (e.g. `v1.2.0`):** after both pass, three jobs — `build-msi` (MSI via
   `package-msi.ps1`, `contents: read`, Gradle cache **disabled**), `attest` (no build code,
   `id-token` + `attestations: write`) and `publish` (VirusTotal + `gh release create`,
-  `contents: write`). Suffixed tags (`v1.2.0-rc1`) publish as pre-releases.
+  `contents: write`). Suffixed tags (`v1.2.0-rc1`) publish as pre-releases. **The tag push
+  publishes at once — there is no draft stage.** Notes for members therefore go in *before* the
+  tag: when `.github/release-notes/<tag>.md` exists (e.g. `v2.10.0.md`), the publish step puts it in
+  front of the VirusTotal, provenance and generated notes. The member part is German, the rest of
+  the release English.
 - **Supply-chain rules (SIB-SEC-02 / SIB-CI-03, 2026-09-22):** every `uses:` is pinned to a
   full commit SHA (no version comment — the no-comments rule removed them; the tag each SHA
   resolves to is recorded in the knowledge base's *SC Extractor Release Pipeline*);
