@@ -82,6 +82,8 @@ class SendStrings(
     val errorReference: (String) -> String,
     /** Nothing was sent because the back-off after a failure still runs; takes the seconds left. */
     val errorBackOff: (Long) -> String,
+    /** The Basetool's sign-in does not offer the exchange yet; nothing was sent. */
+    val errorLoginNotReady: String,
 )
 
 /** Strings for the opt-in direct blueprint sync, grouped under `strings.sync`. */
@@ -899,6 +901,10 @@ object StringsDe : Strings {
                 "Noch nicht gesendet: Nach einem Fehler wartet der Extractor, bevor er es erneut " +
                     "versucht. Bitte in etwa $seconds Sekunden noch einmal."
             },
+            errorLoginNotReady =
+                "Noch nicht möglich: Die Anmeldung für diese Version ist im Basetool noch nicht " +
+                    "freigeschaltet. Das ist während der Umstellung auf die neue Schnittstelle kurz so. " +
+                    "Bitte später erneut versuchen — so lange kannst du die Daten als JSON speichern.",
         )
     override val account =
         AccountStrings(
@@ -1423,6 +1429,10 @@ object StringsEn : Strings {
                 "Not sent yet: after a failure the extractor waits before it tries again. Please try " +
                     "again in about $seconds seconds."
             },
+            errorLoginNotReady =
+                "Not possible yet: the basetool's sign-in is not switched on for this version. That is " +
+                    "briefly the case while the new interface is rolled out. Please try again later — " +
+                    "until then you can save the data as JSON.",
         )
     override val account =
         AccountStrings(

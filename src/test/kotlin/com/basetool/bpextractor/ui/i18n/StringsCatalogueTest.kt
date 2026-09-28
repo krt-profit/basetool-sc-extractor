@@ -72,6 +72,7 @@ class StringsCatalogueTest {
                 assertTrue(errorTooManyItems(2345).contains("2345"))
                 assertTrue(errorReference("abc-123").contains("abc-123"))
                 assertTrue(errorBackOff(17).contains("17"), "$name: the back-off wait is rendered")
+                assertTrue(errorLoginNotReady.isNotBlank())
             }
             with(catalogue.sync) {
                 listOf(button, consentTitle, consentBody, consentConfirm, workingTitle, checkingAccount, syncing,

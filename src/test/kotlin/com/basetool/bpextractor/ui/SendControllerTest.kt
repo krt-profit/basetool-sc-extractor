@@ -364,6 +364,26 @@ class SendControllerTest {
     }
 
     @Test
+    fun `a sign-in the Basetool does not offer yet says so and sends nothing`() {
+        server.removeContext("/protocol/openid-connect/auth/device")
+        server.createContext("/protocol/openid-connect/auth/device") { ex ->
+            ex.requestBody.readAllBytes()
+            respond(ex, 400, """{"error":"invalid_scope","error_description":"Invalid scopes: exchange.connect"}""")
+        }
+        val name = assertNotNull(assertNotNull(keys.create()).keyName)
+        val store = FakeCredentialStore(StoredCredential.encode(StoredCredential("RT-OLD", name)))
+        val controller = controller(store)
+
+        runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
+
+        val error = controller.state as SendState.Error
+        assertEquals(SendController.LOGIN_NOT_READY, error.code)
+        assertEquals(StringsDe.send.errorLoginNotReady, sendErrorText(StringsDe.send, error))
+        assertTrue(seen.isEmpty())
+        assertEquals(0, serviceDocuments)
+    }
+
+    @Test
     fun `a locally refused payload is shown as it is and nothing is sent`() {
         val controller = controller(stored().first)
 

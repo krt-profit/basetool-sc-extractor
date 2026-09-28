@@ -27,6 +27,7 @@ fun sendErrorText(strings: SendStrings, error: SendState.Error): String {
     val text =
         when (error.code) {
             SendController.REFUSED_LOCALLY -> error.message
+            SendController.LOGIN_NOT_READY -> strings.errorLoginNotReady
             Codes.BACKING_OFF -> strings.errorBackOff(error.retryAfterSeconds ?: 0L)
             Codes.CLIENT_NOT_ALLOWED, Codes.CLIENT_SUSPENDED -> strings.errorClientNotAllowed(error.message)
             Codes.CLIENT_VERSION_UNSUPPORTED -> strings.errorVersionUnsupported(error.message)
