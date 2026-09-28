@@ -223,6 +223,10 @@ jobs:
             '```'
           ) -join "`n"
           $notes = if ($env:VIRUSTOTAL_NOTE) { "$env:VIRUSTOTAL_NOTE`n`n$provenance" } else { $provenance }
+          $memberNotes = Join-Path '.github/release-notes' "$env:REF_NAME.md"
+          if (Test-Path -LiteralPath $memberNotes -PathType Leaf) {
+            $notes = (Get-Content -LiteralPath $memberNotes -Raw -Encoding utf8).TrimEnd() + "`n`n$notes"
+          }
           Set-Content -LiteralPath release-notes.md -Value $notes -Encoding utf8NoBOM
           $releaseArgs = @(
             'release', 'create', $env:REF_NAME, $msi[0].FullName,
