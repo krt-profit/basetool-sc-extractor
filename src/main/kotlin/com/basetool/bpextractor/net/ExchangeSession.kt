@@ -17,6 +17,7 @@ import com.basetool.bpextractor.update.UpdateChecker
  * @param acceptLanguage the UI locale to relay
  * @param label the member's installation label, or `null` when none was chosen
  * @param clientVersion this release's version, compared with the registry's minimum
+ * @param backoff the back-off every exchange action of the process shares
  */
 class ExchangeSession(
     private val login: ExchangeLogin,
@@ -24,12 +25,14 @@ class ExchangeSession(
     private val acceptLanguage: String,
     private val label: String?,
     private val clientVersion: String = BuildInfo.VERSION,
+    private val backoff: Backoff = Backoff.SHARED,
 ) {
 
     /**
      * Runs [action] with a login for [scopes]. Before it, the service document must grant every one of
      * [required] and accept this version. An `UNAUTHENTICATED` anywhere is answered once with a
-     * refreshed login and a second run; a disconnect drops the stored login and its key.
+     * refreshed login and a second run; a disconnect drops the stored login and its key. While the
+     * [Backoff] runs, nothing is sent.
      *
      * @param scopes the scopes to sign in with
      * @param required the capabilities the action needs
@@ -37,25 +40,35 @@ class ExchangeSession(
      * @param action the calls to make
      * @return what [action] returned
      * @throws ExchangeException on a refusal; `CLIENT_VERSION_UNSUPPORTED` or `SCOPE_MISSING` when the
-     *   service document rules the action out
+     *   service document rules the action out; [Codes.BACKING_OFF] with the seconds left while the
+     *   back-off runs
      */
     fun <T> run(
         scopes: Set<String>,
         required: Set<String>,
         onDeviceCode: (DeviceCodeResponse, LoginReason) -> Unit,
         action: (ExchangeCredentials) -> T,
-    ): T =
-        try {
-            try {
-                attempt(scopes, required, onDeviceCode, action)
-            } catch (e: ExchangeException) {
-                if (e.code != Codes.UNAUTHENTICATED) throw e
-                attempt(scopes, required, onDeviceCode, action)
-            }
+    ): T {
+        val wait = backoff.remainingSeconds()
+        if (wait > 0) {
+            throw ExchangeException("wait $wait s before the next attempt", 0, Codes.BACKING_OFF, retryAfterSeconds = wait)
+        }
+        return try {
+            val result =
+                try {
+                    attempt(scopes, required, onDeviceCode, action)
+                } catch (e: ExchangeException) {
+                    if (e.code != Codes.UNAUTHENTICATED) throw e
+                    attempt(scopes, required, onDeviceCode, action)
+                }
+            backoff.succeeded()
+            result
         } catch (e: ExchangeException) {
+            backoff.failed(e.retryAfterSeconds)
             if (e.code == Codes.INSTALLATION_REVOKED || e.code == Codes.CLIENT_REVOKED) login.forget()
             throw e
         }
+    }
 
     private fun <T> attempt(
         scopes: Set<String>,

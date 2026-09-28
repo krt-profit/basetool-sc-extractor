@@ -6,6 +6,7 @@ import androidx.compose.runtime.setValue
 import com.basetool.bpextractor.config.AppConfigStore
 import com.basetool.bpextractor.model.BlueprintItem
 import com.basetool.bpextractor.net.AccountCheckResult
+import com.basetool.bpextractor.net.Backoff
 import com.basetool.bpextractor.net.BlueprintSync
 import com.basetool.bpextractor.net.ExchangeClient
 import com.basetool.bpextractor.net.ExchangeCredentials
@@ -100,6 +101,7 @@ class SyncController(
     credentialStore: CredentialStore = WinCredentialStore(),
     private val exchangeClientFor: (String) -> ExchangeClient = { ExchangeClient(it) },
     keyStore: DpopKeyStore = CngDpopKeyStore(),
+    private val backoff: Backoff = Backoff.SHARED,
     private val browse: (String) -> Unit = { url ->
         runCatching {
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
@@ -258,7 +260,7 @@ class SyncController(
     }
 
     private fun session(client: ExchangeClient): ExchangeSession =
-        ExchangeSession(login, client, lang, configStore.load().installationLabel)
+        ExchangeSession(login, client, lang, configStore.load().installationLabel, backoff = backoff)
 
     private fun client(): ExchangeClient = exchangeClientFor(configStore.load().ingestBaseUrl)
 

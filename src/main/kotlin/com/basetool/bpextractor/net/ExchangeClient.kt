@@ -133,6 +133,7 @@ object Codes {
         "SERVICE_UNAVAILABLE",
         "BACKEND_RELAY_FAILED",
         "IDEMPOTENCY_IN_PROGRESS",
+        "INTERNAL_ERROR",
     )
 
     /** The Basetool refused what was sent. */
@@ -142,6 +143,7 @@ object Codes {
         "BATCH_TOO_LARGE",
         "IDEMPOTENCY_KEY_MISSING",
         "IDEMPOTENCY_KEY_REUSED",
+        "UNSUPPORTED_MEDIA_TYPE",
     )
 
     /** The client is not in the registry. */
@@ -167,6 +169,9 @@ object Codes {
 
     /** The batch exceeds the mass-change guard and waits for the member's confirmation. */
     const val MASS_CHANGE_CONFIRMATION_REQUIRED = "MASS_CHANGE_CONFIRMATION_REQUIRED"
+
+    /** Raised by the extractor itself: the [Backoff] still runs, so nothing was sent. */
+    const val BACKING_OFF = "BACKING_OFF"
 }
 
 /**

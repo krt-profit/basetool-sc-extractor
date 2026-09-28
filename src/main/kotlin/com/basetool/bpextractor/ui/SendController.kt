@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.basetool.bpextractor.config.AppConfigStore
+import com.basetool.bpextractor.net.Backoff
 import com.basetool.bpextractor.net.Codes
 import com.basetool.bpextractor.net.ExchangeClient
 import com.basetool.bpextractor.net.ExchangeException
@@ -70,7 +71,8 @@ sealed interface SendState {
      * @param clockOffsetSeconds the measured clock deviation from the server, as in
      *   [DeviceGrantException.clockOffsetSeconds]; zero otherwise
      * @param reference the request's `X-Correlation-Id`, shown so the member can quote it in a report
-     * @param retryAfterSeconds how long the server asked to wait, when it said
+     * @param retryAfterSeconds how long the server asked to wait, or the back-off has left, when known
+     * @param status the HTTP status of an exchange refusal, for a code the overlay does not know; `0` otherwise
      */
     data class Error(
         val message: String,
@@ -78,6 +80,7 @@ sealed interface SendState {
         val clockOffsetSeconds: Long = 0,
         val reference: String = "",
         val retryAfterSeconds: Long? = null,
+        val status: Int = 0,
     ) : SendState
 }
 
@@ -101,6 +104,7 @@ class SendController(
     credentialStore: CredentialStore = WinCredentialStore(),
     private val exchangeClientFor: (String) -> ExchangeClient = { ExchangeClient(it) },
     keyStore: DpopKeyStore = CngDpopKeyStore(),
+    private val backoff: Backoff = Backoff.SHARED,
     private val browse: (String) -> Unit = { url ->
         runCatching {
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
@@ -188,7 +192,7 @@ class SendController(
             try {
                 val config = withContext(Dispatchers.IO) { configStore.load() }
                 val client = exchangeClientFor(config.ingestBaseUrl)
-                val session = ExchangeSession(login, client, pendingLang, config.installationLabel)
+                val session = ExchangeSession(login, client, pendingLang, config.installationLabel, backoff = backoff)
                 val required = setOf(
                     DeviceGrantClient.CONNECT_SCOPE,
                     if (pendingKind == SendKind.REFINERY) DeviceGrantClient.DRAFTS_REFINERY_SCOPE else DeviceGrantClient.DRAFTS_BLUEPRINTS_SCOPE,
@@ -234,6 +238,12 @@ fun failureOf(e: Exception): SendState.Error =
         is NoPersistentKeyException -> SendState.Error(e.message.orEmpty(), NoPersistentKeyException.CODE)
         is UnboundTokenException -> SendState.Error(e.message.orEmpty(), UnboundTokenException.CODE)
         is ExchangeException ->
-            SendState.Error(e.message ?: "send failed", e.code, reference = e.correlationId, retryAfterSeconds = e.retryAfterSeconds)
+            SendState.Error(
+                e.message ?: "send failed",
+                e.code,
+                reference = e.correlationId,
+                retryAfterSeconds = e.retryAfterSeconds,
+                status = e.status,
+            )
         else -> SendState.Error(e.message ?: "send failed")
     }

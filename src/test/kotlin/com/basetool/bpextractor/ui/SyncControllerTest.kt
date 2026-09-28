@@ -5,6 +5,7 @@ import com.basetool.bpextractor.config.AppConfigStore
 import com.basetool.bpextractor.model.BlueprintItem
 import com.basetool.bpextractor.model.ItemRef
 import com.basetool.bpextractor.model.Provenance
+import com.basetool.bpextractor.net.Backoff
 import com.basetool.bpextractor.net.auth.DeviceGrantClient
 import com.basetool.bpextractor.net.auth.FakeCredentialStore
 import com.basetool.bpextractor.net.auth.FakeDpopKeyStore
@@ -110,6 +111,7 @@ class SyncControllerTest {
             deviceGrant = DeviceGrantClient(issuer = base),
             credentialStore = store,
             keyStore = keys,
+            backoff = Backoff(),
             browse = {},
         )
 
@@ -145,6 +147,7 @@ class SyncControllerTest {
                 deviceGrant = DeviceGrantClient(issuer = this.base),
                 credentialStore = store,
                 keyStore = keys,
+                backoff = Backoff(),
                 browse = { (controller.state as? SyncState.Authenticating)?.let { reasons += it.reason } },
             )
 
