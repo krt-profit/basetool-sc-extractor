@@ -80,6 +80,8 @@ class SendStrings(
     val errorTooManyItems: (Int) -> String,
     /** The request's reference line under an error; takes the `X-Correlation-Id`. */
     val errorReference: (String) -> String,
+    /** Nothing was sent because the back-off after a failure still runs; takes the seconds left. */
+    val errorBackOff: (Long) -> String,
 )
 
 /** Strings for the opt-in direct blueprint sync, grouped under `strings.sync`. */
@@ -893,6 +895,10 @@ object StringsDe : Strings {
                     "2000). Bitte stattdessen „Blueprints synchronisieren“ verwenden."
             },
             errorReference = { ref -> "Referenz für eine Meldung: $ref" },
+            errorBackOff = { seconds ->
+                "Noch nicht gesendet: Nach einem Fehler wartet der Extractor, bevor er es erneut " +
+                    "versucht. Bitte in etwa $seconds Sekunden noch einmal."
+            },
         )
     override val account =
         AccountStrings(
@@ -1413,6 +1419,10 @@ object StringsEn : Strings {
                     "“Sync blueprints” instead."
             },
             errorReference = { ref -> "Reference for a report: $ref" },
+            errorBackOff = { seconds ->
+                "Not sent yet: after a failure the extractor waits before it tries again. Please try " +
+                    "again in about $seconds seconds."
+            },
         )
     override val account =
         AccountStrings(

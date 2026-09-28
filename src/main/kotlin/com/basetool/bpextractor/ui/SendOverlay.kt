@@ -15,8 +15,9 @@ import com.basetool.bpextractor.ui.i18n.SendStrings
 import kotlinx.coroutines.CoroutineScope
 
 /**
- * The plain-language text for a failed send or sync, decided by its code: what it means and what fixes
- * it, else the clock hint, else the server's detail; followed by the request's reference when there is one.
+ * The plain-language text for a failed send or sync, decided by its code, else by its HTTP status: what it
+ * means and what fixes it, else the clock hint, else the server's detail; followed by the request's
+ * reference when there is one.
  *
  * @param strings the send strings of the active language
  * @param error the failure
@@ -26,6 +27,7 @@ fun sendErrorText(strings: SendStrings, error: SendState.Error): String {
     val text =
         when (error.code) {
             SendController.REFUSED_LOCALLY -> error.message
+            Codes.BACKING_OFF -> strings.errorBackOff(error.retryAfterSeconds ?: 0L)
             Codes.CLIENT_NOT_ALLOWED, Codes.CLIENT_SUSPENDED -> strings.errorClientNotAllowed(error.message)
             Codes.CLIENT_VERSION_UNSUPPORTED -> strings.errorVersionUnsupported(error.message)
             Codes.INSTALLATION_REVOKED, Codes.CLIENT_REVOKED -> strings.errorRevoked(error.message)
@@ -41,10 +43,11 @@ fun sendErrorText(strings: SendStrings, error: SendState.Error): String {
             NoPersistentKeyException.CODE -> strings.errorNoPersistentKey
             UnboundTokenException.CODE -> strings.errorTokenNotBound
             else ->
-                if (error.clockOffsetSeconds != 0L) {
-                    strings.errorClockSkew(error.clockOffsetSeconds, error.message)
-                } else {
-                    strings.error(error.message)
+                when {
+                    error.clockOffsetSeconds != 0L -> strings.errorClockSkew(error.clockOffsetSeconds, error.message)
+                    error.status == 429 -> strings.errorSlowDown(error.retryAfterSeconds)
+                    error.status >= 500 -> strings.errorUnavailable(error.retryAfterSeconds)
+                    else -> strings.error(error.message)
                 }
         }
     return if (error.reference.isEmpty()) text else text + "\n\n" + strings.errorReference(error.reference)

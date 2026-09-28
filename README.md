@@ -168,7 +168,9 @@ the summary you either **Send to Basetool** or **Export as JSON**, which opens t
 save dialog at the output path from step 3. One send carries at most 2000
 blueprints (the web import takes no more per file); above that the app says so and
 sends nothing — use *Sync blueprints* instead, which has no such cap. When the Basetool refuses a send, the message says what
-to do and ends with a **reference** — quote it when you report the problem.
+to do and ends with a **reference** — quote it when you report the problem. After
+a failure the app waits a few seconds (longer after each further failure, and as
+long as the Basetool asks) before it sends again.
 
 **Only your own account is exported.** Each log file names the account that played
 it. When the logs come from several accounts — a second account played on the same
@@ -516,6 +518,7 @@ basetool-sc-extractor/
 │   ├── model/BlueprintEnvelope.kt    # the exchange v1 envelope the blueprint file and draft are
 │   ├── net/ExchangeClient.kt         # /exchange/v1: service document, drafts, installation label; DPoP + nonce, User-Agent, Idempotency-Key
 │   ├── net/ExchangeSession.kt        # one action: login, label, service-document checks, one retry after UNAUTHENTICATED
+│   ├── net/Backoff.kt                # the binding back-off: 5 s doubling to 5 min, jitter, never below Retry-After
 │   ├── net/ExchangeBlueprints.kt     # account check, blueprint pages, catalog/resolve, blueprint changes
 │   ├── net/BlueprintSync.kt          # the opt-in direct sync: pull, resolve, add only what is missing
 │   ├── net/auth/                     # device grant (RFC 8628), exchange login, DPoP (RFC 9449) with a non-exportable CNG key, DPAPI vault

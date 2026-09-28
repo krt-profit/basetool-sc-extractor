@@ -2,6 +2,7 @@ package com.basetool.bpextractor.ui
 
 import com.basetool.bpextractor.config.AppConfig
 import com.basetool.bpextractor.config.AppConfigStore
+import com.basetool.bpextractor.net.Backoff
 import com.basetool.bpextractor.net.Codes
 import com.basetool.bpextractor.net.auth.DeviceGrantClient
 import com.basetool.bpextractor.net.auth.DpopProofs
@@ -126,6 +127,7 @@ class SendControllerTest {
         deviceGrant = DeviceGrantClient(issuer = base),
         credentialStore = store,
         keyStore = keyStore,
+        backoff = Backoff(),
         browse = { browsed++ },
     )
 
@@ -210,6 +212,7 @@ class SendControllerTest {
                 deviceGrant = DeviceGrantClient(issuer = base),
                 credentialStore = store,
                 keyStore = keys,
+                backoff = Backoff(),
                 browse = { (controller.state as? SendState.Authenticating)?.let { reasons += it.reason } },
             )
 
@@ -258,7 +261,7 @@ class SendControllerTest {
         runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
 
         val error = controller.state as SendState.Error
-        assertEquals(SendState.Error("Bitte aktualisieren.", Codes.CLIENT_VERSION_UNSUPPORTED), error)
+        assertEquals(SendState.Error("Bitte aktualisieren.", Codes.CLIENT_VERSION_UNSUPPORTED, status = 403), error)
         assertNotNull(store.stored)
     }
 
@@ -323,6 +326,41 @@ class SendControllerTest {
         runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
 
         assertEquals(42L, (controller.state as SendState.Error).retryAfterSeconds)
+    }
+
+    @Test
+    fun `a second press while the back-off runs sends nothing`() {
+        draftAnswer = { ex ->
+            ex.responseHeaders.add("Retry-After", "42")
+            respond(ex, 503, """{"status":503,"code":"EXCHANGE_DISABLED","detail":"The exchange is switched off."}""")
+        }
+        val (store, _) = stored()
+        val controller = controller(store)
+        runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
+        val requests = seen.size
+        val documents = serviceDocuments
+
+        runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
+
+        val error = controller.state as SendState.Error
+        assertEquals(Codes.BACKING_OFF, error.code)
+        assertTrue(assertNotNull(error.retryAfterSeconds) >= 42, "never below the server's Retry-After")
+        assertEquals(requests, seen.size)
+        assertEquals(documents, serviceDocuments)
+        assertTrue(sendErrorText(StringsDe.send, error).contains("${error.retryAfterSeconds}"))
+    }
+
+    @Test
+    fun `a code the overlay does not know is explained by its status`() {
+        draftAnswer = { ex -> respond(ex, 503, """{"status":503,"code":"SOMETHING_NEW","detail":"New."}""") }
+        val (store, _) = stored()
+        val controller = controller(store)
+
+        runBlocking { controller.request(this, SendKind.BLUEPRINT, "{}", "de", "Windows-PC") }
+
+        val error = controller.state as SendState.Error
+        assertEquals(503, error.status)
+        assertEquals(StringsDe.send.errorUnavailable(null), sendErrorText(StringsDe.send, error))
     }
 
     @Test

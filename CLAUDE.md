@@ -263,6 +263,14 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   this build (else `CLIENT_VERSION_UNSUPPORTED`), both *before* the first read or write. An
   `UNAUTHENTICATED` is answered with **one** refreshed login and a second run, never a loop; a
   disconnect (`INSTALLATION_REVOKED` / `CLIENT_REVOKED`) drops the stored login and its key.
+  **The exchange's back-off numbers are approval criteria**, and `net/Backoff` (one per process,
+  `Backoff.SHARED`) holds them: after any refused or failed exchange request the next action waits
+  5 s, doubling to at most 5 min, plus up to a fifth of jitter, and never less than the answer's
+  `Retry-After` (even above 5 min); a success ends it. A press during the wait sends nothing and
+  shows the seconds left (`Codes.BACKING_OFF`). The extractor never retries on its own beyond the
+  one nonce / clock / `UNAUTHENTICATED` retry, and it has no timed sync — both would have to follow
+  the same numbers (timed syncs at most every 5 min). A code the overlay does not know is explained
+  by its HTTP status (429 → slow down, 5xx → unavailable).
   **Decide by `code`, never by `detail`**: the gateway's `detail` is one fixed English sentence
   per code (a hint at most), so `sendErrorText` maps each code (`Codes` groups them) to its own
   German/English text, shows the server's wait from `Retry-After`, and appends the request's
