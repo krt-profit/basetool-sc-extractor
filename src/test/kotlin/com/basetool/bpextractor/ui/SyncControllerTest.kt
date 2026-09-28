@@ -17,6 +17,7 @@ import java.net.URLDecoder
 import java.nio.file.Files
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
@@ -36,6 +37,9 @@ class SyncControllerTest {
     private val paths = CopyOnWriteArrayList<String>()
     private val deviceScopes = CopyOnWriteArrayList<String>()
     private var accountCheck = """{"result":"match"}"""
+    private var serviceDocument =
+        """{"capabilities":["exchange.connect","exchange.blueprints.read","exchange.blueprints.write"],"minClientVersion":"1.0.0"}"""
+    private val serviceDocuments = AtomicInteger(0)
     private val keys = FakeDpopKeyStore()
     private val syncScope = (DeviceGrantClient.BASE_SCOPES + DeviceGrantClient.SYNC_SCOPES).sorted().joinToString(" ")
 
@@ -54,6 +58,10 @@ class SyncControllerTest {
         server.createContext("/protocol/openid-connect/revoke") { ex ->
             ex.requestBody.readAllBytes()
             respond(ex, "{}")
+        }
+        server.createContext("/exchange/v1") { ex ->
+            serviceDocuments.incrementAndGet()
+            respond(ex, serviceDocument)
         }
         server.createContext("/exchange/v1/") { ex ->
             ex.requestBody.readAllBytes()
@@ -159,22 +167,55 @@ class SyncControllerTest {
         assertEquals(SyncState.AccountMismatch(account), controller.state)
         assertEquals(listOf("/exchange/v1/me/account-check"), paths)
 
-        runBlocking { controller.continueDespiteMismatch(this) }
+        runBlocking { controller.continueWithAccount(this) }
 
         assertEquals(1, (controller.state as SyncState.Done).report?.added)
         assertTrue("/exchange/v1/me/blueprints/changes" in paths)
     }
 
     @Test
-    fun `an account the profile does not name syncs with a hint`() {
+    fun `an account the profile does not name is synced only after the member confirms it`() {
         accountCheck = """{"result":"unknown"}"""
+        val account = handle()
         val controller = controller(config(enabled = true), storedSyncLogin())
 
-        runBlocking { controller.request(this, items, handle(), "de", "Windows-PC") }
+        runBlocking { controller.request(this, items, account, "de", "Windows-PC") }
 
-        val done = controller.state as SyncState.Done
-        assertTrue(done.unknownAccount)
-        assertEquals(1, done.report?.added)
+        assertEquals(SyncState.AccountUnconfirmed(account), controller.state)
+        assertEquals(listOf("/exchange/v1/me/account-check"), paths)
+
+        runBlocking { controller.continueWithAccount(this) }
+
+        assertEquals(1, (controller.state as SyncState.Done).report?.added)
+        assertEquals(1, paths.count { it == "/exchange/v1/me/account-check" }, "the answer holds for the session")
+
+        runBlocking { controller.request(this, items, account, "de", "Windows-PC") }
+
+        assertTrue(controller.state is SyncState.Done, "a confirmed account is not asked about again")
+    }
+
+    @Test
+    fun `a service document without the write capability stops before the sync`() {
+        serviceDocument = """{"capabilities":["exchange.connect","exchange.blueprints.read"]}"""
+        val controller = controller(config(enabled = true), storedSyncLogin())
+
+        runBlocking { controller.request(this, items, null, "de", "Windows-PC") }
+
+        assertEquals("SCOPE_MISSING", (controller.state as SyncState.Error).error.code)
+        assertTrue(paths.none { it.startsWith("/exchange/v1/me/blueprints") })
+    }
+
+    @Test
+    fun `a version below the registry's minimum stops before the sync`() {
+        serviceDocument =
+            """{"capabilities":["exchange.connect","exchange.blueprints.read","exchange.blueprints.write"],"minClientVersion":"99.0.0"}"""
+        val controller = controller(config(enabled = true), storedSyncLogin())
+
+        runBlocking { controller.request(this, items, null, "de", "Windows-PC") }
+
+        assertEquals("CLIENT_VERSION_UNSUPPORTED", (controller.state as SyncState.Error).error.code)
+        assertTrue(paths.none { it.startsWith("/exchange/v1/me/blueprints") })
+        assertEquals(1, serviceDocuments.get())
     }
 
     @Test

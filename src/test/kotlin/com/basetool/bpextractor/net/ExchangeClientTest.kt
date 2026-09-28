@@ -180,4 +180,54 @@ class ExchangeClientTest {
             assertTrue(!InstallationLabel.isValid(it), it)
         }
     }
+
+    @Test
+    fun `a refusal carries the request's reference and the server's wait`() {
+        RawHttpServer { _, _ ->
+            RawHttpServer.response(
+                "503 Service Unavailable",
+                """{"status":503,"code":"EXCHANGE_DISABLED","detail":"The exchange is switched off."}""",
+                headers = mapOf("X-Correlation-Id" to "req-1.a_b", "Retry-After" to "30"),
+            )
+        }.use { server ->
+            val e = assertFailsWith<ExchangeException> { ExchangeClient(server.baseUrl).draftBlueprints(credentials, "{}", "de") }
+
+            assertEquals("EXCHANGE_DISABLED", e.code)
+            assertEquals("req-1.a_b", e.correlationId)
+            assertEquals(30L, e.retryAfterSeconds)
+        }
+    }
+
+    @Test
+    fun `a reference that is not a plain id is dropped`() {
+        RawHttpServer { _, _ ->
+            RawHttpServer.response(
+                "429 Too Many Requests",
+                """{"status":429,"code":"RATE_LIMITED","detail":"Slow down.","retryAfterSeconds":12}""",
+                headers = mapOf("X-Correlation-Id" to "x".repeat(129)),
+            )
+        }.use { server ->
+            val e = assertFailsWith<ExchangeException> { ExchangeClient(server.baseUrl).draftBlueprints(credentials, "{}", "de") }
+
+            assertEquals("", e.correlationId)
+            assertEquals(12L, e.retryAfterSeconds, "the problem's own field when the header is absent")
+        }
+    }
+
+    @Test
+    fun `the service document is read from the API root`() {
+        RawHttpServer { _, _ ->
+            RawHttpServer.response(
+                "200 OK",
+                """{"apiVersion":"1","capabilities":["exchange.connect"],"minClientVersion":"2.10.0","installationId":"i-1"}""",
+            )
+        }.use { server ->
+            val document = ExchangeClient(server.baseUrl).serviceDocument(credentials, "de")
+
+            assertEquals("/exchange/v1", server.received.single().target)
+            assertEquals(listOf("exchange.connect"), document.capabilities)
+            assertEquals("2.10.0", document.minClientVersion)
+            assertEquals("GET", DpopProofs.claim(server.received.single().header("DPoP")!!, "htm"))
+        }
+    }
 }

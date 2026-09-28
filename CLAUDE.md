@@ -257,8 +257,17 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   `drafts/refinery-orders`) and the installation label. Every call carries `Authorization:
   DPoP`, a proof with `ath` and the server's current nonce, `User-Agent:
   BasetoolSCExtractor/<version> (+repo URL)` and `Accept-Language`; a write carries a fresh
-  `Idempotency-Key`. A failure surfaces the problem's `detail` plus the `errors[]` pointers and
-  its `code` (`Codes`), which the overlay turns into plain language (`sendErrorText`).
+  `Idempotency-Key`. **Every action runs through `ExchangeSession`**: a usable login, the label
+  for a fresh installation, then `GET /exchange/v1` — the service document must list every
+  capability the action needs (else `SCOPE_MISSING`) and its `minClientVersion` must not exceed
+  this build (else `CLIENT_VERSION_UNSUPPORTED`), both *before* the first read or write. An
+  `UNAUTHENTICATED` is answered with **one** refreshed login and a second run, never a loop; a
+  disconnect (`INSTALLATION_REVOKED` / `CLIENT_REVOKED`) drops the stored login and its key.
+  **Decide by `code`, never by `detail`**: the gateway's `detail` is one fixed English sentence
+  per code (a hint at most), so `sendErrorText` maps each code (`Codes` groups them) to its own
+  German/English text, shows the server's wait from `Retry-After`, and appends the request's
+  `X-Correlation-Id` as the reference a member quotes in a report. A blueprint draft above
+  `BlueprintEnvelope.MAX_ITEMS` (2000, the schema's cap) is refused locally before anything is sent.
   **The opt-in direct blueprint sync** (`BlueprintSync`, `ui/SyncController`, REQ-XCH-015) writes
   straight into „Meine Blueprints": pull every page of `GET /me/blueprints` first, resolve the
   envelope's names through `catalog/resolve` (the web import's own matching — never a second
@@ -266,9 +275,11 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   lacks. **It never sends `remove`** — a log proves a receipt, not a loss — so every sync is
   add-only, not just the first. `REMOVED_ELSEWHERE` is reported and re-sent with `override: true`
   only on the member's button press. Before the first sync of an account in a process it asks
-  `POST /me/account-check` (REQ-XCH-031); `mismatch` stops and asks, `unknown` syncs with a hint.
+  `POST /me/account-check` (REQ-XCH-031), once per handle and process; `match` syncs, while
+  `mismatch` **and** `unknown` (the profile names no handle) stop and ask the member
+  (`AccountMismatch` / `AccountUnconfirmed`) — nothing is read or written before the answer.
   **The handle goes only to that check** — it is not stored, not in `config.json`, not in the
-  credential; the passed checks live in memory for the process. The opt-in itself
+  credential; the answers and the member's confirmations live in memory for the process. The opt-in itself
   (`blueprintSyncEnabled`) is persisted; the sync asks for `SYNC_SCOPES` on top of the base
   scopes, which forces one device login for a login that lacks them.
   `auth/DeviceGrantClient` runs the RFC 8628 device grant against the **prod** Keycloak
@@ -276,8 +287,8 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   `BASE_SCOPES` (`offline_access`, `exchange.connect`, both draft scopes), plus `SYNC_SCOPES`
   for the opt-in sync; **never** `openid` or `extractor-ingest`. The browser opens the **bare
   `verification_uri`** and the member types the code shown in the app: `verification_uri_complete`
-  skips the device page's phishing warning (review finding M1), so it is only the fallback for a
-  server that sends no bare URI (`DeviceCodeResponse.browserUrl`). `auth/ExchangeLogin` decides
+  skips the device page's phishing warning (review finding M1), so it is **never** opened or shown
+  (the exchange's client-security rule); an answer without the bare URI fails the login. `auth/ExchangeLogin` decides
   between a silent refresh and a device login, and `auth/CredentialStore` is the DPAPI-backed
   vault for the one "remember me" `StoredCredential`. Both clients accept a
   server URL only through `net/TransportPolicy` — **parsed** with `java.net.URI`: `https`, or
@@ -669,7 +680,12 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   app's reported version stay in lockstep. The dev fallback in `build.gradle.kts` stays
   `1.0.0`. The registry's `minClientVersion` for `basetool-sc-extractor` is raised to the
   migration release, 2.10.0, at the go-live; after that a dev build (`1.0.0`) is refused by prod,
-  which is correct — develop against the sandbox.
+  which is correct. **This build cannot reach the basetool's exchange sandbox** (`docs/exchange/sandbox.md`
+  there): the issuer is the hardcoded `PROD_ISSUER`, and the sandbox's gateway serves a self-signed
+  certificate the JDK does not trust. Exchange behaviour is therefore tested against the local
+  stand-ins in `SendControllerTest`, `SyncControllerTest` and `ExchangeClientTest`, and the payloads
+  against the vendored schemas. Don't add a developer switch for it (owner decision 2026-09-28): the
+  app keeps one production-only path.
 
 ## Releases (CI)
 

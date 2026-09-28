@@ -1,7 +1,7 @@
 # Exchange API v1 — vendored contract
 
 `schemas/` and `examples/` are copies of the exchange v1 JSON Schemas and conformance fixtures of
-`krt-profit/basetool`, taken at commit `65fe413d5cd04d33df6d9685e1ee1fc5cb172aa6` (2026-09-27):
+`krt-profit/basetool`, taken at commit `64a9907f056fd2b94120e69445e7a8e61c2fb204` (2026-09-28):
 
 | Here | There |
 | --- | --- |

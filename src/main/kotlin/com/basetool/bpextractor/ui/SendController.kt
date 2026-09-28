@@ -7,13 +7,14 @@ import com.basetool.bpextractor.config.AppConfigStore
 import com.basetool.bpextractor.net.Codes
 import com.basetool.bpextractor.net.ExchangeClient
 import com.basetool.bpextractor.net.ExchangeException
+import com.basetool.bpextractor.net.ExchangeSession
 import com.basetool.bpextractor.net.InstallationLabel
 import com.basetool.bpextractor.net.auth.CngDpopKeyStore
 import com.basetool.bpextractor.net.auth.CredentialStore
+import com.basetool.bpextractor.net.auth.DeviceCodeResponse
 import com.basetool.bpextractor.net.auth.DeviceGrantClient
 import com.basetool.bpextractor.net.auth.DeviceGrantException
 import com.basetool.bpextractor.net.auth.DpopKeyStore
-import com.basetool.bpextractor.net.auth.ExchangeGrant
 import com.basetool.bpextractor.net.auth.ExchangeLogin
 import com.basetool.bpextractor.net.auth.LoginReason
 import com.basetool.bpextractor.net.auth.NoPersistentKeyException
@@ -68,11 +69,15 @@ sealed interface SendState {
      *   empty otherwise
      * @param clockOffsetSeconds the measured clock deviation from the server, as in
      *   [DeviceGrantException.clockOffsetSeconds]; zero otherwise
+     * @param reference the request's `X-Correlation-Id`, shown so the member can quote it in a report
+     * @param retryAfterSeconds how long the server asked to wait, when it said
      */
     data class Error(
         val message: String,
         val code: String = "",
         val clockOffsetSeconds: Long = 0,
+        val reference: String = "",
+        val retryAfterSeconds: Long? = null,
     ) : SendState
 }
 
@@ -169,56 +174,66 @@ class SendController(
         (state as? SendState.Done)?.let { browse(it.frontendUrl) }
     }
 
+    /**
+     * Shows [message] as a failure without sending anything, for a payload the Basetool would refuse.
+     *
+     * @param message the already-localized reason
+     */
+    fun refuse(message: String) {
+        state = SendState.Error(message, REFUSED_LOCALLY)
+    }
+
     private fun run(scope: CoroutineScope) {
         scope.launch {
             try {
                 val config = withContext(Dispatchers.IO) { configStore.load() }
-                val grant = withContext(Dispatchers.IO) { obtain(DeviceGrantClient.BASE_SCOPES) }
-                withContext(Dispatchers.IO) { login.remember(grant) }
-                state = SendState.Sending
+                val client = exchangeClientFor(config.ingestBaseUrl)
+                val session = ExchangeSession(login, client, pendingLang, config.installationLabel)
+                val required = setOf(
+                    DeviceGrantClient.CONNECT_SCOPE,
+                    if (pendingKind == SendKind.REFINERY) DeviceGrantClient.DRAFTS_REFINERY_SCOPE else DeviceGrantClient.DRAFTS_BLUEPRINTS_SCOPE,
+                )
                 val response =
                     withContext(Dispatchers.IO) {
-                        val client = exchangeClientFor(config.ingestBaseUrl)
-                        val credentials = grant.credentials()
-                        if (grant.fresh) label(client, grant, config.installationLabel)
-                        when (pendingKind) {
-                            SendKind.REFINERY -> client.draftRefinery(credentials, pendingJson, pendingLang)
-                            SendKind.BLUEPRINT -> client.draftBlueprints(credentials, pendingJson, pendingLang)
+                        session.run(DeviceGrantClient.BASE_SCOPES, required, ::onDeviceCode) { credentials ->
+                            state = SendState.Sending
+                            when (pendingKind) {
+                                SendKind.REFINERY -> client.draftRefinery(credentials, pendingJson, pendingLang)
+                                SendKind.BLUEPRINT -> client.draftBlueprints(credentials, pendingJson, pendingLang)
+                            }
                         }
                     }
                 state = SendState.Done(response.frontendUrl)
-            } catch (e: DeviceGrantException) {
-                state = SendState.Error(e.message ?: "authentication failed", "", e.clockOffsetSeconds)
-            } catch (e: NoPersistentKeyException) {
-                state = SendState.Error(e.message.orEmpty(), NoPersistentKeyException.CODE)
-            } catch (e: UnboundTokenException) {
-                state = SendState.Error(e.message.orEmpty(), UnboundTokenException.CODE)
-            } catch (e: ExchangeException) {
-                if (e.code == Codes.INSTALLATION_REVOKED || e.code == Codes.CLIENT_REVOKED) {
-                    withContext(Dispatchers.IO) { login.forget() }
-                }
-                state = SendState.Error(e.message ?: "send failed", e.code)
             } catch (e: Exception) {
-                state = SendState.Error(e.message ?: "send failed")
+                state = failureOf(e)
             }
         }
     }
 
-    private fun obtain(scopes: Set<String>): ExchangeGrant =
-        login.obtain(scopes) { device, reason ->
-            state = SendState.Authenticating(device.userCode, device.browserUrl(), reason)
-            browse(device.browserUrl())
-        }
+    private fun onDeviceCode(device: DeviceCodeResponse, reason: LoginReason) {
+        state = SendState.Authenticating(device.userCode, device.browserUrl(), reason)
+        browse(device.browserUrl())
+    }
 
-    /**
-     * Labels a new installation with the member's label. Best-effort: an installation without a label
-     * still works, and the draft call that follows reports any refusal that matters.
-     */
-    private fun label(client: ExchangeClient, grant: ExchangeGrant, label: String?) {
-        if (label == null) return
-        try {
-            client.labelInstallation(grant.credentials(), label, pendingLang)
-        } catch (_: ExchangeException) {
-        }
+    companion object {
+        /** The code of a failure raised before anything was sent; its message is shown as it is. */
+        const val REFUSED_LOCALLY = "REFUSED_LOCALLY"
     }
 }
+
+/**
+ * The failure the overlay shows for [e]: its code, the request's reference and the server's wait for an
+ * exchange refusal, the clock offset for a sign-in failure.
+ *
+ * @param e what went wrong
+ * @return the failure state
+ */
+fun failureOf(e: Exception): SendState.Error =
+    when (e) {
+        is DeviceGrantException -> SendState.Error(e.message ?: "authentication failed", "", e.clockOffsetSeconds)
+        is NoPersistentKeyException -> SendState.Error(e.message.orEmpty(), NoPersistentKeyException.CODE)
+        is UnboundTokenException -> SendState.Error(e.message.orEmpty(), UnboundTokenException.CODE)
+        is ExchangeException ->
+            SendState.Error(e.message ?: "send failed", e.code, reference = e.correlationId, retryAfterSeconds = e.retryAfterSeconds)
+        else -> SendState.Error(e.message ?: "send failed")
+    }

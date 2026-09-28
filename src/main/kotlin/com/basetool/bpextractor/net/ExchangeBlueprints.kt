@@ -139,6 +139,9 @@ data class ChangeResult(
 @Serializable
 data class AccountCheckResult(val result: String = "") {
     companion object {
+        /** The handle is the one on the member's profile. */
+        const val MATCH = "match"
+
         /** The handle belongs to another member's profile, or the member's profile names another. */
         const val MISMATCH = "mismatch"
 

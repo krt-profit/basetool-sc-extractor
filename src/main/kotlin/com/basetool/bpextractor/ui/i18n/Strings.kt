@@ -60,6 +60,26 @@ class SendStrings(
      * measured deviation in seconds (negative when the machine runs fast).
      */
     val errorClockSkew: (Long, String) -> String,
+    /** `401 UNAUTHENTICATED` again after one refreshed retry. */
+    val errorUnauthenticated: String,
+    /** `403 TERMS_NOT_ACCEPTED`: the member has to accept the current terms in the Basetool. */
+    val errorTermsNotAccepted: String,
+    /** `403 PENDING_APPROVAL`: the member's registration awaits approval. */
+    val errorPendingApproval: String,
+    /** `403 NO_ROLE`, `ACTING_MEMBER_REFUSED` or `NOT_PERMITTED`: the member may not do this. */
+    val errorAccountRefused: String,
+    /** `429 RATE_LIMITED` or `DPOP_PROOF_LIMIT`; takes the server's wait in seconds, when it named one. */
+    val errorSlowDown: (Long?) -> String,
+    /** `429 QUOTA_EXCEEDED`; takes the server's wait in seconds, when it named one. */
+    val errorQuota: (Long?) -> String,
+    /** A temporary outage (`503`, `502`, `409 IDEMPOTENCY_IN_PROGRESS`); takes the server's wait in seconds. */
+    val errorUnavailable: (Long?) -> String,
+    /** The request did not match the contract (`400`, `413`, `422`); takes the server's detail. */
+    val errorRejected: (String) -> String,
+    /** More blueprints than one draft may carry; takes their number. Nothing was sent. */
+    val errorTooManyItems: (Int) -> String,
+    /** The request's reference line under an error; takes the `X-Correlation-Id`. */
+    val errorReference: (String) -> String,
 )
 
 /** Strings for the opt-in direct blueprint sync, grouped under `strings.sync`. */
@@ -75,11 +95,14 @@ class SyncStrings(
     /** The account check found that the log's account is not the member's; takes the handle. */
     val mismatchBody: (String) -> String,
     val mismatchContinue: String,
+    val unconfirmedTitle: String,
+    /** The member's profile names no RSI handle, so the check cannot tell; takes the log's handle. */
+    val unconfirmedBody: (String) -> String,
+    val unconfirmedContinue: String,
     val resultTitle: String,
     /** Takes the products added and the products already owned. */
     val resultAdded: (Int, Int) -> String,
     val resultNothing: String,
-    val resultUnknownAccount: String,
     val resultRemovedElsewhere: (Int) -> String,
     val overrideButton: String,
     val resultUnmatched: (Int) -> String,
@@ -835,6 +858,41 @@ object StringsDe : Strings {
                     "Zeit und Sprache → Datum und Uhrzeit die Uhr synchronisieren und es erneut " +
                     "versuchen.\n\nMeldung des Servers: $msg"
             },
+            errorUnauthenticated =
+                "Versand fehlgeschlagen: Das Basetool hat die Anmeldung auch nach einer Erneuerung nicht " +
+                    "angenommen. Bitte später erneut versuchen; hilft das nicht, über „Vom Basetool " +
+                    "trennen“ abmelden und beim nächsten Senden neu anmelden.",
+            errorTermsNotAccepted =
+                "Versand abgelehnt: Du hast die aktuellen Nutzungsbedingungen des Basetools noch nicht " +
+                    "angenommen. Bitte das Basetool im Browser öffnen, zustimmen und erneut senden.",
+            errorPendingApproval =
+                "Versand abgelehnt: Deine Registrierung im Basetool wartet noch auf Freischaltung. " +
+                    "Sobald sie freigeschaltet ist, kannst du senden.",
+            errorAccountRefused =
+                "Versand abgelehnt: Dein Basetool-Konto darf das nicht. Ein erneuter Versuch ändert " +
+                    "daran nichts — bitte @greluc oder die Organisationsleitung fragen.",
+            errorSlowDown = { seconds ->
+                "Das Basetool bittet um eine Pause: Es kamen zu viele Anfragen in kurzer Zeit. Bitte " +
+                    (if (seconds != null) "in etwa $seconds Sekunden " else "gleich ") + "erneut versuchen."
+            },
+            errorQuota = { seconds ->
+                "Das Tageskontingent für Übertragungen ist aufgebraucht. Bitte " +
+                    (if (seconds != null) "in etwa ${(seconds + 3599) / 3600} Stunde(n) " else "morgen ") +
+                    "erneut versuchen."
+            },
+            errorUnavailable = { seconds ->
+                "Das Basetool ist gerade nicht erreichbar. Bitte " +
+                    (if (seconds != null) "in etwa $seconds Sekunden " else "gleich ") + "erneut versuchen."
+            },
+            errorRejected = { msg ->
+                "Versand abgelehnt: Die Daten passen nicht zum Format des Basetools. Bitte die Datei " +
+                    "stattdessen als JSON speichern und @greluc melden.\n\nMeldung des Basetools: $msg"
+            },
+            errorTooManyItems = { n ->
+                "Nicht gesendet: $n Blueprints sind mehr, als ein Import aufnehmen kann (höchstens " +
+                    "2000). Bitte stattdessen „Blueprints synchronisieren“ verwenden."
+            },
+            errorReference = { ref -> "Referenz für eine Meldung: $ref" },
         )
     override val account =
         AccountStrings(
@@ -870,14 +928,18 @@ object StringsDe : Strings {
                     "RSI-Handle im Basetool-Profil korrigieren."
             },
             mismatchContinue = "Trotzdem synchronisieren",
+            unconfirmedTitle = "Ist das dein Spielkonto?",
+            unconfirmedBody = { handle ->
+                "In deinem Basetool-Profil ist kein RSI-Handle hinterlegt, deshalb kann das Basetool " +
+                    "nicht prüfen, ob das Spielkonto „$handle“ zu dir gehört. Synchronisiere nur, wenn es " +
+                    "deins ist — und trage dein RSI-Handle im Basetool-Profil ein, dann entfällt diese Frage."
+            },
+            unconfirmedContinue = "Ja, es ist meins",
             resultTitle = "Synchronisiert",
             resultAdded = { added, owned ->
                 "$added Blueprint(s) neu in „Meine Blueprints“ eingetragen, $owned waren schon da."
             },
             resultNothing = "Das gewählte Spielkonto hat keine Blueprints — es gibt nichts abzugleichen.",
-            resultUnknownAccount =
-                "Hinweis: In deinem Basetool-Profil ist kein RSI-Handle hinterlegt, deshalb konnte " +
-                    "nicht geprüft werden, ob das Spielkonto zu dir gehört.",
             resultRemovedElsewhere = { n ->
                 "$n Blueprint(s) hast du im Basetool oder in einem anderen Programm entfernt. Sie " +
                     "wurden nicht wieder hinzugefügt:"
@@ -1317,6 +1379,40 @@ object StringsEn : Strings {
                     "synchronise the clock under Settings → Time & language → Date & time and try " +
                     "again.\n\nServer said: $msg"
             },
+            errorUnauthenticated =
+                "Send failed: the basetool did not accept the sign-in, not even after renewing it. Please " +
+                    "try again later; if that does not help, use “Disconnect from basetool” and sign in " +
+                    "again on the next send.",
+            errorTermsNotAccepted =
+                "Send refused: you have not accepted the basetool's current terms yet. Please open the " +
+                    "basetool in the browser, accept them and send again.",
+            errorPendingApproval =
+                "Send refused: your basetool registration is still waiting for approval. You can send " +
+                    "once it is approved.",
+            errorAccountRefused =
+                "Send refused: your basetool account may not do this. Trying again will not change " +
+                    "that — please ask @greluc or the organisation's leadership.",
+            errorSlowDown = { seconds ->
+                "The basetool asks for a pause: too many requests in a short time. Please try again " +
+                    (if (seconds != null) "in about $seconds seconds." else "in a moment.")
+            },
+            errorQuota = { seconds ->
+                "Today's transfer quota is used up. Please try again " +
+                    (if (seconds != null) "in about ${(seconds + 3599) / 3600} hour(s)." else "tomorrow.")
+            },
+            errorUnavailable = { seconds ->
+                "The basetool cannot be reached right now. Please try again " +
+                    (if (seconds != null) "in about $seconds seconds." else "in a moment.")
+            },
+            errorRejected = { msg ->
+                "Send refused: the data does not match the basetool's format. Please save it as JSON " +
+                    "instead and tell @greluc.\n\nBasetool said: $msg"
+            },
+            errorTooManyItems = { n ->
+                "Not sent: $n blueprints are more than one import can take (at most 2000). Please use " +
+                    "“Sync blueprints” instead."
+            },
+            errorReference = { ref -> "Reference for a report: $ref" },
         )
     override val account =
         AccountStrings(
@@ -1351,12 +1447,16 @@ object StringsEn : Strings {
                     "it really is yours, sync anyway — and correct the RSI handle in your basetool profile."
             },
             mismatchContinue = "Sync anyway",
+            unconfirmedTitle = "Is this your game account?",
+            unconfirmedBody = { handle ->
+                "Your basetool profile holds no RSI handle, so the basetool cannot check whether the game " +
+                    "account “$handle” is yours. Only sync if it is yours — and add your RSI handle to your " +
+                    "basetool profile, then this question goes away."
+            },
+            unconfirmedContinue = "Yes, it is mine",
             resultTitle = "Synced",
             resultAdded = { added, owned -> "$added blueprint(s) added to “My blueprints”, $owned were already there." },
             resultNothing = "The selected game account has no blueprints — there is nothing to sync.",
-            resultUnknownAccount =
-                "Note: your basetool profile holds no RSI handle, so it could not be checked whether " +
-                    "the game account is yours.",
             resultRemovedElsewhere = { n ->
                 "You removed $n blueprint(s) in the basetool or another program. They were not added back:"
             },

@@ -521,8 +521,20 @@ private fun BpSummaryStep(state: AppState) {
             CtaButton(
                 strings.send.button,
                 onClick = {
-                    val json = state.selectedExport?.let { BlueprintExtractor.toJson(BlueprintExtractor.envelopeOf(it)) }
-                    if (json != null) sendController.request(scope, SendKind.BLUEPRINT, json, langTag, strings.send.defaultLabel)
+                    val envelope = state.selectedExport?.let { BlueprintExtractor.envelopeOf(it) }
+                    when {
+                        envelope == null -> {}
+                        envelope.items.size > BlueprintEnvelope.MAX_ITEMS ->
+                            sendController.refuse(strings.send.errorTooManyItems(envelope.items.size))
+                        else ->
+                            sendController.request(
+                                scope,
+                                SendKind.BLUEPRINT,
+                                BlueprintExtractor.toJson(envelope),
+                                langTag,
+                                strings.send.defaultLabel,
+                            )
+                    }
                 },
             )
         },

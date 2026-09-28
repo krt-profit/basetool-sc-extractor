@@ -7,27 +7,25 @@ import com.basetool.bpextractor.config.AppConfigStore
 import com.basetool.bpextractor.model.BlueprintItem
 import com.basetool.bpextractor.net.AccountCheckResult
 import com.basetool.bpextractor.net.BlueprintSync
-import com.basetool.bpextractor.net.Codes
 import com.basetool.bpextractor.net.ExchangeClient
-import com.basetool.bpextractor.net.ExchangeException
+import com.basetool.bpextractor.net.ExchangeCredentials
+import com.basetool.bpextractor.net.ExchangeSession
 import com.basetool.bpextractor.net.InstallationLabel
 import com.basetool.bpextractor.net.SyncReport
 import com.basetool.bpextractor.net.accountCheck
 import com.basetool.bpextractor.net.auth.CngDpopKeyStore
 import com.basetool.bpextractor.net.auth.CredentialStore
+import com.basetool.bpextractor.net.auth.DeviceCodeResponse
 import com.basetool.bpextractor.net.auth.DeviceGrantClient
-import com.basetool.bpextractor.net.auth.DeviceGrantException
 import com.basetool.bpextractor.net.auth.DpopKeyStore
-import com.basetool.bpextractor.net.auth.ExchangeGrant
 import com.basetool.bpextractor.net.auth.ExchangeLogin
 import com.basetool.bpextractor.net.auth.LoginReason
-import com.basetool.bpextractor.net.auth.NoPersistentKeyException
-import com.basetool.bpextractor.net.auth.UnboundTokenException
 import com.basetool.bpextractor.net.auth.WinCredentialStore
 import com.basetool.bpextractor.net.isCheckableHandle
 import java.awt.Desktop
 import java.net.URI
 import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -47,9 +45,9 @@ sealed interface SyncState {
     data class Consent(val label: String?, val labelInvalid: Boolean = false) : SyncState
 
     /**
-     * Browser opened; waiting for the user to approve the shown code.
+     * Browser opened; waiting for the member to type the shown code.
      *
-     * @param userCode the code to confirm
+     * @param userCode the code to type
      * @param browserUrl the verification URL
      * @param reason why the browser is needed
      */
@@ -69,12 +67,18 @@ sealed interface SyncState {
     data class AccountMismatch(val handle: String) : SyncState
 
     /**
+     * The member's profile names no RSI handle, so the account check cannot tell; the member confirms.
+     *
+     * @param handle the log's account
+     */
+    data class AccountUnconfirmed(val handle: String) : SyncState
+
+    /**
      * Done.
      *
      * @param report what the sync did, `null` when there was nothing to sync
-     * @param unknownAccount whether the member's profile names no handle, so the account went unchecked
      */
-    data class Done(val report: SyncReport?, val unknownAccount: Boolean = false) : SyncState
+    data class Done(val report: SyncReport?) : SyncState
 
     /**
      * A failure, as [SendState.Error] describes it.
@@ -86,8 +90,9 @@ sealed interface SyncState {
 
 /**
  * Drives the opt-in direct blueprint sync: the one-time opt-in, a login with the sync scopes, the account
- * check before the first sync of an account in this session (the handle goes to that check only), then
- * [BlueprintSync]. A Compose state holder whose heavy work runs on [Dispatchers.IO].
+ * check once per account and session (the handle goes to that check only), then [BlueprintSync]. Every
+ * action — also the member's answer to a question — signs in afresh through [ExchangeSession]. A Compose
+ * state holder whose heavy work runs on [Dispatchers.IO].
  */
 class SyncController(
     private val configStore: AppConfigStore = AppConfigStore(),
@@ -112,7 +117,6 @@ class SyncController(
     private var items: List<BlueprintItem> = emptyList()
     private var handle: String? = null
     private var lang: String = "de"
-    private var grant: ExchangeGrant? = null
 
     /**
      * Entry point from the blueprint summary: stashes the selected account's items and handle, then shows
@@ -160,35 +164,46 @@ class SyncController(
         run(scope)
     }
 
-    /** Syncs after the member confirmed that a mismatching account is theirs after all. */
-    fun continueDespiteMismatch(scope: CoroutineScope) {
-        val mismatch = state as? SyncState.AccountMismatch ?: return
-        val current = grant ?: return
-        checked += mismatch.handle
-        scope.launch { guarded { sync(current, unknownAccount = false) } }
+    /**
+     * Syncs after the member confirmed that the account is theirs, following a mismatch or an account
+     * the profile does not name. The confirmation holds for the session.
+     */
+    fun continueWithAccount(scope: CoroutineScope) {
+        val account =
+            when (val current = state) {
+                is SyncState.AccountMismatch -> current.handle
+                is SyncState.AccountUnconfirmed -> current.handle
+                else -> return
+            }
+        confirmed += account
+        run(scope)
     }
 
     /** Adds the products the member removed elsewhere after all, after they asked for it. */
     fun addRemovedElsewhere(scope: CoroutineScope) {
         val done = state as? SyncState.Done ?: return
         val report = done.report ?: return
-        val current = grant ?: return
         scope.launch {
-            guarded {
-                state = SyncState.Syncing
+            try {
+                val client = client()
                 val again =
                     withContext(Dispatchers.IO) {
-                        BlueprintSync(client(), current.credentials(), lang).addRemovedElsewhere(report.removedElsewhere)
+                        session(client).run(SCOPES, REQUIRED, ::onDeviceCode) { credentials ->
+                            state = SyncState.Syncing
+                            BlueprintSync(client, credentials, lang).addRemovedElsewhere(report.removedElsewhere)
+                        }
                     }
                 state =
-                    done.copy(
-                        report = report.copy(
+                    SyncState.Done(
+                        report.copy(
                             added = report.added + again.added,
                             alreadyOwned = report.alreadyOwned + again.alreadyOwned,
                             removedElsewhere = again.removedElsewhere,
                             refused = report.refused + again.refused,
                         ),
                     )
+            } catch (e: Exception) {
+                state = SyncState.Error(failureOf(e))
             }
         }
     }
@@ -205,84 +220,62 @@ class SyncController(
 
     private fun run(scope: CoroutineScope) {
         scope.launch {
-            guarded {
-                val current =
+            try {
+                val client = client()
+                state =
                     withContext(Dispatchers.IO) {
-                        login.obtain(DeviceGrantClient.BASE_SCOPES + DeviceGrantClient.SYNC_SCOPES) { device, reason ->
-                            state = SyncState.Authenticating(device.userCode, device.browserUrl(), reason)
-                            browse(device.browserUrl())
-                        }
+                        session(client).run(SCOPES, REQUIRED, ::onDeviceCode) { credentials -> syncWith(client, credentials) }
                     }
-                grant = current
-                withContext(Dispatchers.IO) {
-                    login.remember(current)
-                    if (current.fresh) label(current)
-                }
-                var unknownAccount = false
-                val account = handle
-                if (account != null && isCheckableHandle(account) && account !in checked) {
-                    state = SyncState.CheckingAccount
-                    val result = withContext(Dispatchers.IO) { client().accountCheck(current.credentials(), account, lang) }
-                    when (result.result) {
-                        AccountCheckResult.MISMATCH -> {
-                            state = SyncState.AccountMismatch(account)
-                            return@guarded
-                        }
-                        AccountCheckResult.UNKNOWN -> unknownAccount = true
-                        else -> checked += account
-                    }
-                }
-                sync(current, unknownAccount)
+            } catch (e: Exception) {
+                state = SyncState.Error(failureOf(e))
             }
         }
     }
 
-    private suspend fun sync(current: ExchangeGrant, unknownAccount: Boolean) {
-        if (items.isEmpty()) {
-            state = SyncState.Done(null, unknownAccount)
-            return
+    /** The account check where it is due, then the sync; answers with the state to show. */
+    private fun syncWith(client: ExchangeClient, credentials: ExchangeCredentials): SyncState {
+        val account = handle
+        if (account != null && isCheckableHandle(account) && account !in confirmed) {
+            val result =
+                answers[account] ?: run {
+                    state = SyncState.CheckingAccount
+                    client.accountCheck(credentials, account, lang).result.also { answers[account] = it }
+                }
+            when (result) {
+                AccountCheckResult.MATCH -> confirmed += account
+                AccountCheckResult.MISMATCH -> return SyncState.AccountMismatch(account)
+                else -> return SyncState.AccountUnconfirmed(account)
+            }
         }
+        if (items.isEmpty()) return SyncState.Done(null)
         state = SyncState.Syncing
-        val report = withContext(Dispatchers.IO) { BlueprintSync(client(), current.credentials(), lang).sync(items) }
-        state = SyncState.Done(report, unknownAccount)
+        return SyncState.Done(BlueprintSync(client, credentials, lang).sync(items))
     }
+
+    private fun onDeviceCode(device: DeviceCodeResponse, reason: LoginReason) {
+        state = SyncState.Authenticating(device.userCode, device.browserUrl(), reason)
+        browse(device.browserUrl())
+    }
+
+    private fun session(client: ExchangeClient): ExchangeSession =
+        ExchangeSession(login, client, lang, configStore.load().installationLabel)
 
     private fun client(): ExchangeClient = exchangeClientFor(configStore.load().ingestBaseUrl)
 
-    private fun label(current: ExchangeGrant) {
-        val label = configStore.load().installationLabel ?: return
-        try {
-            client().labelInstallation(current.credentials(), label, lang)
-        } catch (_: ExchangeException) {
-        }
-    }
-
-    /** Runs [block] and turns every failure into [SyncState.Error], as the send flow does. */
-    private suspend fun guarded(block: suspend () -> Unit) {
-        try {
-            block()
-        } catch (e: DeviceGrantException) {
-            state = SyncState.Error(SendState.Error(e.message ?: "authentication failed", "", e.clockOffsetSeconds))
-        } catch (e: NoPersistentKeyException) {
-            state = SyncState.Error(SendState.Error(e.message.orEmpty(), NoPersistentKeyException.CODE))
-        } catch (e: UnboundTokenException) {
-            state = SyncState.Error(SendState.Error(e.message.orEmpty(), UnboundTokenException.CODE))
-        } catch (e: ExchangeException) {
-            if (e.code == Codes.INSTALLATION_REVOKED || e.code == Codes.CLIENT_REVOKED) {
-                withContext(Dispatchers.IO) { login.forget() }
-                grant = null
-            }
-            state = SyncState.Error(SendState.Error(e.message ?: "sync failed", e.code))
-        } catch (e: Exception) {
-            state = SyncState.Error(SendState.Error(e.message ?: "sync failed"))
-        }
-    }
-
     private companion object {
+        /** What the sync signs in with: the base scopes and the blueprint read and write. */
+        val SCOPES: Set<String> = DeviceGrantClient.BASE_SCOPES + DeviceGrantClient.SYNC_SCOPES
+
+        /** What the service document must grant before a sync. */
+        val REQUIRED: Set<String> = setOf(DeviceGrantClient.CONNECT_SCOPE) + DeviceGrantClient.SYNC_SCOPES
+
         /**
-         * The handles the account check passed in this process, so it runs before the first sync of each
-         * account and not before every one. Held in memory only; the handle is never stored.
+         * The account check's answer per handle for this process, so each handle is checked once per
+         * session. Held in memory only; the handle is never stored.
          */
-        val checked: MutableSet<String> = Collections.synchronizedSet(HashSet())
+        val answers: MutableMap<String, String> = ConcurrentHashMap()
+
+        /** The handles the check matched or the member confirmed in this process. */
+        val confirmed: MutableSet<String> = Collections.synchronizedSet(HashSet())
     }
 }
