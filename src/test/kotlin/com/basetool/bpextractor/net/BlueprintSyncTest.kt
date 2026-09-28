@@ -84,7 +84,7 @@ class BlueprintSyncTest {
             val results =
                 refs.mapIndexed { index, ref ->
                     val name = (ref as JsonObject)["name"]?.jsonPrimitive?.content
-                    when (val bt = catalogue[name]) {
+                    when (val bt = catalogue[name] ?: name?.takeIf { it.startsWith("Bulk ") }?.let { "bt-" + it.substringAfter(' ') }) {
                         null ->
                             if (name == "Twin Name") {
                                 """{"index":$index,"status":"ambiguous","candidates":[{"bt":"a","name":"A"},{"bt":"b","name":"B"}]}"""
@@ -181,5 +181,18 @@ class BlueprintSyncTest {
         val resolves = requests.filter { it.second == "/exchange/v1/catalog/resolve" }
         assertEquals(3, resolves.size)
         assertEquals(1200, report.unmatched.size)
+    }
+
+    @Test
+    fun `adds go out in change sets of at most 100 ops`() {
+        val many = (1..250).map { item("Bulk $it") }
+
+        val report = BlueprintSync(client, credentials, "de").sync(many)
+
+        val sets =
+            requests.filter { it.second == "/exchange/v1/me/blueprints/changes" }
+                .map { json.parseToJsonElement(it.third).jsonObject.getValue("ops").jsonArray.size }
+        assertEquals(listOf(100, 100, 50), sets)
+        assertEquals(250, report.added)
     }
 }

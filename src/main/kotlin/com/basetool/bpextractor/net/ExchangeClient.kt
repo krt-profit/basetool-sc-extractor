@@ -134,6 +134,7 @@ object Codes {
         "BACKEND_RELAY_FAILED",
         "IDEMPOTENCY_IN_PROGRESS",
         "INTERNAL_ERROR",
+        "RELAY_BUSY",
     )
 
     /** The Basetool refused what was sent. */
