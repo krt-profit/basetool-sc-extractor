@@ -684,7 +684,8 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   there): the issuer is the hardcoded `PROD_ISSUER`, and the sandbox's gateway serves a self-signed
   certificate the JDK does not trust. Exchange behaviour is therefore tested against the local
   stand-ins in `SendControllerTest`, `SyncControllerTest` and `ExchangeClientTest`, and the payloads
-  against the vendored schemas.
+  against the vendored schemas. Don't add a developer switch for it (owner decision 2026-09-28): the
+  app keeps one production-only path.
 
 ## Releases (CI)
 
