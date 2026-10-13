@@ -24,7 +24,7 @@ dependencies {
     implementation("org.jetbrains.compose.components:components-resources:1.12.1")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
-    implementation("com.microsoft.onnxruntime:onnxruntime:1.30.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.31.0")
 
     testImplementation(kotlin("test"))
     testImplementation("com.networknt:json-schema-validator:3.0.8")
