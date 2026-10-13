@@ -25,48 +25,6 @@ stay out of scope — for blueprints, capture every detail the log carries; for 
 read the SETUP panel only (PROCESSING is deferred). Inference always runs locally via
 the user's Ollama; never add a cloud-inference path.
 
-## The knowledge base (HARD RULE — read before every task)
-
-The **Basetool Knowledge Base** is the single source of truth about the Profit Basetool as a whole:
-an Obsidian vault and git repository (`basetool-knowledge`), sitting beside this repository in the
-workspace. It covers every part of the system — backend, frontend, ingest, keycloak-spi, the Android
-app, **this extractor**, the P4K reader — plus the roles, permissions, decisions, incidents and
-runbooks around them.
-
-**This rule is binding on every AI agent working on the Basetool or any of its parts and
-repositories, without exception.**
-
-- **Read it before you start any task**, not after. Enter through its root map
-  (`00 Maps/Basetool.md`); its own `CLAUDE.md` explains how it is written. For this repo start with
-  `SC Extractor`, `Ingest`, `Keycloak`, `Raffinerie`, `Blueprints` and the plan
-  `External Client Exchange` — the exchange contract, the device grant, the DPoP binding and the
-  client registry are all documented there, and the server half of each is in the `basetool`
-  repo where you cannot see it from here.
-- **Every change here updates the knowledge base in the same unit of work**: a workflow change, a
-  new field in the export contract, an auth or DPoP behaviour, a packaging decision, a guardrail
-  learned the hard way. It is not written afterwards and never "caught up later".
-- The vault is a **separate git repository**, so nothing in this repo's CI can gate it. That is
-  exactly why it is a hard rule: no build will fail if you skip it, and skipping it is still an
-  incomplete change.
-- **It must never drift from reality.** It represents the truth about this project and every part of
-  the system orients by it — a drifted vault is worse than none, because each stale note still reads
-  as authoritative. **If you notice it is out of date, incomplete, or does not cover something,
-  update or extend it immediately as part of the work in hand**, even when the gap lies outside your
-  task. When the vault and the code disagree the **code** is right, and the note gets corrected in
-  the same session, saying so and dated.
-- Move `updated:` on every note you re-checked, and run `python "90 Meta/vaultcheck.py"` from the
-  vault root before committing.
-- **If you cannot find the vault, ask the user where it is at the start of the session.** Its
-  location is workspace-specific and it is **not** a submodule, so a fresh machine, a worktree or a
-  CI runner may simply not have it beside this repo. Do not guess a path, do not proceed as if the
-  rule did not apply, and do not silently skip it — a missing vault is a question to ask, never a
-  rule to drop.
-
-> **Never a secret and never personal data in the vault** — and here that has a specific edge:
-> nothing derived from `game-log/` or from a real refinery screenshot may go in, since both carry a
-> player handle and a screenshot carries the account balance (guardrails 1 and 1a below). Write the
-> *shape* of a fact, never a captured value.
-
 ## Commands
 
 Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows use
@@ -448,7 +406,7 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   "used to", migration or incident stories, rationale essays or pointers to other comments; a bare
   `REQ-…` / `ADR-…` pointer is fine.
 - **The reasoning goes into the commit message and the PR body.** A durable fact a later change
-  needs goes into the spec, the ADR, the docs or the Basetool knowledge base — never into a comment.
+  needs goes into the spec, the ADR or the docs — never into a comment.
 - **Out of scope:** generated and vendored files, Markdown, and test fixtures whose comments are the
   data under test.
 - **Mind live syntax.** Before deleting a comment, check it held nothing a tool reads.
@@ -658,8 +616,7 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
 - **`Locate`'s colour anchors or the crop geometry** → run `PanelDumpTest` over the whole sample
   corpus and LOOK at the crops, then the full `PromptSmokeTest` sweep. The game restyles the
   refinement terminal without notice, and a broken anchor does not fail — it exports a work order
-  read out of the sidebar (see the knowledge base: *The refinery got a new skin and every panel was
-  cropped to the sidebar*).
+  read out of the sidebar.
 - **the refinery prompt** (`setup_panel_prompt_v1.txt`) → the full `PromptSmokeTest` sweep; any
   diff against the golden file is a regression. Even an added *paragraph* moves English reads: a
   German-label paragraph in the shared prompt flipped Auftrag 15's `[RAW]` to `(RAW)`, cleared two
@@ -718,8 +675,7 @@ GitHub Actions — [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
   front of the VirusTotal, provenance and generated notes. The member part is German, the rest of
   the release English.
 - **Supply-chain rules (SIB-SEC-02 / SIB-CI-03, 2026-09-22):** every `uses:` is pinned to a
-  full commit SHA (no version comment — the no-comments rule removed them; the tag each SHA
-  resolves to is recorded in the knowledge base's *SC Extractor Release Pipeline*);
+  full commit SHA (no version comment — the no-comments rule removed them);
   `.github/dependabot.yml` moves those pins and the Gradle build weekly; the Gradle
   distribution is checked against `distributionSha256Sum` in `gradle-wrapper.properties`
   (move it with the wrapper: `gradlew wrapper --gradle-version <v>
