@@ -1,12 +1,10 @@
 package com.basetool.bpextractor.ui
 
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.net.SyncReport
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import com.basetool.bpextractor.ui.i18n.SyncStrings
@@ -38,6 +36,7 @@ fun SyncOverlay(controller: SyncController, appScope: CoroutineScope) {
     KrtModal(
         title = title,
         onDismiss = { controller.dismiss() },
+        showFooter = state !is SyncState.CheckingAccount && state !is SyncState.Syncing,
         body = {
             when (state) {
                 is SyncState.Consent -> {
@@ -47,10 +46,8 @@ fun SyncOverlay(controller: SyncController, appScope: CoroutineScope) {
                     }
                 }
                 is SyncState.Authenticating -> AuthenticatingBody(strings.send, state.userCode, state.reason)
-                is SyncState.CheckingAccount ->
-                    Text(strings.sync.checkingAccount, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
-                is SyncState.Syncing ->
-                    Text(strings.sync.syncing, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
+                is SyncState.CheckingAccount -> LoadingLine(strings.sync.checkingAccount)
+                is SyncState.Syncing -> LoadingLine(strings.sync.syncing)
                 is SyncState.AccountMismatch ->
                     Text(strings.sync.mismatchBody(state.handle), style = MaterialTheme.typography.bodyMedium, color = Krt.White)
                 is SyncState.AccountUnconfirmed ->
@@ -65,7 +62,6 @@ fun SyncOverlay(controller: SyncController, appScope: CoroutineScope) {
             when (state) {
                 is SyncState.Consent -> {
                     GhostButton(strings.cancel, onClick = { controller.dismiss() })
-                    Spacer(Modifier.weight(1f))
                     CtaButton(strings.sync.consentConfirm, onClick = { controller.confirmConsent(appScope) })
                 }
                 is SyncState.Authenticating -> {
@@ -73,15 +69,13 @@ fun SyncOverlay(controller: SyncController, appScope: CoroutineScope) {
                     Spacer(Modifier.weight(1f))
                     GhostButton(strings.cancel, onClick = { controller.dismiss() })
                 }
-                is SyncState.CheckingAccount, is SyncState.Syncing -> Spacer(Modifier.height(1.dp))
+                is SyncState.CheckingAccount, is SyncState.Syncing -> {}
                 is SyncState.AccountMismatch -> {
                     GhostButton(strings.sync.mismatchContinue, onClick = { controller.continueWithAccount(appScope) })
-                    Spacer(Modifier.weight(1f))
                     CtaButton(strings.cancel, onClick = { controller.dismiss() })
                 }
                 is SyncState.AccountUnconfirmed -> {
                     GhostButton(strings.cancel, onClick = { controller.dismiss() })
-                    Spacer(Modifier.weight(1f))
                     CtaButton(strings.sync.unconfirmedContinue, onClick = { controller.continueWithAccount(appScope) })
                 }
                 is SyncState.Done -> {
@@ -119,6 +113,6 @@ private fun ReportBody(strings: SyncStrings, report: SyncReport?) {
 @Composable
 private fun NameList(heading: String, names: List<String>) {
     if (names.isEmpty()) return
-    Text(heading, style = MaterialTheme.typography.bodySmall, color = Krt.Orange)
+    Text(heading, style = MaterialTheme.typography.labelLarge, color = Krt.White)
     Text(names.joinToString("\n") { "· $it" }, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1)
 }

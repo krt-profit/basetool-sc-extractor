@@ -7,8 +7,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -55,7 +53,7 @@ fun UpdateBanner(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .hudBox(fill = Krt.Gray4.copy(alpha = 0.5f), hairline = accent)
+            .hudBox(hairline = accent, bracket = accent)
             .padding(horizontal = 16.dp, vertical = 10.dp),
     ) {
         when (state) {
@@ -76,7 +74,7 @@ fun UpdateBanner(
                     )
                 }
                 if (state.info.msiSizeBytes > 0) {
-                    Text(strings.updSize(megabytes(state.info.msiSizeBytes)), style = KrtDataStyle, color = Krt.Gray2)
+                    Text(strings.updSize(megabytes(state.info.msiSizeBytes)), style = KrtDataStyle, color = Krt.TextMuted)
                 }
                 GhostButton(strings.updLater, onClick = onDismiss)
                 CtaButton(strings.updInstall, onClick = onInstall)
@@ -93,7 +91,7 @@ fun UpdateBanner(
                     if (state.bytesTotal > 0) {
                         KrtProgressBar(fraction = (state.bytesDone.toFloat() / state.bytesTotal).coerceIn(0f, 1f))
                     } else {
-                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Krt.Orange, strokeWidth = 2.dp)
+                        KrtSpinner(18.dp)
                     }
                 }
                 val done = megabytes(state.bytesDone)
@@ -105,7 +103,7 @@ fun UpdateBanner(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Krt.Orange, strokeWidth = 2.dp)
+                KrtSpinner(18.dp)
                 Text(strings.updInstalling, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1)
             }
 
@@ -115,7 +113,7 @@ fun UpdateBanner(
             ) {
                 StatusDot(Krt.Danger)
                 Column(Modifier.weight(1f)) {
-                    Text(strings.updTitle.uppercase(), style = MaterialTheme.typography.labelMedium, color = Krt.Danger)
+                    Text(strings.updTitle.uppercase(), style = MaterialTheme.typography.labelMedium, color = Krt.DangerText)
                     Spacer(Modifier.height(3.dp))
                     Text(
                         strings.updFailed(state.message),

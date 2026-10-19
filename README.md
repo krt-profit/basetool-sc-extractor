@@ -552,7 +552,7 @@ basetool-sc-extractor/
 │   ├── ui/WindowChrome.kt            # undecorated title bar + window buttons
 │   └── model/Models.kt               # blueprint JSON data models
 ├── src/main/resources/               # fonts (Lato), app.ico, prompt v1, OCR models (ocr/)
-├── src/main/composeResources/drawable/ # honeycomb_bg.svg, basetool_extractor_icon.png, Made-by-the-Community logo
+├── src/main/composeResources/drawable/ # Extractor icon + logo, Made-by-the-Community logo
 ├── src/test/kotlin/…                 # unit tests
 ├── src/test/resources/sample.log     # test fixture (edge cases; synthetic)
 ├── src/test/resources/sample-de.log  # the same for a German-localised client
@@ -569,34 +569,31 @@ basetool-sc-extractor/
 
 ## Design
 
-The GUI follows the **"Das Kartell" / KRT design system** (source: the
-`das-kartell-design` Claude skill): a dark sci-fi "HUD", house orange `#E77E23` on
-black, **Lato-only typography** (headlines: Lato **Bold** UPPERCASE with 0.05em
-tracking, body: Lato Light — no more Audiowide/Ethnocentric), sharp corners
-throughout with diagonal HUD corner brackets, orange bloom instead of soft
-shadows. Implemented as a Compose Material 3 theme (`ui/Theme.kt`,
-`ui/KrtComponents.kt`) with a strict action hierarchy: exactly **one** filled
-orange CTA per context ("Extract blueprints"), secondary actions as ghost buttons,
-labels in neutral grey.
+The GUI follows the **"Das Kartell" / KRT design system**
+([`krt-profit/design-system`](https://github.com/krt-profit/design-system)): a dark sci-fi
+"HUD" in house orange `#FB8A28` on the gray surfaces of das-kartell.org (canvas `#202020`,
+panels `#35393D`, bars `#2A2D31`), **Lato-only typography** (headlines: Lato **Bold**
+UPPERCASE with 0.05em tracking, body: Lato Light), a 4 px radius on controls and panels,
+diagonal HUD corner brackets and an orange bloom instead of soft shadows. Every control has a
+fill and a visible border, muted text uses its own readable tint, and a selection is shown by
+tint, frame and underline — the filled orange is reserved for the one primary action. It is
+implemented as a Compose Material 3 theme (`ui/Theme.kt`, `ui/KrtComponents.kt`) with a strict
+action hierarchy: exactly **one** filled orange CTA per context ("Extract blueprints"),
+secondary actions as ghost buttons, labels in neutral grey.
 
-The **Extractor mark** from the Basetool logo family serves as the app/window icon
-(`app.ico` for installer and exe,
-`composeResources/drawable/basetool_extractor_icon.png` for the window and title
-bar). It shares circle and star with the Basetool mark of the web interface, but
-inverts the wedge **downwards** into a catching bracket — the same DNA, the
-mirrored statement: data is extracted from the 'verse. Behind the content sits a
-**subtle honeycomb background** (`honeycomb_bg.svg` — orange hexagons at 10%
-opacity) as a texture. The mark, the honeycomb and **Lato** all come from
-`das-kartell-design/assets/`. A separate display typeface is deliberately omitted:
-the design system is **Lato-only** — the **commercial** Ethnocentric the brand
-would call for is not bundled, and headlines carry their character through Lato
-Bold + UPPERCASE + tracking rather than through a typeface of their own.
+The **Extractor mark** from the Basetool logo family serves as the app icon (`app.ico` for
+installer and exe, `composeResources/drawable/basetool_extractor_icon.png` for the window) and,
+on a transparent ground, in the title bar (`basetool_extractor_logo.svg`). It shares circle and
+star with the Basetool mark of the web interface, but inverts the wedge **downwards** into a
+catching bracket — the same DNA, the mirrored statement: data is extracted from the 'verse. The
+mark and **Lato** come from the design system's `assets/` and `fonts/`. A separate display
+typeface is deliberately omitted: the design system is **Lato-only** — the **commercial**
+Ethnocentric the brand would call for is not bundled, and headlines carry their character
+through Lato Bold + UPPERCASE + tracking rather than through a typeface of their own.
 
-The window is **undecorated** (no white OS frame): a custom dark title bar
-(`ui/WindowChrome.kt`) carries the Extractor mark plus the title and its own
-minimise/maximise/close buttons, with sharp corners, an orange accent line, a thin
-HUD frame and a resize corner at the bottom right.
-
+The window is **undecorated** (no white OS frame): a custom title bar (`ui/WindowChrome.kt`)
+carries the Extractor mark, the title, the DE/EN switch and its own minimise/maximise/close
+buttons above a 2 px orange rule, with a resize corner at the bottom right.
 ## Licence
 
 This program is **free software** under the **GNU General Public License, version

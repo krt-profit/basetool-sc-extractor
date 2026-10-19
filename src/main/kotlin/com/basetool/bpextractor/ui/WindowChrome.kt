@@ -46,10 +46,9 @@ import java.awt.MouseInfo
 import java.awt.Point
 
 /**
- * Custom KRT window chrome that replaces the white OS title bar (which clashes with
- * the dark HUD). Dark surface, the Basetool Extractor app mark + title in Lato Bold
- * orange, an orange accent hairline, and hand-drawn minimize / maximize / close
- * controls. The title region is draggable; window edges are sharp (fits the brand).
+ * Custom KRT window chrome that replaces the white OS title bar: the app header on the bar surface with
+ * the Basetool Extractor mark, the title in Lato Bold orange, the 2 dp orange bottom rule and hand-drawn
+ * minimize / maximize / close controls. The title region is draggable.
  */
 @Composable
 fun FrameWindowScope.KrtTitleBar(
@@ -59,35 +58,65 @@ fun FrameWindowScope.KrtTitleBar(
     onClose: () -> Unit,
     actions: @Composable () -> Unit = {},
 ) {
+    val win = window
+    KrtTitleBarContent(
+        icon = icon,
+        title = title,
+        maximized = state.placement == WindowPlacement.Maximized,
+        onMinimize = { state.isMinimized = true },
+        onToggleMaximize = {
+            state.placement =
+                if (state.placement == WindowPlacement.Maximized) WindowPlacement.Floating else WindowPlacement.Maximized
+        },
+        onClose = onClose,
+        dragModifier = Modifier.pointerInput(Unit) {
+            var startMouse = Point()
+            var startWin = Point()
+            detectDragGestures(
+                onDragStart = {
+                    startMouse = MouseInfo.getPointerInfo().location
+                    startWin = win.location
+                },
+                onDrag = { change, _ ->
+                    change.consume()
+                    val now = MouseInfo.getPointerInfo().location
+                    win.setLocation(startWin.x + (now.x - startMouse.x), startWin.y + (now.y - startMouse.y))
+                },
+            )
+        },
+        actions = actions,
+    )
+}
+
+/**
+ * The window-independent body of [KrtTitleBar]: mark, title, [actions] and the three window controls;
+ * [dragModifier] makes the title region move the window.
+ */
+@Composable
+fun KrtTitleBarContent(
+    icon: Painter,
+    title: String,
+    maximized: Boolean,
+    onMinimize: () -> Unit,
+    onToggleMaximize: () -> Unit,
+    onClose: () -> Unit,
+    dragModifier: Modifier = Modifier,
+    actions: @Composable () -> Unit = {},
+) {
     Column {
         Row(
-            modifier = Modifier.fillMaxWidth().height(40.dp).background(Krt.Gray4),
+            modifier = Modifier.fillMaxWidth().height(40.dp).background(Krt.Bar),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            val win = window
             Row(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .pointerInput(Unit) {
-                        var startMouse = Point()
-                        var startWin = Point()
-                        detectDragGestures(
-                            onDragStart = {
-                                startMouse = MouseInfo.getPointerInfo().location
-                                startWin = win.location
-                            },
-                            onDrag = { change, _ ->
-                                change.consume()
-                                val now = MouseInfo.getPointerInfo().location
-                                win.setLocation(startWin.x + (now.x - startMouse.x), startWin.y + (now.y - startMouse.y))
-                            },
-                        )
-                    }
+                    .then(dragModifier)
                     .padding(start = 12.dp, end = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Image(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                Image(icon, contentDescription = null, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.width(10.dp))
                 Text(
                     title.uppercase(),
@@ -100,13 +129,10 @@ fun FrameWindowScope.KrtTitleBar(
 
             actions()
 
-            val maximized = state.placement == WindowPlacement.Maximized
-            WindowControlButton(onClick = { state.isMinimized = true }) { c ->
+            WindowControlButton(onClick = onMinimize) { c ->
                 drawLine(c, Offset(0f, size.height / 2f), Offset(size.width, size.height / 2f), 1.5.dp.toPx())
             }
-            WindowControlButton(onClick = {
-                state.placement = if (maximized) WindowPlacement.Floating else WindowPlacement.Maximized
-            }) { c ->
+            WindowControlButton(onClick = onToggleMaximize) { c ->
                 val s = 1.5.dp.toPx()
                 if (maximized) {
                     val w = size.width * 0.72f
@@ -123,7 +149,7 @@ fun FrameWindowScope.KrtTitleBar(
                 drawLine(c, Offset(size.width, 0f), Offset(0f, size.height), s)
             }
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Krt.Orange))
+        Box(Modifier.fillMaxWidth().height(2.dp).background(Krt.Orange))
     }
 }
 
@@ -139,7 +165,7 @@ private fun WindowControlButton(
     val focused by interaction.collectIsFocusedAsState()
     val bg = when {
         hovered && danger -> Krt.Danger
-        hovered -> Krt.Gray3
+        hovered -> Krt.ControlHover
         else -> Color.Transparent
     }
     val fg = when {
@@ -185,7 +211,7 @@ fun BoxScope.ResizeCorner(state: WindowState) {
                 val s = 1.5.dp.toPx()
                 for (i in 1..3) {
                     val o = i * 4.dp.toPx()
-                    drawLine(Krt.Gray2, Offset(size.width - o, size.height), Offset(size.width, size.height - o), s)
+                    drawLine(Krt.ControlBorder, Offset(size.width - o, size.height), Offset(size.width, size.height - o), s)
                 }
             },
     )

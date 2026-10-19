@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,6 +40,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
@@ -45,7 +49,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -56,8 +59,12 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerIcon
+import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -438,44 +445,28 @@ fun FilePickerDialog(
                 .widthIn(max = 880.dp)
                 .heightIn(max = 620.dp)
                 .fillMaxSize()
-                .drawBehind {
-                    val grow = 26.dp.toPx()
-                    drawRect(
-                        brush = Brush.radialGradient(
-                            colors = listOf(Krt.Orange.copy(alpha = 0.16f), Color.Transparent),
-                            center = center,
-                            radius = size.maxDimension / 2f + grow,
-                        ),
-                        topLeft = Offset(-grow, -grow),
-                        size = Size(size.width + 2f * grow, size.height + 2f * grow),
-                    )
-                }
-                .background(Krt.Black.copy(alpha = 0.98f))
-                .border(1.dp, Krt.Orange)
+                .bloom(Krt.Orange, 20.dp, 0.2f)
+                .background(Krt.Panel, KrtShape)
+                .border(1.dp, Krt.Hairline, KrtShape)
+                .clip(KrtShape)
                 .drawWithContent {
                     drawContent()
-                    val len = 12.dp.toPx()
-                    val w = 2.dp.toPx()
-                    val o = w / 2f
-                    drawLine(Krt.Orange, Offset(o, o), Offset(len, o), w)
-                    drawLine(Krt.Orange, Offset(o, o), Offset(o, len), w)
-                    drawLine(Krt.Orange, Offset(size.width - o, size.height - o), Offset(size.width - len, size.height - o), w)
-                    drawLine(Krt.Orange, Offset(size.width - o, size.height - o), Offset(size.width - o, size.height - len), w)
+                    drawRect(Krt.Orange, size = Size(size.width, 3.dp.toPx()))
+                    drawHudBrackets(Krt.Orange, 13.dp)
                 }
                 .clickable(interactionSource = swallow, indication = null, onClick = {}),
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Krt.Gray4)
-                    .drawBehind { drawLine(Krt.Orange, Offset(0f, size.height), Offset(size.width, size.height), 2.dp.toPx()) }
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .drawBehind { drawLine(Krt.Hairline, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
+                    .padding(start = 16.dp, end = 12.dp, top = 13.dp, bottom = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     title.uppercase(),
                     style = MaterialTheme.typography.headlineSmall,
-                    color = Krt.Orange,
+                    color = Krt.White,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -486,9 +477,9 @@ fun FilePickerDialog(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Krt.Gray4.copy(alpha = 0.5f))
-                    .drawBehind { drawLine(Krt.Gray3, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                    .background(Krt.Bar)
+                    .drawBehind { drawLine(Krt.Hairline, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
@@ -541,11 +532,11 @@ fun FilePickerDialog(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(Krt.Danger.copy(alpha = 0.08f))
-                        .drawBehind { drawLine(Krt.Gray3, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
+                        .background(Krt.Danger.copy(alpha = 0.20f))
+                        .drawBehind { drawLine(Krt.Hairline, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
                         .padding(horizontal = 12.dp, vertical = 4.dp),
                 ) {
-                    Text(strings.pickerPathNotFound, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+                    Text(warned(WARN + " " + strings.pickerPathNotFound), style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
                 }
             }
 
@@ -554,14 +545,15 @@ fun FilePickerDialog(
                     modifier = Modifier
                         .width(188.dp)
                         .fillMaxHeight()
-                        .background(Krt.Gray4)
-                        .drawBehind { drawLine(Krt.Gray3, Offset(size.width, 0f), Offset(size.width, size.height), 1.dp.toPx()) }
+                        .background(Krt.Bar)
+                        .drawBehind { drawLine(Krt.Hairline, Offset(size.width, 0f), Offset(size.width, size.height), 1.dp.toPx()) }
+                        .verticalScroll(rememberScrollState())
                         .padding(vertical = 10.dp),
                 ) {
                     Text(
                         strings.pickerQuickAccess.uppercase(),
                         style = MaterialTheme.typography.labelMedium,
-                        color = Krt.Gray2,
+                        color = Krt.TextMuted,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                     )
                     val quick = remember(strings) { quickAccess(strings) }
@@ -572,7 +564,7 @@ fun FilePickerDialog(
                     Text(
                         strings.pickerDrives.uppercase(),
                         style = MaterialTheme.typography.labelMedium,
-                        color = Krt.Gray2,
+                        color = Krt.TextMuted,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
                     )
                     val drives = remember { File.listRoots().orEmpty().toList() }
@@ -595,7 +587,7 @@ fun FilePickerDialog(
                             }
                         },
                     )
-                    Box(Modifier.weight(1f).fillMaxWidth().background(Krt.SurfaceInput.copy(alpha = 0.4f))) {
+                    Box(Modifier.weight(1f).fillMaxWidth().background(Krt.Panel)) {
                         when (val l = listing) {
                             null -> CenteredNote(strings.pickerLoading)
                             is Listing.Denied -> CenteredNote(strings.pickerDenied)
@@ -661,14 +653,14 @@ fun FilePickerDialog(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Krt.SurfaceInput)
-                                .drawBehind { drawLine(Krt.Gray3, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
+                                .background(Krt.Bar)
+                                .drawBehind { drawLine(Krt.Hairline, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
                                 .padding(horizontal = 12.dp, vertical = 5.dp),
                         ) {
                             Text(
                                 strings.pickerShowing("*.${extension.removePrefix(".")}"),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = Krt.Gray2,
+                                color = Krt.TextMuted,
                             )
                         }
                     }
@@ -678,9 +670,8 @@ fun FilePickerDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Krt.Gray4)
-                    .drawBehind { drawLine(Krt.Orange, Offset(0f, 0f), Offset(size.width, 0f), 2.dp.toPx()) }
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .drawBehind { drawLine(Krt.Hairline, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
             ) {
                 if (mode == PickerMode.SAVE_FILE) {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -692,14 +683,14 @@ fun FilePickerDialog(
                         val borderColor = when {
                             !nameValid -> Krt.Danger
                             fileExists -> Krt.Warning
-                            else -> Krt.Gray3
+                            else -> Krt.ControlBorder
                         }
                         Row(
                             modifier = Modifier
                                 .weight(1f)
-                                .height(38.dp)
-                                .background(Krt.SurfaceInput)
-                                .border(1.dp, borderColor)
+                                .height(40.dp)
+                                .background(Krt.Control, KrtShape)
+                                .border(1.dp, borderColor, KrtShape)
                                 .padding(horizontal = 10.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -711,23 +702,23 @@ fun FilePickerDialog(
                                 cursorBrush = SolidColor(Krt.Orange),
                                 modifier = Modifier.weight(1f),
                             )
-                            Text(".${extension.removePrefix(".")}", style = KrtDataStyle, color = Krt.Gray2)
+                            Text(".${extension.removePrefix(".")}", style = KrtDataStyle, color = Krt.TextMuted)
                         }
                     }
                     if (fileExists && nameValid) {
                         Spacer(Modifier.height(6.dp))
-                        Text(strings.pickerOverwrite, style = MaterialTheme.typography.bodySmall, color = Krt.Warning)
+                        Text(warned(WARN + " " + strings.pickerOverwrite), style = MaterialTheme.typography.bodySmall, color = Krt.Warning)
                     }
                     if (!nameValid) {
                         Spacer(Modifier.height(6.dp))
-                        Text(strings.pickerInvalidName, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+                        Text(warned(WARN + " " + strings.pickerInvalidName), style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
                     }
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(
                             strings.pickerSelected.uppercase(),
                             style = MaterialTheme.typography.labelMedium,
-                            color = Krt.Gray2,
+                            color = Krt.TextMuted,
                         )
                         Text(
                             targetPath ?: strings.pickerComputer,
@@ -740,20 +731,21 @@ fun FilePickerDialog(
                 }
                 if (createError) {
                     Spacer(Modifier.height(6.dp))
-                    Text(strings.pickerCreateFailed, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+                    Text(warned(WARN + " " + strings.pickerCreateFailed), style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         currentDir?.absolutePath ?: strings.pickerComputer,
                         style = MaterialTheme.typography.bodySmall,
-                        color = Krt.Gray2,
+                        color = Krt.TextMuted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    GhostButton(strings.cancel, onClick = onDismiss)
                     Spacer(Modifier.width(10.dp))
+                    GhostButton(strings.cancel, onClick = onDismiss)
+                    Spacer(Modifier.width(8.dp))
                     CtaButton(confirmLabel, enabled = canConfirm, onClick = ::confirm)
                 }
             }
@@ -761,7 +753,7 @@ fun FilePickerDialog(
     }
 }
 
-/** A 32dp square hairline button (parent-folder, new-folder, close) with orange hover. */
+/** A 32 dp square icon button (`.btn-ghost.btn-icon`: parent folder, clear, new folder, close) with orange hover. */
 @Composable
 private fun PickerSquareButton(
     glyph: String,
@@ -771,23 +763,26 @@ private fun PickerSquareButton(
 ) {
     val interaction = remember { MutableInteractionSource() }
     val hovered by interaction.collectIsHoveredAsState()
+    val focused by interaction.collectIsFocusedAsState()
     val active = hovered && enabled
     Box(
         modifier = Modifier
             .size(32.dp)
-            .background(Krt.SurfaceInput)
-            .border(1.dp, if (active) Krt.Orange else Krt.Gray3)
+            .alpha(if (enabled) 1f else DISABLED_ALPHA)
+            .focusRing(focused)
+            .background(if (active) Krt.Orange.copy(alpha = 0.07f) else Krt.Control, KrtShape)
+            .border(1.dp, if (active) Krt.Orange else Krt.ControlBorder, KrtShape)
             .hoverable(interaction, enabled = enabled)
-            .clickable(enabled = enabled, interactionSource = interaction, indication = null, onClick = onClick),
+            .clickable(enabled = enabled, interactionSource = interaction, indication = null, role = Role.Button, onClickLabel = description, onClick = onClick)
+            .pointerHoverIcon(if (enabled) PointerIcon.Hand else PointerIcon.Default),
         contentAlignment = Alignment.Center,
     ) {
         Text(
             glyph,
             style = MaterialTheme.typography.labelLarge,
             color = when {
-                active -> Krt.Orange
-                enabled -> Krt.Gray1
-                else -> Krt.Gray3
+                active -> Krt.OrangeHover
+                else -> Krt.Gray1
             },
         )
     }
@@ -812,8 +807,9 @@ private fun Breadcrumb(
     Row(
         modifier = modifier
             .height(32.dp)
-            .background(Krt.SurfaceInput)
-            .border(1.dp, if (hovered) Krt.Orange else Krt.Gray3)
+            .clip(KrtShape)
+            .background(Krt.Control)
+            .border(1.dp, if (hovered) Krt.Orange else Krt.ControlBorder, KrtShape)
             .hoverable(interaction)
             .clickable(interactionSource = interaction, indication = null, onClick = onEdit)
             .horizontalScroll(rememberScrollState())
@@ -822,7 +818,7 @@ private fun Breadcrumb(
     ) {
         CrumbButton(strings.pickerComputer, active = currentDir == null) { onNavigate(null) }
         chain.forEachIndexed { index, segment ->
-            Text("›", style = MaterialTheme.typography.bodySmall, color = Krt.Gray3, modifier = Modifier.padding(horizontal = 2.dp))
+            Text("›", style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted, modifier = Modifier.padding(horizontal = 2.dp))
             CrumbButton(displayName(segment), active = index == chain.lastIndex) { onNavigate(segment) }
         }
     }
@@ -850,14 +846,14 @@ private fun PathEditField(
     Row(
         modifier = modifier
             .height(32.dp)
-            .background(Krt.SurfaceInput)
-            .border(1.dp, if (error) Krt.Danger else Krt.Orange)
+            .background(Krt.Control, KrtShape)
+            .border(1.dp, if (error) Krt.Danger else Krt.Orange, KrtShape)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.weight(1f)) {
             if (value.text.isEmpty()) {
-                Text(strings.pickerPathPlaceholder, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+                Text(strings.pickerPathPlaceholder, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
             }
             BasicTextField(
                 value = value,
@@ -890,7 +886,7 @@ private fun PathEditField(
     }
 }
 
-/** One breadcrumb segment: white when current, grey otherwise; orange on hover. */
+/** One breadcrumb segment: white when current, muted otherwise; orange on hover. */
 @Composable
 private fun CrumbButton(label: String, active: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
@@ -899,9 +895,9 @@ private fun CrumbButton(label: String, active: Boolean, onClick: () -> Unit) {
         label,
         style = KrtDataStyle,
         color = when {
-            hovered -> Krt.Orange
+            hovered -> Krt.OrangeHover
             active -> Krt.White
-            else -> Krt.Gray2
+            else -> Krt.Gray1
         },
         maxLines = 1,
         modifier = Modifier
@@ -919,18 +915,20 @@ private fun FilterField(
     placeholder: String,
     onCommitPath: (String) -> Boolean,
 ) {
+    var filterFocused by remember { mutableStateOf(false) }
     Row(
         modifier = Modifier
             .width(180.dp)
             .height(32.dp)
-            .background(Krt.SurfaceInput)
-            .border(1.dp, Krt.Gray3)
+            .onFocusChanged { filterFocused = it.hasFocus }
+            .background(Krt.Control, KrtShape)
+            .border(1.dp, if (filterFocused) Krt.Orange else Krt.ControlBorder, KrtShape)
             .padding(horizontal = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.weight(1f)) {
             if (value.isEmpty()) {
-                Text(placeholder, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+                Text(placeholder, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
             }
             BasicTextField(
                 value = value,
@@ -952,7 +950,7 @@ private fun FilterField(
     }
 }
 
-/** One sidebar item (quick access / drive): 2dp orange left edge + wash when active. */
+/** One sidebar item (quick access / drive): the selection tint with a 3 dp orange left edge when active. */
 @Composable
 private fun SideItem(label: String, active: Boolean, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
@@ -963,25 +961,26 @@ private fun SideItem(label: String, active: Boolean, onClick: () -> Unit) {
             .height(34.dp)
             .background(
                 when {
-                    active -> Krt.Orange.copy(alpha = 0.1f)
-                    hovered -> Krt.Orange.copy(alpha = 0.05f)
+                    active -> Krt.ControlSelected
+                    hovered -> Krt.Control
                     else -> Color.Transparent
                 },
             )
             .drawBehind {
-                if (active) drawRect(Krt.Orange, size = Size(2.dp.toPx(), size.height))
+                if (active) drawRect(Krt.Orange, size = Size(3.dp.toPx(), size.height))
             }
             .hoverable(interaction)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
+            .clickable(interactionSource = interaction, indication = null, role = Role.Tab, onClick = onClick)
+            .pointerHoverIcon(PointerIcon.Hand)
             .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Box(Modifier.size(7.dp).background(if (active || hovered) Krt.Orange else Krt.Gray2))
+        Box(Modifier.size(7.dp).background(if (active) Krt.Orange else Krt.ControlBorder))
         Text(
             label,
-            style = MaterialTheme.typography.bodySmall,
-            color = if (active || hovered) Krt.Orange else Krt.Gray1,
+            style = if (active) MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold) else MaterialTheme.typography.bodySmall,
+            color = if (active || hovered) Krt.White else Krt.Gray1,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -994,9 +993,9 @@ private fun ListHeader(sortKey: PickerSortKey, ascending: Boolean, onSort: (Pick
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Krt.SurfaceInput)
-            .drawBehind { drawLine(Krt.Gray3, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            .background(Krt.Bar)
+            .drawBehind { drawLine(Krt.Orange, Offset(0f, size.height - 1.dp.toPx()), Offset(size.width, size.height - 1.dp.toPx()), 2.dp.toPx()) }
+            .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -1026,9 +1025,9 @@ private fun HeaderCell(
         (label + marker).uppercase(),
         style = MaterialTheme.typography.labelMedium,
         color = when {
-            hovered -> Krt.Orange
-            active -> Krt.Gray1
-            else -> Krt.Gray2
+            hovered -> Krt.OrangeHover
+            active -> Krt.White
+            else -> Krt.Gray1
         },
         maxLines = 1,
         textAlign = if (alignEnd) androidx.compose.ui.text.style.TextAlign.End else androidx.compose.ui.text.style.TextAlign.Start,
@@ -1040,7 +1039,7 @@ private fun HeaderCell(
 
 /**
  * One list row: type icon (folder orange / image / file), name, size and modified columns.
- * Single click selects (orange wash + left edge), double click enters a directory or confirms a
+ * Single click selects (selection tint + orange left edge), double click enters a directory or confirms a
  * file (SAVE mode). [dimmed] rows (files in FOLDER mode) are faded and ignore clicks.
  */
 @Composable
@@ -1060,13 +1059,13 @@ private fun PickerRow(
             .fillMaxWidth()
             .background(
                 when {
-                    selected -> Krt.Orange.copy(alpha = 0.14f)
-                    hovered && !dimmed -> Krt.Gray3
+                    selected -> Krt.ControlSelected
+                    hovered && !dimmed -> Krt.Control
                     else -> Color.Transparent
                 },
             )
             .drawBehind {
-                if (selected) drawRect(Krt.Orange, size = Size(2.dp.toPx(), size.height))
+                if (selected) drawRect(Krt.Orange, size = Size(3.dp.toPx(), size.height))
             }
             .hoverable(interaction, enabled = !dimmed)
             .pointerInput(entry.file.path, dimmed) {
@@ -1091,7 +1090,7 @@ private fun PickerRow(
         Text(
             if (entry.isDirectory) strings.pickerFolderType else formatSize(entry.size),
             style = KrtDataStyle,
-            color = Krt.Gray2.copy(alpha = contentAlpha),
+            color = Krt.TextMuted.copy(alpha = contentAlpha),
             maxLines = 1,
             textAlign = androidx.compose.ui.text.style.TextAlign.End,
             modifier = Modifier.width(86.dp),
@@ -1099,7 +1098,7 @@ private fun PickerRow(
         Text(
             formatModified(entry.modified),
             style = KrtDataStyle,
-            color = Krt.Gray2.copy(alpha = contentAlpha),
+            color = Krt.TextMuted.copy(alpha = contentAlpha),
             maxLines = 1,
             textAlign = androidx.compose.ui.text.style.TextAlign.End,
             modifier = Modifier.width(120.dp),
@@ -1152,19 +1151,19 @@ private fun EntryIcon(entry: PickerEntry, alpha: Float) {
                     }
                     else -> {
                         drawRect(
-                            Krt.Gray2.copy(alpha = alpha),
+                            Krt.TextMuted.copy(alpha = alpha),
                             topLeft = Offset(size.width * 0.12f, 0f),
                             size = Size(size.width * 0.76f, size.height),
                             style = Stroke(s),
                         )
                         drawLine(
-                            Krt.Gray2.copy(alpha = alpha),
+                            Krt.TextMuted.copy(alpha = alpha),
                             Offset(size.width * 0.28f, size.height * 0.35f),
                             Offset(size.width * 0.72f, size.height * 0.35f),
                             s,
                         )
                         drawLine(
-                            Krt.Gray2.copy(alpha = alpha),
+                            Krt.TextMuted.copy(alpha = alpha),
                             Offset(size.width * 0.28f, size.height * 0.6f),
                             Offset(size.width * 0.72f, size.height * 0.6f),
                             s,
@@ -1185,8 +1184,8 @@ private fun NewFolderRow(onCreate: (String) -> Unit, onCancel: () -> Unit, error
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Krt.Orange.copy(alpha = 0.08f))
-            .drawBehind { drawRect(Krt.Orange, size = Size(2.dp.toPx(), size.height)) }
+            .background(Krt.ControlSelected)
+            .drawBehind { drawRect(Krt.Orange, size = Size(3.dp.toPx(), size.height)) }
             .padding(horizontal = 12.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -1199,6 +1198,9 @@ private fun NewFolderRow(onCreate: (String) -> Unit, onCancel: () -> Unit, error
             cursorBrush = SolidColor(Krt.Orange),
             modifier = Modifier
                 .weight(1f)
+                .background(Krt.Control, KrtShape)
+                .border(1.dp, Krt.Orange, KrtShape)
+                .padding(horizontal = 8.dp, vertical = 6.dp)
                 .focusRequester(focus)
                 .onPreviewKeyEvent { e ->
                     if (e.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
@@ -1216,16 +1218,16 @@ private fun NewFolderRow(onCreate: (String) -> Unit, onCancel: () -> Unit, error
                 },
         )
         if (error) {
-            Text(strings.pickerCreateFailed, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+            Text(warned(WARN + " " + strings.pickerCreateFailed), style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
         }
-        GhostButton(strings.pickerCreate, onClick = { if (name.isNotBlank()) onCreate(name) })
-        GhostButton(strings.cancel, onClick = onCancel)
+        GhostButton(strings.cancel, onClick = onCancel, compact = true)
+        GhostButton(strings.pickerCreate, onClick = { if (name.isNotBlank()) onCreate(name) }, tone = ButtonTone.OUTLINE, compact = true)
     }
 }
 
 @Composable
 private fun CenteredNote(text: String) {
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray2)
+        Text(text, style = MaterialTheme.typography.bodyMedium, color = Krt.TextMuted)
     }
 }

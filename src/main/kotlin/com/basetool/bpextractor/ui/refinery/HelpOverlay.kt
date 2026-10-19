@@ -3,7 +3,6 @@ package com.basetool.bpextractor.ui.refinery
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
@@ -12,45 +11,34 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.basetool.bpextractor.ui.CheckMark
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.FootNote
 import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.KrtDataStyle
+import com.basetool.bpextractor.ui.KrtModal
+import com.basetool.bpextractor.ui.KrtShape
 import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import kotlinx.coroutines.Dispatchers
@@ -65,92 +53,21 @@ private val INSTALL_CODE_LINES = listOf("ollama.com/download", "ollama serve", "
 private const val OLLAMA_DOWNLOAD_URL = "https://ollama.com/download"
 
 /**
- * The preflight help page (`REDESIGN_IMPLEMENTATION.md` §4.3a): a KRT modal (no native dialog)
- * over a dark scrim, explaining how the local image recognition works, the hardware tiers, the
- * Ollama installation steps with code lines, and capture tips. Closable via the X, the scrim,
- * ESC and the "Got it" CTA; the body scrolls, the header and footer stay pinned.
+ * The preflight help page (`REDESIGN_IMPLEMENTATION.md` §4.3a): a wide KRT modal explaining how the
+ * local image recognition works, the hardware tiers, the Ollama installation steps with code lines, and
+ * capture tips. Closable via the ✕, the scrim, Esc and the "Got it" CTA; the body scrolls, the head and
+ * footer stay pinned.
  */
 @Composable
 fun HelpOverlay(onClose: () -> Unit) {
     val strings = LocalStrings.current
-    val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Krt.Black.copy(alpha = 0.8f))
-            .focusRequester(focusRequester)
-            .focusable()
-            .onPreviewKeyEvent { e ->
-                if (e.type == KeyEventType.KeyDown && e.key == Key.Escape) {
-                    onClose()
-                    true
-                } else {
-                    false
-                }
-            }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClose,
-            )
-            .padding(24.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        val swallow = remember { MutableInteractionSource() }
-        Column(
-            modifier = Modifier
-                .widthIn(max = 760.dp)
-                .fillMaxWidth()
-                .drawBehind {
-                    val grow = 28.dp.toPx()
-                    drawRect(
-                        brush = Brush.radialGradient(
-                            colors = listOf(Krt.Orange.copy(alpha = 0.18f), Color.Transparent),
-                            center = center,
-                            radius = size.maxDimension / 2f + grow,
-                        ),
-                        topLeft = Offset(-grow, -grow),
-                        size = Size(size.width + 2f * grow, size.height + 2f * grow),
-                    )
-                }
-                .background(Krt.Black.copy(alpha = 0.97f))
-                .border(1.dp, Krt.Orange)
-                .drawWithContent {
-                    drawContent()
-                    val len = 12.dp.toPx()
-                    val w = 2.dp.toPx()
-                    val o = w / 2f
-                    drawLine(Krt.Orange, Offset(o, o), Offset(len, o), w)
-                    drawLine(Krt.Orange, Offset(o, o), Offset(o, len), w)
-                    drawLine(Krt.Orange, Offset(size.width - o, size.height - o), Offset(size.width - len, size.height - o), w)
-                    drawLine(Krt.Orange, Offset(size.width - o, size.height - o), Offset(size.width - o, size.height - len), w)
-                }
-                .clickable(interactionSource = swallow, indication = null, onClick = {}),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Krt.Gray4)
-                    .drawBehind { drawLine(Krt.Orange, Offset(0f, size.height), Offset(size.width, size.height), 2.dp.toPx()) }
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(strings.helpTitle.uppercase(), style = MaterialTheme.typography.headlineSmall, color = Krt.Orange)
-                    Spacer(Modifier.height(2.dp))
-                    Text(strings.helpSubtitle, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
-                }
-                HelpCloseButton(onClose)
-            }
-
-            Column(
-                modifier = Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState())
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
-            ) {
+    KrtModal(
+        title = strings.helpTitle,
+        subtitle = strings.helpSubtitle,
+        onDismiss = onClose,
+        maxWidth = 760.dp,
+        body = {
+            Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 HelpSection("01", strings.helpSec1Title) {
                     Text(strings.helpSec1Body, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
                 }
@@ -158,12 +75,12 @@ fun HelpOverlay(onClose: () -> Unit) {
                 HelpSection("02", strings.helpSec2Title) {
                     Text(strings.helpSec2Body, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
                     Spacer(Modifier.height(4.dp))
-                    Column(Modifier.fillMaxWidth().border(1.dp, Krt.Gray3)) {
+                    Column(Modifier.fillMaxWidth().clip(KrtShape).background(Krt.Canvas).border(1.dp, Krt.Hairline, KrtShape)) {
                         strings.helpTierRows.forEachIndexed { index, row ->
                             val dot = when (index) {
                                 0 -> Krt.Success
                                 1 -> Krt.Warning
-                                else -> Krt.Gray2
+                                else -> Krt.ControlBorder
                             }
                             Row(
                                 modifier = Modifier
@@ -171,7 +88,7 @@ fun HelpOverlay(onClose: () -> Unit) {
                                     .then(
                                         if (index > 0) {
                                             Modifier.drawBehind {
-                                                drawLine(Krt.Gray3, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx())
+                                                drawLine(Krt.Hairline, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx())
                                             }
                                         } else {
                                             Modifier
@@ -195,7 +112,7 @@ fun HelpOverlay(onClose: () -> Unit) {
                                 }
                                 Text(row[1], style = KrtDataStyle, color = Krt.Gray1, modifier = Modifier.weight(1f))
                                 Text(row[2], style = KrtDataStyle, color = Krt.Gray1, modifier = Modifier.weight(1.1f))
-                                Text(row[3], style = MaterialTheme.typography.bodySmall, color = Krt.Gray2, modifier = Modifier.weight(1.3f))
+                                Text(row[3], style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted, modifier = Modifier.weight(1.3f))
                             }
                         }
                     }
@@ -212,41 +129,33 @@ fun HelpOverlay(onClose: () -> Unit) {
                             color = Krt.Gray1,
                         )
                         Spacer(Modifier.height(2.dp))
-                        Text(strings.helpInfoBody, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+                        Text(strings.helpInfoBody, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1)
                     }
                 }
 
                 HelpSection("04", strings.helpSec4Title) {
                     strings.helpTips.forEach { tip ->
                         Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                            Text("✓", style = MaterialTheme.typography.bodyMedium, color = Krt.Orange)
+                            Box(Modifier.padding(top = 5.dp)) { CheckMark(Krt.SuccessText, 12.dp) }
                             Column {
                                 Text(
                                     tip[0],
                                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                                     color = Krt.White,
                                 )
-                                Text(tip[1], style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+                                Text(tip[1], style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
                             }
                         }
                     }
                 }
             }
-
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Krt.Gray4.copy(alpha = 0.55f))
-                    .drawBehind { drawLine(Krt.Gray3, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
-                    .padding(horizontal = 18.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                FootNote(strings.helpMore)
-                Spacer(Modifier.weight(1f))
-                CtaButton(strings.helpGotIt, onClick = onClose)
-            }
-        }
-    }
+        },
+        footer = {
+            FootNote(strings.helpMore)
+            Spacer(Modifier.weight(1f))
+            CtaButton(strings.helpGotIt, onClick = onClose)
+        },
+    )
 }
 
 /** One numbered help section: "NN  TITLE" over a hairline, then the section content. */
@@ -256,12 +165,12 @@ private fun HelpSection(number: String, title: String, content: @Composable () -
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .drawBehind { drawLine(Krt.Gray3, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
+                .drawBehind { drawLine(Krt.Hairline, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
                 .padding(bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(9.dp),
         ) {
-            Text(number, style = MaterialTheme.typography.labelMedium, color = Krt.Gray2)
+            Text(number, style = MaterialTheme.typography.labelMedium, color = Krt.TextMuted)
             Text(title.uppercase(), style = MaterialTheme.typography.labelLarge, color = Krt.White)
         }
         Spacer(Modifier.height(10.dp))
@@ -274,7 +183,7 @@ private fun HelpSection(number: String, title: String, content: @Composable () -
 private fun HelpStep(number: Int, title: String, body: String, code: String, url: String? = null) {
     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
         Box(
-            modifier = Modifier.size(22.dp).border(1.dp, Krt.Orange),
+            modifier = Modifier.size(24.dp).background(Krt.Canvas, KrtShape).border(1.dp, Krt.Orange, KrtShape),
             contentAlignment = Alignment.Center,
         ) {
             Text("$number", style = MaterialTheme.typography.labelMedium, color = Krt.Orange)
@@ -285,7 +194,7 @@ private fun HelpStep(number: Int, title: String, body: String, code: String, url
                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                 color = Krt.White,
             )
-            Text(body, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+            Text(body, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
             Spacer(Modifier.height(5.dp))
             CodeLine(code, url)
         }
@@ -307,8 +216,9 @@ private fun CodeLine(code: String, url: String? = null) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(Krt.SurfaceInput)
-            .border(1.dp, Krt.Gray3)
+            .clip(KrtShape)
+            .background(Krt.Canvas)
+            .border(1.dp, Krt.Hairline, KrtShape)
             .drawBehind { drawRect(Krt.Orange, size = Size(3.dp.toPx(), size.height)) }
             .then(
                 if (url != null && canBrowse) {
@@ -326,33 +236,11 @@ private fun CodeLine(code: String, url: String? = null) {
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Text("$", style = KrtDataStyle, color = Krt.Gray2)
+        Text("$", style = KrtDataStyle, color = Krt.TextMuted)
         Text(
             code,
             style = if (linked) KrtDataStyle.copy(textDecoration = TextDecoration.Underline) else KrtDataStyle,
             color = if (linked && hovered) Krt.Orange else Krt.White,
-        )
-    }
-}
-
-/** The modal's close X: hairline square that lights orange on hover. */
-@Composable
-private fun HelpCloseButton(onClick: () -> Unit) {
-    val strings = LocalStrings.current
-    val interaction = remember { MutableInteractionSource() }
-    val hovered by interaction.collectIsHoveredAsState()
-    Box(
-        modifier = Modifier
-            .size(34.dp)
-            .border(1.dp, if (hovered) Krt.Orange else Krt.Gray3)
-            .hoverable(interaction)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            "✕",
-            style = MaterialTheme.typography.labelLarge,
-            color = if (hovered) Krt.Orange else Krt.Gray1,
         )
     }
 }

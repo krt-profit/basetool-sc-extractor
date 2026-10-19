@@ -2,13 +2,11 @@ package com.basetool.bpextractor.ui.refinery
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,11 +20,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.refinery.HardwareTier
 import com.basetool.bpextractor.refinery.Preflight
+import com.basetool.bpextractor.ui.ButtonTone
+import com.basetool.bpextractor.ui.Caption
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.FootNote
 import com.basetool.bpextractor.ui.GhostButton
 import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.KrtCheckbox
+import com.basetool.bpextractor.ui.KrtDataStyle
 import com.basetool.bpextractor.ui.KrtProgressBar
 import com.basetool.bpextractor.ui.KrtTextField
 import com.basetool.bpextractor.ui.StatusDot
@@ -84,13 +85,13 @@ private fun OllamaCard(state: RefineryUiState, appScope: CoroutineScope, modifie
     val strings = LocalStrings.current
     val status = state.ollamaStatus
     val dot = when (status) {
-        OllamaStatus.Checking -> Krt.Gray2
+        OllamaStatus.Checking -> Krt.ControlBorder
         OllamaStatus.Ready -> Krt.Success
         is OllamaStatus.ModelMissing, is OllamaStatus.Pulling -> Krt.Warning
         is OllamaStatus.PullFailed, is OllamaStatus.Unreachable -> Krt.Danger
     }
     PanelCard(strings.rfOllamaCardTitle, dot, modifier) {
-        Text(strings.rfEndpointLabel.uppercase(), style = MaterialTheme.typography.labelMedium, color = Krt.Gray2)
+        Caption(strings.rfEndpointLabel)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             KrtTextField(
                 value = state.endpoint,
@@ -104,7 +105,7 @@ private fun OllamaCard(state: RefineryUiState, appScope: CoroutineScope, modifie
 
         when (status) {
             OllamaStatus.Checking -> {
-                Text(strings.rfChecking, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray2)
+                Text(strings.rfChecking, style = MaterialTheme.typography.bodyMedium, color = Krt.TextMuted)
             }
             OllamaStatus.Ready -> {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -122,11 +123,11 @@ private fun OllamaCard(state: RefineryUiState, appScope: CoroutineScope, modifie
                     Spacer(Modifier.height(4.dp))
                     Text(
                         "ollama pull ${status.model}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Krt.Gray2,
+                        style = KrtDataStyle,
+                        color = Krt.White,
                     )
                 }
-                CtaButton(strings.rfPullCta, onClick = { state.pullModel(appScope) })
+                GhostButton(strings.rfPullCta, onClick = { state.pullModel(appScope) }, tone = ButtonTone.OUTLINE)
             }
             is OllamaStatus.Pulling -> {
                 val completed = status.completed
@@ -151,8 +152,8 @@ private fun OllamaCard(state: RefineryUiState, appScope: CoroutineScope, modifie
                 AlertBox(Krt.Danger) {
                     Text(strings.rfOllamaUnreachable, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
                     Spacer(Modifier.height(4.dp))
-                    Text(strings.rfInstallHint1, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
-                    Text(strings.rfInstallHint2, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+                    Text(strings.rfInstallHint1, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
+                    Text(strings.rfInstallHint2, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
                 }
                 GhostButton(strings.rfRetry, onClick = { state.recheckOllama(appScope) })
             }
@@ -166,7 +167,7 @@ private fun HardwareCard(state: RefineryUiState, appScope: CoroutineScope, modif
     val hardware = state.hardware
     val decision = state.decision
     val dot = when (decision?.tier) {
-        null -> Krt.Gray2
+        null -> Krt.ControlBorder
         HardwareTier.RECOMMENDED -> Krt.Success
         HardwareTier.MINIMUM -> Krt.Warning
         HardwareTier.CPU -> Krt.Warning
@@ -176,14 +177,15 @@ private fun HardwareCard(state: RefineryUiState, appScope: CoroutineScope, modif
         KeyValueRow(strings.rfVramRow, bytesToGb(hardware?.gpu?.vramBytes) ?: strings.rfUnknown)
         KeyValueRow(strings.rfRamRow, bytesToGb(hardware?.totalRamBytes) ?: strings.rfUnknown)
 
-        KrtChip(strings.rfAutoModelChip(state.selectedModel), color = Krt.Orange, border = Krt.Orange)
+        KrtChip(strings.rfAutoModelChip(state.selectedModel), ChipTone.PRIMARY)
 
         TierBar(
             labels = listOf(strings.rfTierCpu, strings.rfTierMin, strings.rfTierRecommended),
             activeIndex = when (decision?.tier) {
                 HardwareTier.RECOMMENDED -> 2
                 HardwareTier.MINIMUM -> 1
-                else -> 0
+                HardwareTier.CPU -> 0
+                null -> -1
             },
         )
 
@@ -218,14 +220,14 @@ private fun HardwareCard(state: RefineryUiState, appScope: CoroutineScope, modif
                 }
             }
             null -> {
-                Text(strings.rfChecking, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray2)
+                Text(strings.rfChecking, style = MaterialTheme.typography.bodyMedium, color = Krt.TextMuted)
             }
         }
 
         Text(
             strings.rfEtaPerImage(state.etaSecondsPerImage),
             style = MaterialTheme.typography.bodySmall,
-            color = Krt.Gray2,
+            color = Krt.TextMuted,
         )
         GhostButton(strings.rfRetry, onClick = { state.runPreflight(appScope, force = true) })
     }

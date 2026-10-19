@@ -29,9 +29,11 @@ import com.basetool.bpextractor.ui.SendController
 import com.basetool.bpextractor.ui.SendKind
 import com.basetool.bpextractor.ui.SendOverlay
 import com.basetool.bpextractor.ui.StepScaffold
+import com.basetool.bpextractor.ui.WARN
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import com.basetool.bpextractor.ui.i18n.StringsEn
+import com.basetool.bpextractor.ui.warned
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -135,7 +137,7 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
                 Spacer(Modifier.height(14.dp))
             }
             if (exportError != null) {
-                Text(exportError, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+                Text(warned("$WARN $exportError"), style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
                 Spacer(Modifier.height(8.dp))
             }
             if (exportedFile != null) {
@@ -164,7 +166,7 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
                     }
                 }
                 Column(
-                    modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Gray3).padding(16.dp),
+                    modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Hairline).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Text(
