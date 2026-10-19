@@ -318,6 +318,7 @@ interface Strings {
     val rfCropTagPre: String
     val rfPasteDropHint: String
     val rfWatchClipboard: String
+    val rfRemoveImage: String
     val rfCaptureAberrationTitle: String
     val rfCaptureAberrationHint: String
     val rfCaptureFramingTitle: String
@@ -561,6 +562,7 @@ object StringsDe : Strings {
 
     override val rfSteps = listOf("Vorprüfung", "Bilder", "Extraktion", "Review", "Export")
     override val back = "Zurück"
+    override val rfRemoveImage = "Bild entfernen"
 
     override val rfPreflightTitle = "Vorprüfung & Setup"
     override val rfPreflightSubtitle = "Prüft Ollama, das KI-Modell und die Hardware, bevor die Extraktion startet."
@@ -1105,6 +1107,7 @@ object StringsEn : Strings {
 
     override val rfSteps = listOf("Preflight", "Images", "Extraction", "Review", "Export")
     override val back = "Back"
+    override val rfRemoveImage = "Remove image"
 
     override val rfPreflightTitle = "Preflight & setup"
     override val rfPreflightSubtitle = "Checks Ollama, the AI model and your hardware before the extraction starts."

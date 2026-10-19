@@ -6,12 +6,12 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -34,6 +34,7 @@ import com.basetool.bpextractor.ui.KrtDataStyle
 import com.basetool.bpextractor.ui.KrtProgressBar
 import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.StepScaffold
+import com.basetool.bpextractor.ui.WARN
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import kotlinx.coroutines.CoroutineScope
@@ -65,7 +66,7 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
         overline = strings.rfStepOverline(3),
         title = strings.rfExtractTitle,
         scrollBody = false,
-        headRight = { KrtChip(state.selectedModel, color = Krt.Orange, border = Krt.Orange) },
+        headRight = { KrtChip(state.selectedModel, ChipTone.PRIMARY) },
         footer = {
             if (state.running) {
                 GhostButton(strings.rfCancel, onClick = { state.cancelRequested = true })
@@ -90,7 +91,7 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
                 Text(
                     strings.rfEtaRemaining(remaining),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Krt.Gray2,
+                    color = Krt.TextMuted,
                 )
             }
         }
@@ -125,7 +126,7 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
                 }
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                     items(state.console) { line ->
-                        Text(line, style = KrtDataStyle, color = Krt.Gray1)
+                        Text(line.replace("⚠", WARN), style = KrtDataStyle, color = Krt.Gray1)
                     }
                 }
             }
@@ -138,7 +139,7 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
                 Text(strings.rfUnquotedWarning, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
                 if (!state.running && unquotedCount == state.outcomes.size && state.outcomes.isNotEmpty()) {
                     Spacer(Modifier.padding(top = 4.dp))
-                    Text(strings.rfAllUnquotedNotice, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+                    Text(strings.rfAllUnquotedNotice, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
                 }
             }
         }
@@ -153,7 +154,7 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
         if (error == RefineryUiState.CANCELLED_MARKER) {
             Spacer(Modifier.height(12.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusDot(Krt.Gray2)
+                StatusDot(Krt.ControlBorder)
                 Text(strings.rfCancelled, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
             }
         }
@@ -171,7 +172,7 @@ private fun ImageStageRow(state: RefineryUiState, index: Int, image: RefineryIma
         outcome != null && outcome.quoted == null -> Krt.Danger
         outcome != null -> Krt.Success
         active -> Krt.Orange
-        else -> Krt.Gray2
+        else -> Krt.ControlBorder
     }
     val stages = if (state.runVerify) {
         PipelineStage.entries
@@ -183,7 +184,7 @@ private fun ImageStageRow(state: RefineryUiState, index: Int, image: RefineryIma
             StatusDot(dot)
             Text(image.file.name, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1, maxLines = 1)
             if (outcome?.quoted == false) {
-                Text("⚠", style = MaterialTheme.typography.bodySmall, color = Krt.Warning)
+                Text(WARN, style = MaterialTheme.typography.bodySmall, color = Krt.Warning)
             }
         }
         Row(
@@ -199,13 +200,13 @@ private fun ImageStageRow(state: RefineryUiState, index: Int, image: RefineryIma
                     else -> outcome != null
                 }
                 val current = active && reached == stage && !passed
-                val color = when {
-                    current -> Krt.Orange
-                    passed -> Krt.Success
-                    else -> Krt.Gray2
+                val (dotColor, color) = when {
+                    current -> Krt.Orange to Krt.Orange
+                    passed -> Krt.Success to Krt.SuccessText
+                    else -> Krt.ControlBorder to Krt.TextMuted
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    StatusDot(color)
+                    StatusDot(dotColor)
                     Text(
                         stage.name.lowercase().replaceFirstChar { it.uppercase() },
                         style = MaterialTheme.typography.labelMedium,
@@ -213,7 +214,7 @@ private fun ImageStageRow(state: RefineryUiState, index: Int, image: RefineryIma
                     )
                 }
                 if (stage != stages.last()) {
-                    Box(Modifier.width(14.dp).height(1.dp).background(Krt.Gray3))
+                    Box(Modifier.width(14.dp).height(1.dp).background(Krt.Hairline))
                 }
             }
         }

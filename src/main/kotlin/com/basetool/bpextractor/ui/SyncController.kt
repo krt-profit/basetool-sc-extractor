@@ -23,14 +23,14 @@ import com.basetool.bpextractor.net.auth.ExchangeLogin
 import com.basetool.bpextractor.net.auth.LoginReason
 import com.basetool.bpextractor.net.auth.WinCredentialStore
 import com.basetool.bpextractor.net.isCheckableHandle
-import java.awt.Desktop
-import java.net.URI
-import java.util.Collections
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.awt.Desktop
+import java.net.URI
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 
 /** The state machine of the direct blueprint sync. */
 sealed interface SyncState {
@@ -114,7 +114,7 @@ class SyncController(
     private val login = ExchangeLogin(deviceGrant, credentialStore, keyStore)
 
     var state by mutableStateOf<SyncState>(SyncState.Idle)
-        private set
+        internal set
 
     private var items: List<BlueprintItem> = emptyList()
     private var handle: String? = null

@@ -28,11 +28,11 @@ class AccountController(
 
     /** Whether a stored token exists (the connected/disconnected indicator). */
     var connected by mutableStateOf(credentialStore.exists())
-        private set
+        internal set
 
     /** Whether the disconnect-confirmation modal is showing. */
     var confirming by mutableStateOf(false)
-        private set
+        internal set
 
     /** Whether a disconnect (revoke + delete) is in flight. */
     var working by mutableStateOf(false)

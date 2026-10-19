@@ -499,17 +499,32 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
 
 ## UI / design
 
-- Follows the **`das-kartell-design` Claude skill** (local, gitignored under `.claude/`).
-  The tokens are mirrored in `ui/Theme.kt` so contributors without the skill can still
-  match the palette: house orange `#E77E23` on black, **Lato-only typography**
-  (headlines Lato Bold UPPERCASE with 0.05em tracking, body Lato Light — no
-  Audiowide/Ethnocentric), square corners, diagonal HUD corner-brackets, orange
-  "bloom" instead of soft shadows.
+- Follows the **KRT design system**, `krt-profit/design-system` (`README.md` and `tokens.css`
+  there are binding; a local copy is the `das-kartell-design` Claude skill, gitignored under
+  `.claude/`). The tokens are mirrored by name in `ui/Theme.kt` (`Krt.*`): house orange
+  `#FB8A28`, the gray surface ladder canvas `#202020` → panel `#35393D` → bar `#2A2D31`,
+  **Lato-only typography** (headlines Lato Bold UPPERCASE with 0.05em tracking, body Lato
+  Light), the **4 dp radius** (`KrtShape`) on controls and surfaces, diagonal HUD corner
+  brackets, and the orange edge bloom (`Modifier.bloom`) instead of soft shadows. The
+  honeycomb background is gone from the system and from here — the canvas is flat.
+- **Control and text rules from the system:** every non-CTA control has the control fill and
+  the Grau-2 border (`Krt.Control` / `Krt.ControlBorder`, ≥ 3:1); `Krt.Hairline` is decoration
+  only, never a control border. Muted text is `Krt.TextMuted`, never the border gray; status
+  text uses the text tints (`DangerText`, `SuccessText`, `InfoText`). A selection (segment,
+  tier, sidebar entry) is tint + orange frame + underline, never a filled orange block. Draw
+  ticks with `CheckMark` and write warnings with `WARN` — the plain `✔`/`⚠` glyphs render as
+  coloured emoji on Windows.
+- **Visual check: `UiGalleryTest`.** With `UI_GALLERY_OUT=<folder outside the repo>` it renders
+  every screen, sub-step, modal and state (DE, EN and the 640×520 floor, plus hover and focus
+  walks) to PNGs from synthetic fixtures; `UI_GALLERY_ONLY=<name prefixes>` narrows it. Look
+  at the PNGs after any UI change — the tests do not catch a broken layout.
 - Default window is **1180×820 dp**, resizable down to **640×520** (the `ResizeCorner`
   enforces the floor). The small-window guarantee comes from `StepScaffold`: the body
-  scrolls, the footer CTA stays pinned — never put a primary CTA inside a scroll body.
+  scrolls (a fixed-layout body scrolls at `minBodyHeight` once the window is smaller), the
+  footer wraps and its CTA stays pinned — never put a primary CTA inside a scroll body.
 - **Exactly one filled orange CTA per context** (here: "Blueprints extrahieren").
-  Secondary actions are ghost buttons; labels are neutral gray. Reuse the components in
+  Secondary actions are ghost buttons (`ButtonTone.OUTLINE` for an emphasized one,
+  `QUIET_DANGER` for a destructive one); labels are neutral gray. Reuse the components in
   `KrtComponents.kt` rather than restyling Material defaults ad hoc.
 - The window is **undecorated** with a custom title bar (`WindowChrome.kt`). Pitfall:
   `androidx.compose.ui.window.WindowDraggableArea` does **not** resolve in Compose

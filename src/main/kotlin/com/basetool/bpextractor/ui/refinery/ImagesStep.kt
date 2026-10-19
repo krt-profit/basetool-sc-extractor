@@ -3,7 +3,6 @@ package com.basetool.bpextractor.ui.refinery
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.layout.Arrangement
@@ -11,6 +10,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,7 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,21 +32,31 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draganddrop.DragAndDropEvent
 import androidx.compose.ui.draganddrop.DragAndDropTarget
 import androidx.compose.ui.draganddrop.awtTransferable
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import com.basetool.bpextractor.ui.ButtonTone
 import com.basetool.bpextractor.ui.CtaButton
+import com.basetool.bpextractor.ui.FieldLabel
 import com.basetool.bpextractor.ui.GhostButton
+import com.basetool.bpextractor.ui.IconGhostButton
 import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.KrtCheckbox
+import com.basetool.bpextractor.ui.KrtShape
+import com.basetool.bpextractor.ui.KrtSpinner
+import com.basetool.bpextractor.ui.KrtSwitch
 import com.basetool.bpextractor.ui.KrtTextField
+import com.basetool.bpextractor.ui.KrtVerticalScrollbar
 import com.basetool.bpextractor.ui.PickerMode
 import com.basetool.bpextractor.ui.PickerRequest
 import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.StepScaffold
+import com.basetool.bpextractor.ui.WARN
+import com.basetool.bpextractor.ui.dropHighlight
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import kotlinx.coroutines.CoroutineScope
@@ -87,7 +97,7 @@ fun ImagesStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
         modifier = Modifier
             .fillMaxSize()
             .dragAndDropTarget(shouldStartDragAndDrop = { true }, target = dropTarget)
-            .then(if (dragOver) Modifier.border(1.dp, Krt.Orange) else Modifier),
+            .then(if (dragOver) Modifier.dropHighlight() else Modifier),
     ) {
         ImagesStepContent(state, appScope, onPicker)
     }
@@ -140,12 +150,7 @@ private fun ImagesStepContent(
         },
     ) {
         Column {
-            Text(
-                strings.rfFolderLabel.uppercase(),
-                style = MaterialTheme.typography.labelMedium,
-                color = Krt.Gray1,
-                modifier = Modifier.padding(bottom = 6.dp),
-            )
+            FieldLabel(strings.rfFolderLabel)
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 KrtTextField(
                     value = state.folder,
@@ -171,13 +176,12 @@ private fun ImagesStepContent(
                 )
             }
             Spacer(Modifier.height(6.dp))
-            Text(strings.rfPasteDropHint, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+            Text(strings.rfPasteDropHint, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
             Spacer(Modifier.height(8.dp))
-            KrtCheckbox(
+            KrtSwitch(
                 checked = state.watchClipboard,
                 onCheckedChange = { state.setClipboardWatch(it) },
                 label = strings.rfWatchClipboard,
-                labelStyle = MaterialTheme.typography.bodySmall,
             )
         }
         Spacer(Modifier.height(12.dp))
@@ -210,7 +214,7 @@ private fun ImagesStepContent(
             if (lowRes > 0) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "⚠ ${strings.rfLowResNote(lowRes)}",
+                    "$WARN ${strings.rfLowResNote(lowRes)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = Krt.Warning,
                 )
@@ -224,7 +228,7 @@ private fun ImagesStepContent(
             if (state.images.isNotEmpty()) {
                 KrtChip(
                     "${strings.rfStatSelected}: $selectedCount",
-                    color = if (selectedCount == 0) Krt.Warning else Krt.Gray1,
+                    tone = if (selectedCount == 0) ChipTone.WARNING else ChipTone.NEUTRAL,
                 )
             }
             KrtChip("${strings.rfStatOrder}: 1")
@@ -239,8 +243,8 @@ private fun ImagesStepContent(
         when {
             state.loadingImages -> {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Krt.Orange, strokeWidth = 2.dp)
-                    Text(strings.rfChecking, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray2)
+                    KrtSpinner()
+                    Text(strings.rfChecking, style = MaterialTheme.typography.bodyMedium, color = Krt.TextMuted)
                 }
             }
             state.images.isEmpty() && state.folder.isNotBlank() -> {
@@ -271,9 +275,12 @@ private fun ImagesStepContent(
             Spacer(Modifier.height(10.dp))
         }
 
+        val gridState = rememberLazyGridState()
+        Box(Modifier.weight(1f).fillMaxWidth()) {
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 200.dp),
-            modifier = Modifier.weight(1f).fillMaxWidth(),
+            state = gridState,
+            modifier = Modifier.fillMaxSize().padding(end = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -284,6 +291,8 @@ private fun ImagesStepContent(
                     onRemove = { state.removeImage(image) },
                 )
             }
+        }
+            KrtVerticalScrollbar(gridState, Modifier.align(Alignment.CenterEnd).fillMaxHeight())
         }
     }
 }
@@ -296,7 +305,8 @@ private fun ImageTile(image: RefineryImage, onToggle: () -> Unit, onRemove: () -
             modifier = Modifier
                 .fillMaxWidth()
                 .height(110.dp)
-                .background(Krt.SurfaceInput)
+                .clip(KrtShape)
+                .background(Krt.Canvas)
                 .clickable(onClick = onToggle)
                 .alpha(if (image.selected) 1f else 0.35f),
             contentAlignment = Alignment.Center,
@@ -310,7 +320,7 @@ private fun ImageTile(image: RefineryImage, onToggle: () -> Unit, onRemove: () -
                     contentScale = ContentScale.Fit,
                 )
             } else {
-                StatusDot(Krt.Gray2)
+                StatusDot(Krt.ControlBorder)
             }
         }
         KrtCheckbox(
@@ -324,10 +334,10 @@ private fun ImageTile(image: RefineryImage, onToggle: () -> Unit, onRemove: () -
             KrtChip("${image.width}×${image.height}")
             KrtChip(
                 if (image.precropped) strings.rfCropTagPre else strings.rfCropTagAuto,
-                color = if (image.precropped) Krt.Warning else Krt.Gray1,
+                tone = if (image.precropped) ChipTone.WARNING else ChipTone.NEUTRAL,
             )
             Spacer(Modifier.weight(1f))
-            GhostButton("✕", onClick = onRemove, modifier = Modifier.width(40.dp))
+            IconGhostButton("✕", strings.rfRemoveImage, onClick = onRemove, tone = ButtonTone.QUIET_DANGER)
         }
     }
 }

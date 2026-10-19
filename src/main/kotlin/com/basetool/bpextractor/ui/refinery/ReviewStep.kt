@@ -3,7 +3,10 @@ package com.basetool.bpextractor.ui.refinery
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.hoverable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,9 +18,9 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -33,10 +36,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
@@ -44,19 +47,30 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.refinery.PanelValues
 import com.basetool.bpextractor.refinery.model.RefineryExtractGood
+import com.basetool.bpextractor.ui.ButtonTone
+import com.basetool.bpextractor.ui.Caption
+import com.basetool.bpextractor.ui.CheckMark
 import com.basetool.bpextractor.ui.CtaButton
+import com.basetool.bpextractor.ui.DISABLED_ALPHA
 import com.basetool.bpextractor.ui.FootNote
 import com.basetool.bpextractor.ui.GhostButton
+import com.basetool.bpextractor.ui.IconGhostButton
 import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.KrtDataStyle
+import com.basetool.bpextractor.ui.KrtModal
+import com.basetool.bpextractor.ui.KrtShape
+import com.basetool.bpextractor.ui.KrtSwitch
 import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.StepScaffold
+import com.basetool.bpextractor.ui.WARN
+import com.basetool.bpextractor.ui.focusRing
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import java.io.File
@@ -88,7 +102,7 @@ fun ReviewStep(state: RefineryUiState) {
             scrollBody = false,
             headRight = {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    KrtChip(order.panelType, color = Krt.Orange, border = Krt.Orange)
+                    KrtChip(order.panelType, ChipTone.PRIMARY)
                     KrtChip(strings.rfBadgeLayout((order.layoutConfidence * 100).roundToInt()))
                 }
             },
@@ -122,7 +136,7 @@ fun ReviewStep(state: RefineryUiState) {
                             "• " + strings.rfWarningLabel(warning.name) +
                                 if (isResolved) " — ${strings.rfWarningResolved}" else "",
                             style = MaterialTheme.typography.bodySmall,
-                            color = if (isResolved) Krt.Success else Krt.Gray2,
+                            color = if (isResolved) Krt.SuccessText else Krt.TextMuted,
                         )
                     }
                 }
@@ -259,7 +273,7 @@ private fun plainNumber(value: Double): String =
     if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
 
 /** Width of the trailing per-row actions area (✎ / ↺ resp. ✓ / ✕). */
-private val ActionsWidth = 52.dp
+private val ActionsWidth = 76.dp
 
 /**
  * One order-header card: green ✔ when read, amber ⚠ + "fehlt" when the read came up empty.
@@ -286,18 +300,13 @@ private fun HeaderCard(
         Box(Modifier.width(3.dp).fillMaxHeight().background(accent))
         Column(Modifier.padding(10.dp).fillMaxWidth()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    title.uppercase(),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = Krt.Gray2,
-                    modifier = Modifier.weight(1f),
-                )
+                Caption(title, modifier = Modifier.weight(1f))
                 if (!editing) {
-                    GlyphButton("✎", Krt.Gray2, description = strings.rfEditRow) {
+                    IconGhostButton("✎", strings.rfEditRow, onClick = {
                         text = editPrefill
                         invalid = false
                         editing = true
-                    }
+                    })
                 }
             }
             Spacer(Modifier.padding(top = 4.dp))
@@ -316,15 +325,15 @@ private fun HeaderCard(
                         onCancel = { editing = false },
                     )
                     ApplyButton(label = null, enabled = true, description = strings.rfEditApply, onClick = submit)
-                    GlyphButton("✕", Krt.Gray2, description = strings.rfEditCancel) { editing = false }
+                    IconGhostButton("✕", strings.rfEditCancel, onClick = { editing = false })
                 }
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(if (ok) "✓" else "⚠", style = MaterialTheme.typography.bodyMedium, color = accent)
+                    if (ok) CheckMark(Krt.SuccessText) else Text(WARN, style = MaterialTheme.typography.bodyMedium, color = Krt.Warning)
                     Text(
                         value ?: strings.rfMissingValue,
                         style = MaterialTheme.typography.bodyMedium,
-                        color = if (ok) Krt.Gray1 else Krt.Gray2,
+                        color = if (ok) Krt.Gray1 else Krt.TextMuted,
                         maxLines = 1,
                     )
                 }
@@ -337,7 +346,10 @@ private fun HeaderCard(
 private fun GoodsHeaderRow() {
     val strings = LocalStrings.current
     Row(
-        modifier = Modifier.fillMaxWidth().background(Krt.SurfaceInput).padding(horizontal = 12.dp, vertical = 8.dp),
+        modifier = Modifier.fillMaxWidth()
+            .background(Krt.Bar)
+            .drawBehind { drawLine(Krt.Orange, Offset(0f, size.height), Offset(size.width, size.height), 2.dp.toPx()) }
+            .padding(horizontal = 12.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         HeaderCell(strings.rfColMaterial, 2.4f)
@@ -355,7 +367,7 @@ private fun RowScope.HeaderCell(text: String, weight: Float) {
     Text(
         text.uppercase(),
         style = MaterialTheme.typography.labelMedium,
-        color = Krt.Gray2,
+        color = Krt.Gray1,
         modifier = Modifier.weight(weight),
     )
 }
@@ -371,7 +383,13 @@ private fun GoodsRow(
     val strings = LocalStrings.current
     val colors = confidenceColors(good.confidence)
     val flagged = good.confidence < 0.90
-    Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(IntrinsicSize.Min)
+            .drawBehind { drawLine(Krt.Hairline, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) },
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Box(
             Modifier.width(3.dp).fillMaxHeight().background(if (flagged) colors.dot else Color.Transparent),
         )
@@ -384,8 +402,8 @@ private fun GoodsRow(
             DataCell(good.rawMaterialName, 2.4f, Krt.Gray1)
             DataCell(good.quality?.toString() ?: "—", 1f, Krt.Gray1)
             DataCell(good.inputQuantity?.toString() ?: "—", 1f, Krt.Gray1)
-            DataCell(good.outputQuantity?.let { "+$it" } ?: "—", 1f, if (good.outputQuantity != null) Krt.Success else Krt.Gray2)
-            DataCell(if (good.refine) "ON" else "OFF", 0.8f, if (good.refine) Krt.Gray1 else Krt.Gray2)
+            DataCell(good.outputQuantity?.let { "+$it" } ?: "—", 1f, if (good.outputQuantity != null) Krt.SuccessText else Krt.TextMuted)
+            DataCell(if (good.refine) "ON" else "OFF", 0.8f, if (good.refine) Krt.Gray1 else Krt.TextMuted)
             Row(modifier = Modifier.weight(1.2f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 StatusDot(colors.dot)
                 Text(
@@ -397,7 +415,7 @@ private fun GoodsRow(
                     Text(
                         "✎ " + strings.rfEditedTag.uppercase(),
                         style = MaterialTheme.typography.labelMedium,
-                        color = Krt.Gray2,
+                        color = Krt.TextMuted,
                         maxLines = 1,
                     )
                 }
@@ -405,12 +423,12 @@ private fun GoodsRow(
             Row(
                 modifier = Modifier.width(ActionsWidth),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
             ) {
                 if (edited) {
-                    GlyphButton("↺", Krt.Gray2, description = strings.rfEditRevert, onClick = onRevert)
+                    IconGhostButton("↺", strings.rfEditRevert, onClick = onRevert)
                 }
-                GlyphButton("✎", Krt.Gray2, description = strings.rfEditRow, onClick = onEdit)
+                IconGhostButton("✎", strings.rfEditRow, onClick = onEdit)
             }
         }
     }
@@ -455,7 +473,7 @@ private fun GoodsEditRow(
     }
 
     Row(
-        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min).background(Krt.SurfaceInput.copy(alpha = 0.35f)),
+        modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min).background(Krt.Orange.copy(alpha = 0.06f)),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.width(3.dp).fillMaxHeight().background(Krt.Orange))
@@ -470,19 +488,7 @@ private fun GoodsEditRow(
             EditCell(input, { input = it }, 1f, !inputOk, submit, onCancel)
             EditCell(output, { output = it }, 1f, !outputOk, submit, onCancel)
             Box(Modifier.weight(0.8f)) {
-                Text(
-                    if (refine) "ON" else "OFF",
-                    style = KrtDataStyle,
-                    color = if (refine) Krt.Orange else Krt.Gray2,
-                    modifier = Modifier
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                        ) { refine = !refine }
-                        .background(Krt.SurfaceInput)
-                        .border(1.dp, if (refine) Krt.Orange else Krt.Gray3)
-                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                )
+                KrtSwitch(checked = refine, onCheckedChange = { refine = it }, label = if (refine) "ON" else "OFF")
             }
             Box(Modifier.weight(1.2f), contentAlignment = Alignment.CenterStart) {
                 ApplyButton(label = strings.rfEditApply, enabled = valid, description = strings.rfEditApply, onClick = submit)
@@ -490,9 +496,9 @@ private fun GoodsEditRow(
             Row(
                 modifier = Modifier.width(ActionsWidth),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End,
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.End),
             ) {
-                GlyphButton("✕", Krt.Gray2, description = strings.rfEditCancel) { onCancel() }
+                IconGhostButton("✕", strings.rfEditCancel, onClick = onCancel)
             }
         }
     }
@@ -520,7 +526,7 @@ private fun RowScope.EditCell(
     }
 }
 
-/** The shared single-line edit primitive: dark fill, hairline/danger border, orange caret. */
+/** The shared single-line edit primitive: control fill and border, orange when focused, danger when invalid. */
 @Composable
 private fun InlineEditField(
     value: String,
@@ -530,16 +536,26 @@ private fun InlineEditField(
     onSubmit: () -> Unit,
     onCancel: () -> Unit,
 ) {
+    var focused by remember { mutableStateOf(false) }
     BasicTextField(
         value = value,
         onValueChange = onChange,
         singleLine = true,
-        textStyle = KrtDataStyle.copy(color = if (isError) Krt.Danger else Krt.Gray1),
+        textStyle = KrtDataStyle.copy(color = if (isError) Krt.DangerText else Krt.Gray1),
         cursorBrush = SolidColor(Krt.Orange),
         modifier = modifier
-            .background(Krt.SurfaceInput)
-            .border(1.dp, if (isError) Krt.Danger else Krt.Gray3)
-            .padding(horizontal = 6.dp, vertical = 4.dp)
+            .onFocusChanged { focused = it.isFocused }
+            .background(Krt.Control, KrtShape)
+            .border(
+                1.dp,
+                when {
+                    isError -> Krt.Danger
+                    focused -> Krt.Orange
+                    else -> Krt.ControlBorder
+                },
+                KrtShape,
+            )
+            .padding(horizontal = 7.dp, vertical = 5.dp)
             .onPreviewKeyEvent { event ->
                 when {
                     event.type == KeyEventType.KeyDown && event.key == Key.Enter -> {
@@ -556,33 +572,8 @@ private fun InlineEditField(
     )
 }
 
-/** A bare glyph action (✎ ✓ ✕ ↺) — quiet by default, the glyph colour carries the meaning. */
-@Composable
-private fun GlyphButton(
-    glyph: String,
-    color: Color,
-    enabled: Boolean = true,
-    description: String? = null,
-    onClick: () -> Unit,
-) {
-    Text(
-        glyph,
-        style = MaterialTheme.typography.bodyMedium,
-        color = if (enabled) color else Krt.Gray3,
-        modifier = Modifier
-            .semantics { description?.let { contentDescription = it } }
-            .clickable(
-                enabled = enabled,
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            )
-            .padding(horizontal = 4.dp, vertical = 2.dp),
-    )
-}
-
 /**
- * The prominent filled "apply this correction" button that commits a ✎ edit to the export,
+ * The filled green "apply this correction" button (`.btn-success`, a state change) that commits a ✎ edit to the export,
  * optionally labelled.
  */
 @Composable
@@ -592,22 +583,30 @@ private fun ApplyButton(
     description: String,
     onClick: () -> Unit,
 ) {
-    val fg = if (enabled) Krt.Black else Krt.Gray2
+    val interaction = remember { MutableInteractionSource() }
+    val hovered by interaction.collectIsHoveredAsState()
+    val focused by interaction.collectIsFocusedAsState()
+    val fg = Krt.White
     Row(
         modifier = Modifier
             .semantics { contentDescription = description }
-            .background(if (enabled) Krt.Success else Krt.Gray3)
+            .heightIn(min = 32.dp)
+            .alpha(if (enabled) 1f else DISABLED_ALPHA)
+            .focusRing(focused)
+            .background(if (hovered && enabled) Krt.SuccessHover else Krt.Success, KrtShape)
+            .hoverable(interaction, enabled = enabled)
             .clickable(
                 enabled = enabled,
-                interactionSource = remember { MutableInteractionSource() },
+                interactionSource = interaction,
                 indication = null,
+                role = Role.Button,
                 onClick = onClick,
             )
-            .padding(horizontal = 9.dp, vertical = 5.dp),
+            .padding(horizontal = 10.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        Text("✓", style = MaterialTheme.typography.bodyMedium, color = fg)
+        CheckMark(fg)
         if (label != null) {
             Text(
                 label.uppercase(),
@@ -622,83 +621,23 @@ private fun ApplyButton(
 }
 
 /**
- * §5.4 guard before leaving for the export step with an inline editor still open: a KRT scrim modal
- * (never a native dialog), amber Warning accent. Either go back and apply (the safe primary CTA), or
- * discard the open editor's not-yet-committed typing and continue. Already-committed corrections are
- * untouched — only the one open editor's uncommitted text is at stake.
+ * §5.4 guard before leaving for the export step with an inline editor still open: a KRT modal (never a
+ * native dialog). Either go back and apply (the safe primary CTA), or discard the open editor's
+ * not-yet-committed typing and continue. Already-committed corrections are untouched — only the one
+ * open editor's uncommitted text is at stake.
  */
 @Composable
-private fun UnsavedChangesOverlay(onBack: () -> Unit, onDiscard: () -> Unit) {
+internal fun UnsavedChangesOverlay(onBack: () -> Unit, onDiscard: () -> Unit) {
     val strings = LocalStrings.current
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Krt.Black.copy(alpha = 0.8f))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onBack,
-            )
-            .padding(24.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        val swallow = remember { MutableInteractionSource() }
-        Column(
-            modifier = Modifier
-                .widthIn(max = 480.dp)
-                .fillMaxWidth()
-                .drawBehind {
-                    val grow = 28.dp.toPx()
-                    drawRect(
-                        brush = Brush.radialGradient(
-                            colors = listOf(Krt.Warning.copy(alpha = 0.18f), Color.Transparent),
-                            center = center,
-                            radius = size.maxDimension / 2f + grow,
-                        ),
-                        topLeft = Offset(-grow, -grow),
-                        size = Size(size.width + 2f * grow, size.height + 2f * grow),
-                    )
-                }
-                .background(Krt.Black.copy(alpha = 0.97f))
-                .border(1.dp, Krt.Warning)
-                .clickable(interactionSource = swallow, indication = null, onClick = {}),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Krt.Gray4)
-                    .drawBehind {
-                        drawLine(Krt.Warning, Offset(0f, size.height), Offset(size.width, size.height), 2.dp.toPx())
-                    }
-                    .padding(horizontal = 18.dp, vertical = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    "⚠  " + strings.rfUnsavedTitle.uppercase(),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = Krt.Warning,
-                )
-            }
-            Text(
-                strings.rfUnsavedBody,
-                style = MaterialTheme.typography.bodyMedium,
-                color = Krt.Gray1,
-                modifier = Modifier.padding(18.dp),
-            )
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Krt.Gray4.copy(alpha = 0.55f))
-                    .drawBehind { drawLine(Krt.Gray3, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
-                    .padding(horizontal = 18.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                GhostButton(strings.rfUnsavedDiscard, onClick = onDiscard)
-                Spacer(Modifier.weight(1f))
-                CtaButton(strings.rfUnsavedBack, onClick = onBack)
-            }
-        }
-    }
+    KrtModal(
+        title = strings.rfUnsavedTitle,
+        onDismiss = onBack,
+        body = { Text(strings.rfUnsavedBody, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1) },
+        footer = {
+            GhostButton(strings.rfUnsavedDiscard, onClick = onDiscard, tone = ButtonTone.QUIET_DANGER)
+            CtaButton(strings.rfUnsavedBack, onClick = onBack)
+        },
+    )
 }
 
 @Composable

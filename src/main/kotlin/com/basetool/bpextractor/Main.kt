@@ -2,23 +2,23 @@ package com.basetool.bpextractor
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,6 +39,8 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
@@ -49,9 +51,12 @@ import com.basetool.bpextractor.model.BlueprintScan
 import com.basetool.bpextractor.model.LogAccount
 import com.basetool.bpextractor.resources.Res
 import com.basetool.bpextractor.resources.basetool_extractor_icon
+import com.basetool.bpextractor.resources.basetool_extractor_logo
 import com.basetool.bpextractor.resources.made_by_the_community_black
+import com.basetool.bpextractor.ui.Caption
 import com.basetool.bpextractor.ui.CommandStrip
 import com.basetool.bpextractor.ui.CommunityDisclaimerFooter
+import com.basetool.bpextractor.ui.CountBadge
 import com.basetool.bpextractor.ui.CtaButton
 import com.basetool.bpextractor.ui.FieldLabel
 import com.basetool.bpextractor.ui.FilePickerDialog
@@ -60,6 +65,7 @@ import com.basetool.bpextractor.ui.GhostButton
 import com.basetool.bpextractor.ui.Krt
 import com.basetool.bpextractor.ui.KrtDataStyle
 import com.basetool.bpextractor.ui.KrtProgressBar
+import com.basetool.bpextractor.ui.KrtSpinner
 import com.basetool.bpextractor.ui.KrtTextField
 import com.basetool.bpextractor.ui.KrtTheme
 import com.basetool.bpextractor.ui.KrtTitleBar
@@ -68,28 +74,27 @@ import com.basetool.bpextractor.ui.LanguageToggle
 import com.basetool.bpextractor.ui.MainTab
 import com.basetool.bpextractor.ui.PickerMode
 import com.basetool.bpextractor.ui.PickerRequest
+import com.basetool.bpextractor.ui.RadioMark
 import com.basetool.bpextractor.ui.RefineryScreen
 import com.basetool.bpextractor.ui.ResizeCorner
-import com.basetool.bpextractor.ui.StartScreen
-import com.basetool.bpextractor.ui.StatusDot
 import com.basetool.bpextractor.ui.SendController
 import com.basetool.bpextractor.ui.SendKind
 import com.basetool.bpextractor.ui.SendOverlay
+import com.basetool.bpextractor.ui.StartScreen
+import com.basetool.bpextractor.ui.StatusDot
+import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.SyncController
 import com.basetool.bpextractor.ui.SyncOverlay
-import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.UpdateUiState
 import com.basetool.bpextractor.ui.hudBox
-import com.basetool.bpextractor.ui.refinery.AlertBox
-import com.basetool.bpextractor.ui.refinery.KrtChip
 import com.basetool.bpextractor.ui.i18n.Lang
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import com.basetool.bpextractor.ui.i18n.Strings
 import com.basetool.bpextractor.ui.i18n.StringsEn
 import com.basetool.bpextractor.ui.i18n.stringsFor
+import com.basetool.bpextractor.ui.refinery.AlertBox
+import com.basetool.bpextractor.ui.refinery.KrtChip
 import com.basetool.bpextractor.ui.refinery.RefineryUiState
-import com.basetool.bpextractor.ui.rememberHoneycombPainter
-import com.basetool.bpextractor.ui.tiled
 import com.basetool.bpextractor.update.UpdateChecker
 import com.basetool.bpextractor.update.UpdateInfo
 import kotlinx.coroutines.CoroutineScope
@@ -102,10 +107,10 @@ import java.awt.Desktop
 import java.io.File
 
 /** A transient completion notification (success or failure), shown as a toast. */
-private data class ToastInfo(val title: String, val message: String, val error: Boolean)
+internal data class ToastInfo(val title: String, val message: String, val error: Boolean)
 
 /** UI state for the blueprint workflow. */
-private class AppState {
+internal class AppState {
     var channelFolder by mutableStateOf(defaultChannelFolder())
     var outputFile by mutableStateOf(defaultOutputPath())
     var running by mutableStateOf(false)
@@ -181,7 +186,7 @@ private class AppState {
  * running, Zusammenfassung once a result exists. Shared by the [CommandStrip] stepper and the screen
  * body.
  */
-private fun blueprintStep(state: AppState): Int = when {
+internal fun blueprintStep(state: AppState): Int = when {
     state.running -> 1
     state.resultSummary.isNotBlank() -> 2
     else -> 0
@@ -198,11 +203,11 @@ private data class FolderHint(val dot: Color, val text: String, val textColor: C
 private fun channelFolderHint(path: String, strings: Strings): FolderHint {
     val p = path.trim()
     if (p.isEmpty()) {
-        return FolderHint(Krt.Gray2, strings.bpHintReadsLogs, Krt.Gray2)
+        return FolderHint(Krt.ControlBorder, strings.bpHintReadsLogs, Krt.TextMuted)
     }
     val dir = File(p)
     if (!dir.isDirectory) {
-        return FolderHint(Krt.Danger, strings.bpHintFolderMissing, Krt.Danger)
+        return FolderHint(Krt.Danger, strings.bpHintFolderMissing, Krt.DangerText)
     }
     val hasGameLog = File(dir, "Game.log").isFile
     val hasBackups = File(dir, "logbackups").isDirectory
@@ -214,7 +219,7 @@ private fun channelFolderHint(path: String, strings: Strings): FolderHint {
         val suggestion = runCatching { ScInstallLocator.suggestChannel(dir) }.getOrNull()
         val text = suggestion?.let { strings.bpHintWrongFolder + " " + strings.bpHintChannelSuggestion(it.absolutePath) }
             ?: strings.bpHintWrongFolder
-        return FolderHint(Krt.Orange, text, Krt.Gray1)
+        return FolderHint(Krt.Warning, text, Krt.Gray1)
     }
     val found = listOfNotNull(
         "Game.log".takeIf { hasGameLog },
@@ -224,9 +229,8 @@ private fun channelFolderHint(path: String, strings: Strings): FolderHint {
 }
 
 @Composable
-private fun ExtractorScreen(state: AppState, appScope: CoroutineScope) {
-    val honeycomb = rememberHoneycombPainter()
-    Box(modifier = Modifier.fillMaxSize().background(Krt.Black).tiled(honeycomb)) {
+internal fun ExtractorScreen(state: AppState, appScope: CoroutineScope) {
+    Box(modifier = Modifier.fillMaxSize().background(Krt.Canvas)) {
         when (blueprintStep(state)) {
             0 -> BpConfigStep(state, appScope)
             1 -> BpRunningStep(state)
@@ -264,7 +268,7 @@ private fun BpConfigStep(state: AppState, appScope: CoroutineScope) {
             if (state.isError && state.status.isNotBlank()) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     StatusDot(Krt.Danger)
-                    Text(state.status, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+                    Text(state.status, style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
                 }
             } else {
                 FootNote(strings.bpFootReadOnly)
@@ -277,133 +281,136 @@ private fun BpConfigStep(state: AppState, appScope: CoroutineScope) {
             )
         },
     ) {
-        Row(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            Column(modifier = Modifier.weight(1.25f).fillMaxHeight().hudBox().padding(16.dp)) {
-                FieldLabel(strings.bpLabelChannelFolder)
-                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    KrtTextField(
-                        value = state.channelFolder,
-                        onValueChange = { state.channelFolder = it; state.channelError = null },
-                        placeholder = strings.bpPlaceholderChannel,
-                        enabled = !state.running,
-                        isError = state.channelError != null,
-                        supportingText = state.channelError,
-                        modifier = Modifier.weight(1f),
-                    )
-                    GhostButton(
-                        strings.browse,
-                        enabled = !state.running,
-                        modifier = Modifier.height(56.dp),
-                        onClick = {
-                            state.picker = PickerRequest(
-                                mode = PickerMode.FOLDER,
-                                title = strings.bpPickerChannelTitle,
-                                confirmLabel = strings.bpPickerChannelConfirm,
-                                initialPath = state.channelFolder,
-                            ) { state.channelFolder = it; state.channelError = null }
-                        },
-                    )
-                }
-                Spacer(Modifier.height(6.dp))
-                if (state.channelError == null) {
-                    val channelHint = remember(state.channelFolder, strings) { channelFolderHint(state.channelFolder, strings) }
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusDot(channelHint.dot)
-                        Text(
-                            channelHint.text,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = channelHint.textColor,
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val showContext = maxWidth >= 760.dp
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                Column(modifier = Modifier.weight(1.25f).fillMaxHeight().hudBox().padding(16.dp)) {
+                    FieldLabel(strings.bpLabelChannelFolder)
+                    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        KrtTextField(
+                            value = state.channelFolder,
+                            onValueChange = { state.channelFolder = it; state.channelError = null },
+                            placeholder = strings.bpPlaceholderChannel,
+                            enabled = !state.running,
+                            isError = state.channelError != null,
+                            supportingText = state.channelError,
+                            modifier = Modifier.weight(1f),
+                        )
+                        GhostButton(
+                            strings.browse,
+                            enabled = !state.running,
+                            modifier = Modifier.height(56.dp),
+                            onClick = {
+                                state.picker = PickerRequest(
+                                    mode = PickerMode.FOLDER,
+                                    title = strings.bpPickerChannelTitle,
+                                    confirmLabel = strings.bpPickerChannelConfirm,
+                                    initialPath = state.channelFolder,
+                                ) { state.channelFolder = it; state.channelError = null }
+                            },
                         )
                     }
-                    val sibling = remember(state.channelFolder) {
-                        BlueprintExtractor.siblingChannelFolder(File(state.channelFolder.trim()))
-                    }
-                    if (sibling != null) {
-                        Spacer(Modifier.height(6.dp))
+                    Spacer(Modifier.height(6.dp))
+                    if (state.channelError == null) {
+                        val channelHint = remember(state.channelFolder, strings) { channelFolderHint(state.channelFolder, strings) }
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatusDot(Krt.Orange)
+                            StatusDot(channelHint.dot)
                             Text(
-                                strings.bpSiblingChannelNote(sibling.name),
+                                channelHint.text,
                                 style = MaterialTheme.typography.bodySmall,
+                                color = channelHint.textColor,
+                            )
+                        }
+                        val sibling = remember(state.channelFolder) {
+                            BlueprintExtractor.siblingChannelFolder(File(state.channelFolder.trim()))
+                        }
+                        if (sibling != null) {
+                            Spacer(Modifier.height(6.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                StatusDot(Krt.Orange)
+                                Text(
+                                    strings.bpSiblingChannelNote(sibling.name),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = Krt.Gray1,
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(Modifier.height(14.dp))
+                    FieldLabel(strings.bpLabelOutputJson)
+                    Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        KrtTextField(
+                            value = state.outputFile,
+                            onValueChange = { state.outputFile = it; state.outputError = null },
+                            placeholder = strings.bpPlaceholderOutput,
+                            enabled = !state.running,
+                            isError = state.outputError != null,
+                            supportingText = state.outputError,
+                            modifier = Modifier.weight(1f),
+                        )
+                        GhostButton(
+                            strings.browse,
+                            enabled = !state.running,
+                            modifier = Modifier.height(56.dp),
+                            onClick = {
+                                state.picker = PickerRequest(
+                                    mode = PickerMode.SAVE_FILE,
+                                    title = strings.bpPickerSaveTitle,
+                                    confirmLabel = strings.bpPickerSaveConfirm,
+                                    initialPath = state.outputFile,
+                                ) { state.outputFile = it; state.outputError = null }
+                            },
+                        )
+                    }
+
+                    Spacer(Modifier.weight(1f))
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(Krt.Hairline))
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatusDot(Krt.ControlBorder)
+                        Text(strings.bpFootAnchored, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
+                    }
+                }
+
+                if (showContext) Column(
+                    modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Hairline).padding(16.dp),
+                ) {
+                    Caption(strings.bpCtxTitle)
+                    Spacer(Modifier.height(12.dp))
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        strings.bpCtxItems.forEach { item ->
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                StatusDot(Krt.Orange)
+                                Text(item, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(Krt.Hairline))
+                    Spacer(Modifier.height(10.dp))
+                    Caption(strings.bpCtxLastRun)
+                    Spacer(Modifier.height(6.dp))
+                    val export = state.selectedExport
+                    if (export == null) {
+                        Text(strings.bpCtxNoRun, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
+                    } else {
+                        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                state.selectedAccount?.handle ?: strings.bpSummaryNoPlayer,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Krt.TextMuted,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Text(
+                                strings.bpSumSuccessDetail(export.blueprintCount, export.logFilesScanned),
+                                style = KrtDataStyle,
                                 color = Krt.Gray1,
                             )
                         }
-                    }
-                }
-
-                Spacer(Modifier.height(14.dp))
-                FieldLabel(strings.bpLabelOutputJson)
-                Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    KrtTextField(
-                        value = state.outputFile,
-                        onValueChange = { state.outputFile = it; state.outputError = null },
-                        placeholder = strings.bpPlaceholderOutput,
-                        enabled = !state.running,
-                        isError = state.outputError != null,
-                        supportingText = state.outputError,
-                        modifier = Modifier.weight(1f),
-                    )
-                    GhostButton(
-                        strings.browse,
-                        enabled = !state.running,
-                        modifier = Modifier.height(56.dp),
-                        onClick = {
-                            state.picker = PickerRequest(
-                                mode = PickerMode.SAVE_FILE,
-                                title = strings.bpPickerSaveTitle,
-                                confirmLabel = strings.bpPickerSaveConfirm,
-                                initialPath = state.outputFile,
-                            ) { state.outputFile = it; state.outputError = null }
-                        },
-                    )
-                }
-
-                Spacer(Modifier.weight(1f))
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Krt.Gray3))
-                Spacer(Modifier.height(10.dp))
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatusDot(Krt.Gray2)
-                    Text(strings.bpFootAnchored, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
-                }
-            }
-
-            Column(
-                modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Gray3).padding(16.dp),
-            ) {
-                Text(strings.bpCtxTitle.uppercase(), style = MaterialTheme.typography.labelMedium, color = Krt.Gray2)
-                Spacer(Modifier.height(12.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    strings.bpCtxItems.forEach { item ->
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                            StatusDot(Krt.Orange)
-                            Text(item, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1)
-                        }
-                    }
-                }
-                Spacer(Modifier.weight(1f))
-                Box(Modifier.fillMaxWidth().height(1.dp).background(Krt.Gray3))
-                Spacer(Modifier.height(10.dp))
-                Text(strings.bpCtxLastRun.uppercase(), style = MaterialTheme.typography.labelMedium, color = Krt.Gray2)
-                Spacer(Modifier.height(6.dp))
-                val export = state.selectedExport
-                if (export == null) {
-                    Text(strings.bpCtxNoRun, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
-                } else {
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            state.selectedAccount?.handle ?: strings.bpSummaryNoPlayer,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Krt.Gray2,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text(
-                            strings.bpSumSuccessDetail(export.blueprintCount, export.logFilesScanned),
-                            style = KrtDataStyle,
-                            color = Krt.Gray1,
-                        )
                     }
                 }
             }
@@ -437,7 +444,7 @@ private fun BpRunningStep(state: AppState) {
                 }
                 Spacer(Modifier.height(10.dp))
                 if (state.progressTotal == 0) {
-                    CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Krt.Orange, strokeWidth = 2.dp)
+                    KrtSpinner(22.dp)
                 } else {
                     val fraction = if (state.bytesTotal > 0) {
                         state.bytesDone.toFloat() / state.bytesTotal
@@ -447,7 +454,7 @@ private fun BpRunningStep(state: AppState) {
                     KrtProgressBar(fraction = fraction)
                 }
                 Spacer(Modifier.height(12.dp))
-                Text(state.status, style = KrtDataStyle, color = Krt.Gray2, maxLines = 2)
+                Text(state.status, style = KrtDataStyle, color = Krt.TextMuted, maxLines = 2)
             }
         }
     }
@@ -567,7 +574,7 @@ private fun BpSummaryStep(state: AppState) {
                     savedPrefix + "${BlueprintEnvelope.FORMAT} ${BlueprintEnvelope.FORMAT_VERSION} · " +
                         strings.bpSumSuccessDetail(export.blueprintCount, export.logFilesScanned),
                     style = MaterialTheme.typography.bodySmall,
-                    color = Krt.Gray2,
+                    color = Krt.TextMuted,
                 )
             }
         }
@@ -575,7 +582,7 @@ private fun BpSummaryStep(state: AppState) {
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatusDot(Krt.Danger)
-                Text(state.status, style = MaterialTheme.typography.bodySmall, color = Krt.Danger)
+                Text(state.status, style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
             }
         }
         if (state.skippedFiles.isNotEmpty()) {
@@ -593,22 +600,22 @@ private fun BpSummaryStep(state: AppState) {
         if (export != null && export.blueprintCount == 0) {
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusDot(Krt.Gray2)
+                StatusDot(Krt.ControlBorder)
                 Column {
                     Text(strings.bpSumZeroTitle, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1)
-                    Text(strings.bpSumZeroBody, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+                    Text(strings.bpSumZeroBody, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
                     state.localization.activeLanguage?.let { lang ->
                         Text(
                             strings.bpSumZeroLanguage(lang),
                             style = MaterialTheme.typography.bodySmall,
-                            color = Krt.Gray2,
+                            color = Krt.TextMuted,
                         )
                     }
                     state.localization.activeLanguageWithoutLabel()?.let { lang ->
                         Text(
                             strings.bpSumZeroLabelMissing(lang),
                             style = MaterialTheme.typography.bodySmall,
-                            color = Krt.Orange,
+                            color = Krt.Warning,
                         )
                     }
                 }
@@ -616,11 +623,11 @@ private fun BpSummaryStep(state: AppState) {
         } else if (export != null) {
             Spacer(Modifier.height(8.dp))
             Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusDot(Krt.Gray2)
+                StatusDot(Krt.ControlBorder)
                 Text(
                     strings.bpSumRetentionNote,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Krt.Gray2,
+                    color = Krt.TextMuted,
                 )
             }
         }
@@ -631,15 +638,10 @@ private fun BpSummaryStep(state: AppState) {
                 modifier = Modifier.weight(1f).fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Column(modifier = Modifier.width(290.dp).fillMaxHeight().hudBox(bracket = Krt.Gray3).padding(14.dp)) {
+                Column(modifier = Modifier.width(290.dp).fillMaxHeight().hudBox(bracket = Krt.Hairline).padding(14.dp)) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            strings.bpSummaryByCategory.uppercase().removeSuffix(":"),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = Krt.Gray2,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Text("${export.blueprintCount}", style = KrtDataStyle, color = Krt.White)
+                        Caption(strings.bpSummaryByCategory.removeSuffix(":"), modifier = Modifier.weight(1f))
+                        CountBadge(export.blueprintCount)
                     }
                     val categories = remember(export) {
                         export.blueprints.groupingBy { it.category }.eachCount()
@@ -662,7 +664,7 @@ private fun BpSummaryStep(state: AppState) {
                                     Text("$count", style = KrtDataStyle, color = Krt.White)
                                 }
                                 Spacer(Modifier.height(3.dp))
-                                Box(Modifier.fillMaxWidth().height(6.dp).background(Krt.SurfaceInput)) {
+                                Box(Modifier.fillMaxWidth().height(6.dp).background(Krt.Bar)) {
                                     Box(
                                         Modifier
                                             .fillMaxWidth(count.toFloat() / maxCount)
@@ -673,22 +675,18 @@ private fun BpSummaryStep(state: AppState) {
                             }
                         }
                     }
-                    Box(Modifier.fillMaxWidth().height(1.dp).background(Krt.Gray3))
+                    Box(Modifier.fillMaxWidth().height(1.dp).background(Krt.Hairline))
                     Spacer(Modifier.height(8.dp))
-                    Text(
-                        strings.bpSummaryPlayers.uppercase().removeSuffix(":"),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = Krt.Gray2,
-                    )
+                    Caption(strings.bpSummaryPlayers.removeSuffix(":"))
                     Spacer(Modifier.height(4.dp))
                     AccountSelector(state)
                 }
 
-                Column(modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Gray3)) {
+                Column(modifier = Modifier.weight(1f).fillMaxHeight().hudBox(bracket = Krt.Hairline)) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(Krt.SurfaceInput)
+                            .background(Krt.Bar)
                             .drawBehind { drawLine(Krt.Orange, Offset(0f, size.height), Offset(size.width, size.height), 2.dp.toPx()) }
                             .padding(horizontal = 14.dp, vertical = 9.dp),
                     ) {
@@ -699,11 +697,12 @@ private fun BpSummaryStep(state: AppState) {
                         )
                     }
                     Column(modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                        export.blueprints.asReversed().forEach { bp ->
+                        export.blueprints.asReversed().forEachIndexed { index, bp ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .drawBehind { drawLine(Krt.Gray3, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
+                                    .background(if (index % 2 == 1) Krt.White.copy(alpha = 0.02f) else Color.Transparent)
+                                    .drawBehind { drawLine(Krt.Hairline, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
                                     .padding(horizontal = 14.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -713,13 +712,14 @@ private fun BpSummaryStep(state: AppState) {
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Krt.White,
                                     maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.weight(1f),
                                 )
                                 KrtChip(bp.category)
                                 Text(
                                     bp.receivedAt.take(16).replace('T', ' '),
                                     style = KrtDataStyle,
-                                    color = Krt.Gray2,
+                                    color = Krt.TextMuted,
                                 )
                             }
                         }
@@ -734,15 +734,15 @@ private fun BpSummaryStep(state: AppState) {
 }
 
 /**
- * The accounts the logs belong to, as a single-choice list: the selected one is marked orange, and a
- * click selects another. With several accounts a hint says that only the selected one leaves the PC.
+ * The accounts the logs belong to, as a radio list: the selected one is checked, and a click selects
+ * another. With several accounts a hint says that only the selected one leaves the PC.
  */
 @Composable
 private fun AccountSelector(state: AppState) {
     val strings = LocalStrings.current
     val accounts = state.resultAccounts
     if (accounts.isEmpty()) {
-        Text(strings.bpSummaryNoPlayer, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+        Text(strings.bpSummaryNoPlayer, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
         return
     }
     accounts.forEach { account ->
@@ -750,28 +750,28 @@ private fun AccountSelector(state: AppState) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clickable(enabled = accounts.size > 1) { state.selectedAccount = account }
+                .selectable(selected = selected, enabled = accounts.size > 1, role = Role.RadioButton) { state.selectedAccount = account }
                 .padding(vertical = 3.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            StatusDot(if (selected) Krt.Orange else Krt.Gray3)
+            RadioMark(selected, enabled = accounts.size > 1)
             Text(
                 account.handle ?: strings.bpAccountUnknown,
                 style = MaterialTheme.typography.bodySmall,
-                color = if (selected) Krt.White else Krt.Gray2,
+                color = if (selected) Krt.White else Krt.TextMuted,
                 modifier = Modifier.weight(1f),
             )
             Text(
                 strings.bpAccountDetail(account.logFiles, account.blueprintCount),
                 style = KrtDataStyle,
-                color = if (selected) Krt.Gray1 else Krt.Gray2,
+                color = if (selected) Krt.Gray1 else Krt.TextMuted,
             )
         }
     }
     if (accounts.size > 1) {
         Spacer(Modifier.height(4.dp))
-        Text(strings.bpAccountHint, style = MaterialTheme.typography.bodySmall, color = Krt.Orange)
+        Text(strings.bpAccountHint, style = MaterialTheme.typography.bodySmall, color = Krt.InfoText)
     }
 }
 
@@ -904,6 +904,7 @@ private fun guiMain() = application {
     var tab by remember { mutableStateOf(MainTab.START) }
     val windowState = rememberWindowState(width = 1180.dp, height = 820.dp)
     val appIcon = painterResource(Res.drawable.basetool_extractor_icon)
+    val appMark = painterResource(Res.drawable.basetool_extractor_logo)
     val communityLogo = painterResource(Res.drawable.made_by_the_community_black)
     val appScope = rememberCoroutineScope()
 
@@ -959,10 +960,10 @@ private fun guiMain() = application {
         KrtTheme {
             CompositionLocalProvider(LocalStrings provides strings) {
                 Box(Modifier.fillMaxSize()) {
-                    Column(Modifier.fillMaxSize().background(Krt.Black).border(1.dp, Krt.Gray3)) {
+                    Column(Modifier.fillMaxSize().background(Krt.Canvas).border(1.dp, Krt.Hairline)) {
                         frame.KrtTitleBar(
                             windowState,
-                            appIcon,
+                            appMark,
                             "Basetool SC Extractor",
                             ::exitApplication,
                             actions = { LanguageToggle(lang) { lang = it } },

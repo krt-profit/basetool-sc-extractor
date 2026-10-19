@@ -21,12 +21,12 @@ import com.basetool.bpextractor.net.auth.LoginReason
 import com.basetool.bpextractor.net.auth.NoPersistentKeyException
 import com.basetool.bpextractor.net.auth.UnboundTokenException
 import com.basetool.bpextractor.net.auth.WinCredentialStore
-import java.awt.Desktop
-import java.net.URI
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.awt.Desktop
+import java.net.URI
 
 /** The state machine of the one-click-send overlay. */
 sealed interface SendState {
@@ -117,7 +117,7 @@ class SendController(
     private val login = ExchangeLogin(deviceGrant, credentialStore, keyStore)
 
     var state by mutableStateOf<SendState>(SendState.Idle)
-        private set
+        internal set
 
     private var pendingJson: String = ""
     private var pendingLang: String = "de"

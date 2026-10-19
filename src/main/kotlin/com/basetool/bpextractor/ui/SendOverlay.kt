@@ -1,12 +1,10 @@
 package com.basetool.bpextractor.ui
 
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import com.basetool.bpextractor.net.Codes
 import com.basetool.bpextractor.net.auth.NoPersistentKeyException
 import com.basetool.bpextractor.net.auth.UnboundTokenException
@@ -82,6 +80,7 @@ fun SendOverlay(
     KrtModal(
         title = title,
         onDismiss = { controller.dismiss() },
+        showFooter = state !is SendState.Sending,
         body = {
             when (state) {
                 is SendState.Consent -> {
@@ -89,8 +88,7 @@ fun SendOverlay(
                     InstallationLabelField(strings.send, state.label, state.labelInvalid) { controller.editLabel(it) }
                 }
                 is SendState.Authenticating -> AuthenticatingBody(strings.send, state.userCode, state.reason)
-                is SendState.Sending ->
-                    Text(strings.send.inProgress, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
+                is SendState.Sending -> LoadingLine(strings.send.inProgress)
                 is SendState.Done ->
                     Text(strings.send.resultBody, style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
                 is SendState.Error ->
@@ -102,7 +100,6 @@ fun SendOverlay(
             when (state) {
                 is SendState.Consent -> {
                     GhostButton(strings.cancel, onClick = { controller.dismiss() })
-                    Spacer(Modifier.weight(1f))
                     CtaButton(strings.send.consentConfirm, onClick = { controller.confirmConsent(appScope) })
                 }
                 is SendState.Authenticating -> {
@@ -110,10 +107,9 @@ fun SendOverlay(
                     Spacer(Modifier.weight(1f))
                     GhostButton(strings.cancel, onClick = { controller.dismiss() })
                 }
-                is SendState.Sending -> Spacer(Modifier.height(1.dp))
+                is SendState.Sending -> {}
                 is SendState.Done -> {
                     GhostButton(strings.close, onClick = { controller.dismiss() })
-                    Spacer(Modifier.weight(1f))
                     CtaButton(strings.send.openInBasetool, onClick = { controller.openResult() })
                 }
                 is SendState.Error -> {

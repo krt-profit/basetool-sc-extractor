@@ -3,8 +3,11 @@ package com.basetool.bpextractor.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -26,13 +29,16 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
- * The skeleton of every workflow screen: a [SectionHead], a body filling the remaining height
- * (scrolling with [scrollBody]) and an optional pinned footer. The screen's primary CTA always lives
- * in the [footer], never in the scrolling [body].
+ * The skeleton of every workflow screen: a [SectionHead], a body filling the remaining height and an
+ * optional pinned footer. With [scrollBody] the body scrolls; without it the body fills the height, and
+ * a window too small for [minBodyHeight] scrolls the body at that height instead of squashing it. The
+ * screen's primary CTA always lives in the [footer], never in the scrolling [body].
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun StepScaffold(
     overline: String,
@@ -40,30 +46,43 @@ fun StepScaffold(
     subtitle: String? = null,
     headRight: (@Composable () -> Unit)? = null,
     scrollBody: Boolean = true,
+    minBodyHeight: Dp = 440.dp,
     footer: (@Composable RowScope.() -> Unit)? = null,
     body: @Composable ColumnScope.() -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
         SectionHead(overline, title, subtitle, headRight)
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .then(if (scrollBody) Modifier.verticalScroll(rememberScrollState()) else Modifier)
-                .padding(horizontal = 22.dp, vertical = 16.dp),
-            content = body,
-        )
-        if (footer != null) {
-            Row(
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+            val cramped = !scrollBody && maxHeight < minBodyHeight
+            val scroll = rememberScrollState()
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Krt.Gray4.copy(alpha = 0.55f))
-                    .drawBehind { drawLine(Krt.Gray3, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
-                    .padding(horizontal = 22.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                content = footer,
+                    .then(
+                        when {
+                            scrollBody -> Modifier.fillMaxHeight().verticalScroll(scroll)
+                            cramped -> Modifier.verticalScroll(scroll).height(minBodyHeight)
+                            else -> Modifier.fillMaxHeight()
+                        },
+                    )
+                    .padding(horizontal = 22.dp, vertical = 16.dp),
+                content = body,
             )
+            if (scrollBody || cramped) {
+                KrtVerticalScrollbar(scroll, Modifier.align(Alignment.CenterEnd).fillMaxHeight())
+            }
+        }
+        if (footer != null) {
+            FlowRow(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Krt.Bar)
+                    .drawBehind { drawLine(Krt.Hairline, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
+                    .padding(horizontal = 22.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                itemVerticalAlignment = Alignment.CenterVertically,
+            ) { footer() }
         }
     }
 }
@@ -83,17 +102,17 @@ fun SectionHead(
         modifier = Modifier
             .fillMaxWidth()
             .height(IntrinsicSize.Min)
-            .background(Brush.horizontalGradient(listOf(Krt.Gray4.copy(alpha = 0.9f), Color.Transparent)))
-            .drawBehind { drawLine(Krt.Gray3, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) },
+            .background(Brush.horizontalGradient(listOf(Krt.Panel, Color.Transparent)))
+            .drawBehind { drawLine(Krt.Hairline, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) },
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.width(3.dp).fillMaxHeight().background(Krt.Orange))
-        Column(Modifier.weight(1f).padding(start = 19.dp, top = 10.dp, bottom = 9.dp)) {
-            Text(overline.uppercase(), style = MaterialTheme.typography.labelMedium, color = Krt.Gray2)
+        Box(Modifier.width(4.dp).fillMaxHeight().background(Krt.Orange))
+        Column(Modifier.weight(1f).padding(start = 18.dp, top = 10.dp, bottom = 10.dp)) {
+            Text(overline.uppercase(), style = MaterialTheme.typography.labelMedium, color = Krt.TextMuted)
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(title.uppercase(), style = MaterialTheme.typography.headlineSmall, color = Krt.Orange)
                 if (subtitle != null) {
-                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2, maxLines = 1)
+                    Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted, maxLines = 1)
                 }
             }
         }
@@ -105,14 +124,14 @@ fun SectionHead(
 
 /**
  * A muted footer note for the [StepScaffold] action bar (the prototype's `FootNote`): a small
- * status square in [dot] followed by a short grey hint, e.g. the preflight throttle note or the
+ * status square in [dot] followed by a short hint in the muted text tint, e.g. the preflight throttle note or the
  * review "stays manual" reminder.
  */
 @Composable
-fun FootNote(text: String, dot: Color = Krt.Gray2) {
+fun FootNote(text: String, dot: Color = Krt.ControlBorder) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         StatusDot(dot)
         Spacer(Modifier.width(8.dp))
-        Text(text, style = MaterialTheme.typography.bodySmall, color = Krt.Gray2)
+        Text(text, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
     }
 }
