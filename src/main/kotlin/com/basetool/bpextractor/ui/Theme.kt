@@ -23,44 +23,44 @@ import androidx.compose.ui.unit.sp
  * There is no light theme.
  */
 object Krt {
-    val Orange = Color(0xFFFB8A28)
+    val Orange = Color(0xFFE77E23)
     val OrangeHover = Color(0xFFEEB64B)
     val OrangeDark = Color(0xFFC45C00)
     val White = Color(0xFFFFFFFF)
     val Black = Color(0xFF000000)
 
     /** Page background, page head and boxes set into a panel (`--surface-canvas`, `--surface-inset`). */
-    val Canvas = Color(0xFF202020)
+    val Canvas = Color(0xFF0F0F0F)
 
     /** Title bar, tab band, footer, table head and inset fields (`--surface-bar`). */
-    val Bar = Color(0xFF2A2D31)
+    val Bar = Color(0xFF1A1D21)
 
     /** Cards, HUD boxes, modals and toasts (`--surface-panel`). */
-    val Panel = Color(0xFF35393D)
+    val Panel = Color(0xFF282C30)
 
     /** Decorative hairlines and panel frames only, never a control border (`--color-gray-3`). */
-    val Hairline = Color(0xFF404145)
+    val Hairline = Color(0xFF36373B)
 
     /** Resting fill of every non-CTA control (`--control-bg`). */
-    val Control = Color(0xFF3F474C)
+    val Control = Color(0xFF373E43)
 
     /** Hover fill of controls and segments (`--control-bg-hover`). */
-    val ControlHover = Color(0xFF4A535A)
+    val ControlHover = Color(0xFF434B51)
 
     /** Border of every control, the scrollbar thumb and idle status dots (`--control-border`). */
     val ControlBorder = Color(0xFF8F9399)
 
     /** Tint behind a selected segment or option (`--control-selected-bg`). */
-    val ControlSelected = Color(0x2EFB8A28)
+    val ControlSelected = Color(0x42E77E23)
 
     /** Fill of a count badge next to a title (`--color-count-badge`). */
-    val CountBadge = Color(0xFF374256)
+    val CountBadge = Color(0xFF2F394C)
 
     /** Body text, labels and table text (`--color-gray-1`). */
-    val Gray1 = Color(0xFFDADBDE)
+    val Gray1 = Color(0xFFD1D2D3)
 
     /** Hints, placeholders, units and inactive tabs (`--color-gray-2-text`). */
-    val TextMuted = Color(0xFFB0B3B7)
+    val TextMuted = Color(0xFFA2A5A9)
 
     val Danger = Color(0xFFA3000A)
     val DangerHover = Color(0xFFD41A25)
