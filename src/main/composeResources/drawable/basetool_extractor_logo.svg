@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240">
-<circle cx="110" cy="104" r="76" fill="none" stroke="#FB8A28" stroke-width="7"></circle>
-<polygon points="0,-22 0,22 210,0" transform="translate(34,38) rotate(38)" fill="#FB8A28"></polygon>
-<polygon points="176,17 179,25 187,28 179,31 176,39 173,31 165,28 173,25" fill="#FB8A28"></polygon>
-<path d="M168,192 v18 h48 v-18" fill="none" stroke="#FB8A28" stroke-width="7"></path>
+<circle cx="110" cy="104" r="76" fill="none" stroke="#E77E23" stroke-width="7"></circle>
+<polygon points="0,-22 0,22 210,0" transform="translate(34,38) rotate(38)" fill="#E77E23"></polygon>
+<polygon points="176,17 179,25 187,28 179,31 176,39 173,31 165,28 173,25" fill="#E77E23"></polygon>
+<path d="M168,192 v18 h48 v-18" fill="none" stroke="#E77E23" stroke-width="7"></path>
 </svg>

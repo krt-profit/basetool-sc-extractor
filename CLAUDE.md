@@ -502,7 +502,7 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
 - Follows the **KRT design system**, `krt-profit/design-system` (`README.md` and `tokens.css`
   there are binding; a local copy is the `das-kartell-design` Claude skill, gitignored under
   `.claude/`). The tokens are mirrored by name in `ui/Theme.kt` (`Krt.*`): house orange
-  `#FB8A28`, the gray surface ladder canvas `#202020` → panel `#35393D` → bar `#2A2D31`,
+  `#E77E23`, the gray surface ladder canvas `#0F0F0F` → panel `#282C30` → bar `#1A1D21`,
   **Lato-only typography** (headlines Lato Bold UPPERCASE with 0.05em tracking, body Lato
   Light), the **4 dp radius** (`KrtShape`) on controls and surfaces, diagonal HUD corner
   brackets, and the orange edge bloom (`Modifier.bloom`) instead of soft shadows. The

@@ -571,8 +571,8 @@ basetool-sc-extractor/
 
 The GUI follows the **"Das Kartell" / KRT design system**
 ([`krt-profit/design-system`](https://github.com/krt-profit/design-system)): a dark sci-fi
-"HUD" in house orange `#FB8A28` on the gray surfaces of das-kartell.org (canvas `#202020`,
-panels `#35393D`, bars `#2A2D31`), **Lato-only typography** (headlines: Lato **Bold**
+"HUD" in house orange `#E77E23` on the gray surfaces of das-kartell.org (canvas `#0F0F0F`,
+panels `#282C30`, bars `#1A1D21`), **Lato-only typography** (headlines: Lato **Bold**
 UPPERCASE with 0.05em tracking, body: Lato Light), a 4 px radius on controls and panels,
 diagonal HUD corner brackets and an orange bloom instead of soft shadows. Every control has a
 fill and a visible border, muted text uses its own readable tint, and a selection is shown by
