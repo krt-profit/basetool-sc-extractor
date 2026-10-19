@@ -50,7 +50,14 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import com.basetool.bpextractor.net.auth.LoginReason
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import com.basetool.bpextractor.ui.i18n.SendStrings
@@ -58,7 +65,7 @@ import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 
 /**
- * The KRT modal (`.krt-modal`): a dimmed scrim that dismisses on click or Esc, and a panel card with an
+ * The KRT modal (`.krt-modal`): a dimmed scrim over the whole window that dismisses on click or Esc, and a panel card with an
  * orange top edge, the HUD corner brackets and the orange bloom, holding a head with the title and a
  * close button, a scrollable body and a footer of actions. [danger] swaps the accent for red, for a
  * modal whose action destroys something.
@@ -87,86 +94,98 @@ fun KrtModal(
     val accent = if (danger) Krt.Danger else Krt.Orange
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-    Box(
-        modifier =
-            Modifier.fillMaxSize()
-                .background(Krt.Black.copy(alpha = 0.8f))
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onDismiss,
-                )
-                .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
-                        onDismiss()
-                        true
-                    } else {
-                        false
-                    }
-                }
-                .focusRequester(focus)
-                .focusable()
-                .padding(24.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        val swallow = remember { MutableInteractionSource() }
-        Column(
+    Popup(popupPositionProvider = WindowOrigin, properties = PopupProperties(focusable = true)) {
+        Box(
             modifier =
-                Modifier.widthIn(max = maxWidth)
-                    .fillMaxWidth()
-                    .bloom(accent, 20.dp, 0.2f)
-                    .background(Krt.Panel, KrtShape)
-                    .border(1.dp, Krt.Hairline, KrtShape)
-                    .drawWithContent {
-                        drawContent()
-                        drawRect(accent, size = Size(size.width, 3.dp.toPx()))
-                        drawHudBrackets(accent, 13.dp)
-                    }
-                    .clickable(interactionSource = swallow, indication = null, onClick = {}),
-        ) {
-            Row(
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .drawBehind {
-                            drawLine(Krt.Hairline, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
-                        }
-                        .padding(start = 18.dp, end = 12.dp, top = 15.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        title.uppercase(),
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = if (danger) Krt.DangerText else Krt.White,
+                Modifier.fillMaxSize()
+                    .background(Krt.Black.copy(alpha = 0.8f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismiss,
                     )
-                    if (subtitle != null) {
-                        Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
+                    .onPreviewKeyEvent { event ->
+                        if (event.type == KeyEventType.KeyDown && event.key == Key.Escape) {
+                            onDismiss()
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    .focusRequester(focus)
+                    .focusable()
+                    .padding(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            val swallow = remember { MutableInteractionSource() }
+            Column(
+                modifier =
+                    Modifier.widthIn(max = maxWidth)
+                        .fillMaxWidth()
+                        .bloom(accent, 20.dp, 0.2f)
+                        .background(Krt.Panel, KrtShape)
+                        .border(1.dp, Krt.Hairline, KrtShape)
+                        .drawWithContent {
+                            drawContent()
+                            drawRect(accent, size = Size(size.width, 3.dp.toPx()))
+                            drawHudBrackets(accent, 13.dp)
+                        }
+                        .clickable(interactionSource = swallow, indication = null, onClick = {}),
+            ) {
+                Row(
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .drawBehind {
+                                drawLine(Krt.Hairline, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx())
+                            }
+                            .padding(start = 18.dp, end = 12.dp, top = 15.dp, bottom = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            title.uppercase(),
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = if (danger) Krt.DangerText else Krt.White,
+                        )
+                        if (subtitle != null) {
+                            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
+                        }
+                    }
+                    IconGhostButton("✕", strings.close, onClick = onDismiss)
+                }
+                val bodyScroll = rememberScrollState()
+                Box(Modifier.weight(1f, fill = false)) {
+                    Column(
+                        modifier = Modifier.verticalScroll(bodyScroll).padding(18.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        content = body,
+                    )
+                    Box(Modifier.matchParentSize(), contentAlignment = Alignment.CenterEnd) {
+                        KrtVerticalScrollbar(bodyScroll, Modifier.fillMaxHeight())
                     }
                 }
-                IconGhostButton("✕", strings.close, onClick = onDismiss)
-            }
-            val bodyScroll = rememberScrollState()
-            Box(Modifier.weight(1f, fill = false)) {
-                Column(
-                    modifier = Modifier.verticalScroll(bodyScroll).padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    content = body,
+                if (showFooter) Row(
+                    modifier =
+                        Modifier.fillMaxWidth()
+                            .drawBehind { drawLine(Krt.Hairline, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
+                            .padding(horizontal = 18.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
+                    content = footer,
                 )
-                Box(Modifier.matchParentSize(), contentAlignment = Alignment.CenterEnd) {
-                    KrtVerticalScrollbar(bodyScroll, Modifier.fillMaxHeight())
-                }
             }
-            if (showFooter) Row(
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .drawBehind { drawLine(Krt.Hairline, Offset(0f, 0f), Offset(size.width, 0f), 1.dp.toPx()) }
-                        .padding(horizontal = 18.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End),
-                content = footer,
-            )
         }
     }
+}
+
+/** Places a popup at the window's origin, so a full-size popup covers the whole window. */
+private object WindowOrigin : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset = IntOffset.Zero
 }
 
 /**
