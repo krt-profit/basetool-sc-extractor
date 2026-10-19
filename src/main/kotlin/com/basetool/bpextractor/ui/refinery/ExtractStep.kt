@@ -37,6 +37,7 @@ import com.basetool.bpextractor.ui.StepScaffold
 import com.basetool.bpextractor.ui.WARN
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
+import com.basetool.bpextractor.ui.warned
 import kotlinx.coroutines.CoroutineScope
 
 /**
@@ -126,7 +127,7 @@ fun ExtractStep(state: RefineryUiState, appScope: CoroutineScope) {
                 }
                 LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                     items(state.console) { line ->
-                        Text(line.replace("⚠", WARN), style = KrtDataStyle, color = Krt.Gray1)
+                        Text(warned(line), style = KrtDataStyle, color = Krt.Gray1)
                     }
                 }
             }
@@ -184,7 +185,7 @@ private fun ImageStageRow(state: RefineryUiState, index: Int, image: RefineryIma
             StatusDot(dot)
             Text(image.file.name, style = MaterialTheme.typography.bodySmall, color = Krt.Gray1, maxLines = 1)
             if (outcome?.quoted == false) {
-                Text(WARN, style = MaterialTheme.typography.bodySmall, color = Krt.Warning)
+                Text(warned(WARN), style = MaterialTheme.typography.bodySmall, color = Krt.Warning)
             }
         }
         Row(

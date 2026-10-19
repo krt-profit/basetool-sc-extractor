@@ -73,6 +73,7 @@ import com.basetool.bpextractor.ui.WARN
 import com.basetool.bpextractor.ui.focusRing
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
+import com.basetool.bpextractor.ui.warned
 import java.io.File
 import kotlin.math.roundToInt
 
@@ -329,7 +330,7 @@ private fun HeaderCard(
                 }
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (ok) CheckMark(Krt.SuccessText) else Text(WARN, style = MaterialTheme.typography.bodyMedium, color = Krt.Warning)
+                    if (ok) CheckMark(Krt.SuccessText) else Text(warned(WARN), style = MaterialTheme.typography.bodyMedium, color = Krt.Warning)
                     Text(
                         value ?: strings.rfMissingValue,
                         style = MaterialTheme.typography.bodyMedium,

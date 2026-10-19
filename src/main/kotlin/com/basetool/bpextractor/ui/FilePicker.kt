@@ -28,6 +28,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -535,7 +536,7 @@ fun FilePickerDialog(
                         .drawBehind { drawLine(Krt.Hairline, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
                         .padding(horizontal = 12.dp, vertical = 4.dp),
                 ) {
-                    Text(WARN + " " + strings.pickerPathNotFound, style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
+                    Text(warned(WARN + " " + strings.pickerPathNotFound), style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
                 }
             }
 
@@ -546,6 +547,7 @@ fun FilePickerDialog(
                         .fillMaxHeight()
                         .background(Krt.Bar)
                         .drawBehind { drawLine(Krt.Hairline, Offset(size.width, 0f), Offset(size.width, size.height), 1.dp.toPx()) }
+                        .verticalScroll(rememberScrollState())
                         .padding(vertical = 10.dp),
                 ) {
                     Text(
@@ -705,11 +707,11 @@ fun FilePickerDialog(
                     }
                     if (fileExists && nameValid) {
                         Spacer(Modifier.height(6.dp))
-                        Text(WARN + " " + strings.pickerOverwrite, style = MaterialTheme.typography.bodySmall, color = Krt.Warning)
+                        Text(warned(WARN + " " + strings.pickerOverwrite), style = MaterialTheme.typography.bodySmall, color = Krt.Warning)
                     }
                     if (!nameValid) {
                         Spacer(Modifier.height(6.dp))
-                        Text(WARN + " " + strings.pickerInvalidName, style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
+                        Text(warned(WARN + " " + strings.pickerInvalidName), style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
                     }
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -729,7 +731,7 @@ fun FilePickerDialog(
                 }
                 if (createError) {
                     Spacer(Modifier.height(6.dp))
-                    Text(WARN + " " + strings.pickerCreateFailed, style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
+                    Text(warned(WARN + " " + strings.pickerCreateFailed), style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
                 }
                 Spacer(Modifier.height(8.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1216,7 +1218,7 @@ private fun NewFolderRow(onCreate: (String) -> Unit, onCancel: () -> Unit, error
                 },
         )
         if (error) {
-            Text(WARN + " " + strings.pickerCreateFailed, style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
+            Text(warned(WARN + " " + strings.pickerCreateFailed), style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
         }
         GhostButton(strings.cancel, onClick = onCancel, compact = true)
         GhostButton(strings.pickerCreate, onClick = { if (name.isNotBlank()) onCreate(name) }, tone = ButtonTone.OUTLINE, compact = true)

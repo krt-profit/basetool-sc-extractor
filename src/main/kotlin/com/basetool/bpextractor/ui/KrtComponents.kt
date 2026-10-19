@@ -63,10 +63,17 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.ExperimentalTextApi
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.platform.SystemFont
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -83,8 +90,20 @@ import java.net.URI
 /** Opacity of a disabled button or control (`.btn:disabled`). */
 const val DISABLED_ALPHA = 0.45f
 
-/** The warning sign in its text presentation, so no font renders it as a coloured emoji. */
-const val WARN = "⚠︎"
+/** The warning sign; show it through [warned] so it renders in the text colour. */
+const val WARN = "⚠"
+
+/** A system face whose warning sign is a monochrome outline glyph, unlike the emoji fallback. */
+@OptIn(ExperimentalTextApi::class)
+private val SymbolFamily = FontFamily(SystemFont("Segoe UI Symbol"))
+
+/** [text] with every warning sign set in [SymbolFamily], so it takes the text colour instead of an emoji's. */
+fun warned(text: String): AnnotatedString = buildAnnotatedString {
+    text.replace("\uFE0E", "").split(WARN).forEachIndexed { index, part ->
+        if (index > 0) withStyle(SpanStyle(fontFamily = SymbolFamily)) { append(WARN) }
+        append(part)
+    }
+}
 
 /**
  * The brand's only elevation (`--glow-primary`, `--glow-primary-lg`): a soft [color] glow of [radius]
@@ -240,7 +259,7 @@ fun KrtTextField(
         supportingText = supportingText?.let {
             {
                 if (isError) {
-                    Text("$WARN $it", color = Krt.DangerText, style = MaterialTheme.typography.bodySmall)
+                    Text(warned("$WARN $it"), color = Krt.DangerText, style = MaterialTheme.typography.bodySmall)
                 } else {
                     Text(it, color = Krt.TextMuted, style = MaterialTheme.typography.bodySmall)
                 }

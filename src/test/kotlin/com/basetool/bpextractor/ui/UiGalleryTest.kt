@@ -343,8 +343,9 @@ class UiGalleryTest {
         list += Shot("42-rf-images-loaded-en", lang = Lang.EN) { RefineryFrame(f.rf(step = 1, images = true), Lang.EN) }
         list += Shot("42-rf-images-none-selected") { RefineryFrame(f.rf(step = 1, images = true, noneSelected = true)) }
         list += Shot("42-rf-images-loading") { RefineryFrame(f.rf(step = 1).also { it.loadingImages = true; it.folder = f.root.path }) }
-        list += Shot("42-rf-images-nofiles") { RefineryFrame(f.rf(step = 1).also { it.folder = f.wrong.path }) }
+        list += Shot("42-rf-images-nofiles") { RefineryFrame(f.rf(step = 1).also { it.folder = f.wrong.path; it.loadedFolder = f.wrong.path }) }
         list += Shot("42-rf-images-watch") { RefineryFrame(f.rf(step = 1, images = true).also { it.setClipboardWatch(true) }) }
+        list += Shot("42-rf-images-scrolled", interact = { it.wheel(600f, 500f, 20f) }) { RefineryFrame(f.rf(step = 1, images = true)) }
         list += Shot("42-rf-images-small", 640, 520) { RefineryFrame(f.rf(step = 1, images = true)) }
 
         list += Shot("43-rf-extract-running") { RefineryFrame(f.rfExtract(running = true)) }
@@ -456,6 +457,11 @@ class UiGalleryTest {
         move(x, y)
         sendPointerEvent(PointerEventType.Press, Offset(x, y), buttons = PointerButtons(isPrimaryPressed = true), button = PointerButton.Primary)
         sendPointerEvent(PointerEventType.Release, Offset(x, y), button = PointerButton.Primary)
+    }
+
+    private fun ImageComposeScene.wheel(x: Float, y: Float, lines: Float) {
+        move(x, y)
+        sendPointerEvent(PointerEventType.Scroll, Offset(x, y), scrollDelta = Offset(0f, lines))
     }
 
     private fun ImageComposeScene.tab(times: Int) {

@@ -512,8 +512,8 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   only, never a control border. Muted text is `Krt.TextMuted`, never the border gray; status
   text uses the text tints (`DangerText`, `SuccessText`, `InfoText`). A selection (segment,
   tier, sidebar entry) is tint + orange frame + underline, never a filled orange block. Draw
-  ticks with `CheckMark` and write warnings with `WARN` — the plain `✔`/`⚠` glyphs render as
-  coloured emoji on Windows.
+  ticks with `CheckMark` and pass any text with `⚠` through `warned(…)`, which sets it in Segoe UI Symbol —
+  the plain `✔`/`⚠` glyphs render as coloured emoji on Windows, variation selector or not.
 - **Visual check: `UiGalleryTest`.** With `UI_GALLERY_OUT=<folder outside the repo>` it renders
   every screen, sub-step, modal and state (DE, EN and the 640×520 floor, plus hover and focus
   walks) to PNGs from synthetic fixtures; `UI_GALLERY_ONLY=<name prefixes>` narrows it. Look

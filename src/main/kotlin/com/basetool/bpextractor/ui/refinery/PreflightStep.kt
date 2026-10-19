@@ -184,7 +184,8 @@ private fun HardwareCard(state: RefineryUiState, appScope: CoroutineScope, modif
             activeIndex = when (decision?.tier) {
                 HardwareTier.RECOMMENDED -> 2
                 HardwareTier.MINIMUM -> 1
-                else -> 0
+                HardwareTier.CPU -> 0
+                null -> -1
             },
         )
 

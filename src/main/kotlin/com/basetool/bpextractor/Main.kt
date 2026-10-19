@@ -243,7 +243,7 @@ internal fun ExtractorScreen(state: AppState, appScope: CoroutineScope) {
                 state.toast = null
             }
             Box(
-                modifier = Modifier.fillMaxSize().padding(24.dp),
+                modifier = Modifier.fillMaxSize().padding(end = 24.dp, bottom = 88.dp),
                 contentAlignment = Alignment.BottomEnd,
             ) {
                 KrtToast(title = t.title, message = t.message, error = t.error)

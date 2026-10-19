@@ -8,24 +8,22 @@ import androidx.compose.foundation.draganddrop.dragAndDropTarget
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -50,7 +48,6 @@ import com.basetool.bpextractor.ui.KrtShape
 import com.basetool.bpextractor.ui.KrtSpinner
 import com.basetool.bpextractor.ui.KrtSwitch
 import com.basetool.bpextractor.ui.KrtTextField
-import com.basetool.bpextractor.ui.KrtVerticalScrollbar
 import com.basetool.bpextractor.ui.PickerMode
 import com.basetool.bpextractor.ui.PickerRequest
 import com.basetool.bpextractor.ui.StatusDot
@@ -59,6 +56,7 @@ import com.basetool.bpextractor.ui.WARN
 import com.basetool.bpextractor.ui.dropHighlight
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
+import com.basetool.bpextractor.ui.warned
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import java.io.File
@@ -103,6 +101,7 @@ fun ImagesStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ImagesStepContent(
     state: RefineryUiState,
@@ -138,7 +137,7 @@ private fun ImagesStepContent(
         overline = strings.rfStepOverline(2),
         title = strings.rfImagesTitle,
         subtitle = strings.rfImagesSubtitle,
-        scrollBody = false,
+        scrollBody = true,
         footer = {
             GhostButton(strings.back, onClick = { state.goTo(0) })
             Spacer(Modifier.weight(1f))
@@ -214,7 +213,7 @@ private fun ImagesStepContent(
             if (lowRes > 0) {
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "$WARN ${strings.rfLowResNote(lowRes)}",
+                    warned("$WARN ${strings.rfLowResNote(lowRes)}"),
                     style = MaterialTheme.typography.bodySmall,
                     color = Krt.Warning,
                 )
@@ -275,24 +274,20 @@ private fun ImagesStepContent(
             Spacer(Modifier.height(10.dp))
         }
 
-        val gridState = rememberLazyGridState()
-        Box(Modifier.weight(1f).fillMaxWidth()) {
-        LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 200.dp),
-            state = gridState,
-            modifier = Modifier.fillMaxSize().padding(end = 14.dp),
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(state.images, key = { it.file.absolutePath }) { image ->
-                ImageTile(
-                    image,
-                    onToggle = { state.toggleImageSelected(image) },
-                    onRemove = { state.removeImage(image) },
-                )
+            state.images.forEach { image ->
+                key(image.file.absolutePath) {
+                    ImageTile(
+                        image,
+                        onToggle = { state.toggleImageSelected(image) },
+                        onRemove = { state.removeImage(image) },
+                    )
+                }
             }
-        }
-            KrtVerticalScrollbar(gridState, Modifier.align(Alignment.CenterEnd).fillMaxHeight())
         }
     }
 }
@@ -300,7 +295,7 @@ private fun ImagesStepContent(
 @Composable
 private fun ImageTile(image: RefineryImage, onToggle: () -> Unit, onRemove: () -> Unit) {
     val strings = LocalStrings.current
-    Column(modifier = Modifier.hudBox().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier = Modifier.width(232.dp).hudBox().padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -323,21 +318,23 @@ private fun ImageTile(image: RefineryImage, onToggle: () -> Unit, onRemove: () -
                 StatusDot(Krt.ControlBorder)
             }
         }
-        KrtCheckbox(
-            checked = image.selected,
-            onCheckedChange = { onToggle() },
-            label = image.file.name,
-            labelStyle = MaterialTheme.typography.bodySmall,
-            labelMaxLines = 1,
-        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            KrtCheckbox(
+                checked = image.selected,
+                onCheckedChange = { onToggle() },
+                label = image.file.name,
+                labelStyle = MaterialTheme.typography.bodySmall,
+                labelMaxLines = 1,
+                modifier = Modifier.weight(1f),
+            )
+            IconGhostButton("✕", strings.rfRemoveImage, onClick = onRemove, tone = ButtonTone.QUIET_DANGER)
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             KrtChip("${image.width}×${image.height}")
             KrtChip(
                 if (image.precropped) strings.rfCropTagPre else strings.rfCropTagAuto,
                 tone = if (image.precropped) ChipTone.WARNING else ChipTone.NEUTRAL,
             )
-            Spacer(Modifier.weight(1f))
-            IconGhostButton("✕", strings.rfRemoveImage, onClick = onRemove, tone = ButtonTone.QUIET_DANGER)
         }
     }
 }

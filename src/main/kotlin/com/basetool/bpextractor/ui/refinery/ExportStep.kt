@@ -33,6 +33,7 @@ import com.basetool.bpextractor.ui.WARN
 import com.basetool.bpextractor.ui.hudBox
 import com.basetool.bpextractor.ui.i18n.LocalStrings
 import com.basetool.bpextractor.ui.i18n.StringsEn
+import com.basetool.bpextractor.ui.warned
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -136,7 +137,7 @@ fun ExportStep(state: RefineryUiState, appScope: CoroutineScope, onPicker: (Pick
                 Spacer(Modifier.height(14.dp))
             }
             if (exportError != null) {
-                Text("$WARN $exportError", style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
+                Text(warned("$WARN $exportError"), style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
                 Spacer(Modifier.height(8.dp))
             }
             if (exportedFile != null) {
