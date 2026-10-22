@@ -53,10 +53,17 @@ val generateBuildInfo = tasks.register("generateBuildInfo") {
 }
 
 kotlin {
-    jvmToolchain(25)
+    jvmToolchain(27)
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_26)
+    }
     sourceSets.named("main") {
         kotlin.srcDir(generateBuildInfo)
     }
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.release.set(26)
 }
 
 tasks.named("compileKotlin") {
@@ -80,7 +87,7 @@ compose.desktop {
         mainClass = "com.basetool.bpextractor.MainKt"
 
         javaHome = javaToolchains.launcherFor {
-            languageVersion.set(JavaLanguageVersion.of(25))
+            languageVersion.set(JavaLanguageVersion.of(27))
         }.get().metadata.installationPath.asFile.absolutePath
 
         jvmArgs += "--enable-native-access=ALL-UNNAMED"

@@ -420,7 +420,7 @@ memory as a whole.
 
 ## Building it yourself (for developers)
 
-**Prerequisite:** JDK 25 (e.g. Azul Zulu). Gradle comes via the bundled wrapper.
+**Prerequisite:** JDK 27 (e.g. Eclipse Temurin). Gradle comes via the bundled wrapper.
 
 ```powershell
 # run the tests
@@ -484,7 +484,7 @@ In [`build.gradle.kts`](build.gradle.kts) under `windows { … }`:
 | `upgradeUuid` | stable id so new versions replace the old one |
 | `iconFile` | custom icon (place it at `src/main/resources/app.ico`) |
 
-> The MSI is ~135 MB and installs to ~194 MB. What gets bundled is a **slim** JDK 25
+> The MSI is ~135 MB and installs to ~194 MB. What gets bundled is a **slim** JDK 27
 > runtime — only the modules actually needed: `modules("java.instrument",
 > "jdk.unsupported", "java.net.http", "jdk.management")` (HTTP client for Ollama,
 > memory probe for the hardware preflight) plus the ones the Compose plugin detects
@@ -493,7 +493,7 @@ In [`build.gradle.kts`](build.gradle.kts) under `windows { … }`:
 > ONNX models** (~31 MB) of the classical-OCR cross-reader; ONNX Runtime itself needs
 > **no** extra jlink module, and its native libraries extract to `%TEMP%`, never into
 > the installation folder.
-> (`jvmArgs += "--enable-native-access=ALL-UNNAMED"` silences the JDK 25 "native
+> (`jvmArgs += "--enable-native-access=ALL-UNNAMED"` silences the JDK 27 "native
 > access" warnings that `System.load()` would otherwise write to stderr — from Skiko's
 > renderer **and** from ONNX Runtime.)
 
@@ -614,7 +614,7 @@ will be useful, but WITHOUT ANY WARRANTY.
 |---|---|
 | Kotlin, Compose Multiplatform, Material 3, Skiko, kotlinx-serialization/-coroutines | Apache-2.0 |
 | Skia (via Skiko) | BSD-3-Clause |
-| Bundled Java runtime (OpenJDK 25) | GPLv2 **with Classpath Exception** |
+| Bundled Java runtime (OpenJDK 27) | GPLv2 **with Classpath Exception** |
 | ONNX Runtime (the classical-OCR cross-reader) | MIT |
 | The bundled **PP-OCRv6 small** detection/recognition models and dictionary (PaddleOCR, ONNX export by the PaddlePaddle authors) | Apache-2.0 |
 | The **Lato** typeface | SIL Open Font License 1.1 |

@@ -27,7 +27,7 @@ the user's Ollama; never add a cloud-inference path.
 
 ## Commands
 
-Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows use
+Run from the **repo root** (not a subfolder), with **JDK 27** active. On Windows use
 `.\gradlew.bat`.
 
 ```powershell
@@ -117,11 +117,18 @@ private (guardrail 1a) and live outside the repo; ask for their path.
    Pasted/dropped refinery images without a picked folder follow this rule via a session
    temp dir (`ImageIntake.tempFolder()`) that a shutdown hook removes — reuse that pattern
    for anything similar.
-3. **JDK 25 must drive both compile and the bundled runtime.** `kotlin.jvmToolchain(25)`
-   handles compile/bytecode; `compose.desktop.application.javaHome` is *separately*
-   pinned to the JDK 25 toolchain. If you drop the `javaHome` pin, jpackage builds the
-   bundled runtime from the Gradle daemon's JDK (often 21) and the shipped app crashes
+3. **JDK 27 must drive both compile and the bundled runtime.** `kotlin.jvmToolchain(27)`
+   handles compile; `compose.desktop.application.javaHome` is *separately*
+   pinned to the JDK 27 toolchain. If you drop the `javaHome` pin, jpackage builds the
+   bundled runtime from the Gradle daemon's JDK (often 21 or 25) and the shipped app crashes
    at launch with `UnsupportedClassVersionError`. Keep both in lockstep.
+   **The bytecode targets 26, one below the toolchain**: Kotlin 2.4.21, the newest stable
+   Kotlin, emits at most JVM target 26, so `compilerOptions.jvmTarget` is `JVM_26` and every
+   `JavaCompile` has `options.release = 26` (Gradle refuses mismatched Java/Kotlin targets).
+   JDK 27 runs that bytecode natively. Raise both to the toolchain once a stable Kotlin
+   offers `JVM_27`. JDK 27 is an STS release (owner decision 2026-10-22: always the newest
+   stable JDK); locally it is Temurin 27 under `%USERPROFILE%\.jdks\temurin-27`, which
+   Gradle's toolchain detection finds.
 4. **Only OFL-licensed fonts in the repo.** The brand display face (Ethnocentric) is
    commercial and ships nowhere; since the Lato-only redesign the GUI uses **Lato**
    (SIL OFL, `fonts/Lato-OFL.txt`) exclusively — headlines are Lato Bold UPPERCASE,
@@ -585,7 +592,7 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   slim runtime still boots. (The bundled runtime ships no standalone `java.exe` — jpackage
   strips launchers — so to test a dep on the slim module set non-interactively, run the full
   JDK with `--limit-modules <the runtime/release MODULES list>`.)
-- `--enable-native-access=ALL-UNNAMED` (in `jvmArgs`) silences JDK 25's native-access
+- `--enable-native-access=ALL-UNNAMED` (in `jvmArgs`) silences JDK 27's native-access
   warnings from `System.load()` — used by **both** Skiko's renderer **and** ONNX Runtime
   (the refinery OCR cross-reader). Keep it.
 - **Bundled OCR models + ONNX Runtime:** the refinery extractor runs a local classical-OCR
