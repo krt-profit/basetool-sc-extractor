@@ -15,6 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -22,7 +23,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Every snapshot-state write of [RefineryUiState] lands on the scope the UI passes in, never on an IO
@@ -74,9 +75,18 @@ class RefineryUiStateThreadingTest {
         return writers.toList()
     }
 
-    private suspend fun awaitOnUi(scope: CoroutineScope, done: () -> Boolean) = withTimeout(30_000) {
-        while (!withContext(scope.coroutineContext) { done() }) delay(20)
+    private suspend fun awaitOnUi(scope: CoroutineScope, describe: () -> String, done: () -> Boolean) {
+        val reached = withTimeoutOrNull(30_000) {
+            while (!withContext(scope.coroutineContext) { done() }) delay(20)
+        }
+        if (reached == null) fail("timed out waiting on the UI scope; state: ${describe()}\n${threadDump()}")
     }
+
+    private fun threadDump(): String = Thread.getAllStackTraces()
+        .filterKeys { it.name.startsWith(UI_THREAD) || it.name.startsWith("DefaultDispatcher") }
+        .entries.joinToString("\n") { (thread, frames) ->
+            "${thread.name} ${thread.state}\n" + frames.take(25).joinToString("\n") { "    at $it" }
+        }
 
     @Test
     fun `an extraction run writes its console, stages and result only on the UI scope`() {
@@ -90,7 +100,7 @@ class RefineryUiStateThreadingTest {
                     state.images.add(RefineryImage(capture, 1920, 1080, precropped = false, thumbnail = null))
                     state.runExtraction(scope, "0.0.0-test")
                 }
-                awaitOnUi(scope) { !state.running }
+                awaitOnUi(scope, { "running=${state.running} console=${state.console.toList()}" }) { !state.running }
                 withContext(scope.coroutineContext) {
                     console = state.console.toList()
                     error = state.extractError
@@ -109,7 +119,7 @@ class RefineryUiStateThreadingTest {
         var status: OllamaStatus? = null
         val writers = onUiThread { scope, state ->
             withContext(scope.coroutineContext) { state.pullModel(scope) }
-            awaitOnUi(scope) { state.ollamaStatus !is OllamaStatus.Pulling }
+            awaitOnUi(scope, { "status=${state.ollamaStatus}" }) { state.ollamaStatus !is OllamaStatus.Pulling }
             withContext(scope.coroutineContext) { status = state.ollamaStatus }
         }
         assertTrue(status is OllamaStatus.ModelMissing, "after the pull the check ran: $status")

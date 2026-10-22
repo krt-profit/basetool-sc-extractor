@@ -78,7 +78,10 @@ compose.resources {
 
 tasks.test {
     useJUnitPlatform()
-    testLogging { showStandardStreams = true }
+    testLogging {
+        showStandardStreams = true
+        exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
+    }
     jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
 
