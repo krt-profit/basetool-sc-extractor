@@ -9,12 +9,16 @@ import java.awt.image.BufferedImage
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import javax.imageio.ImageIO
+import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+import kotlin.test.fail
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -22,7 +26,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Every snapshot-state write of [RefineryUiState] lands on the scope the UI passes in, never on an IO
@@ -43,6 +47,21 @@ class RefineryUiStateThreadingTest {
         }
 
         override fun unload(model: String) {}
+    }
+
+    /** A UI dispatcher that parks the tasks dispatched while [holding] until [release]. */
+    private class HoldingDispatcher(private val target: Executor) : CoroutineDispatcher() {
+        @Volatile
+        var holding = false
+        private val held = ConcurrentLinkedQueue<Runnable>()
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            if (holding) held += block else target.execute(block)
+        }
+
+        fun release() {
+            generateSequence { held.poll() }.forEach(target::execute)
+        }
     }
 
     private fun darkFrame(dir: File): File {
@@ -74,9 +93,18 @@ class RefineryUiStateThreadingTest {
         return writers.toList()
     }
 
-    private suspend fun awaitOnUi(scope: CoroutineScope, done: () -> Boolean) = withTimeout(30_000) {
-        while (!withContext(scope.coroutineContext) { done() }) delay(20)
+    private suspend fun awaitOnUi(scope: CoroutineScope, describe: () -> String, done: () -> Boolean) {
+        val reached = withTimeoutOrNull(30_000) {
+            while (!withContext(scope.coroutineContext) { done() }) delay(20)
+        }
+        if (reached == null) fail("timed out waiting on the UI scope; state: ${describe()}\n${threadDump()}")
     }
+
+    private fun threadDump(): String = Thread.getAllStackTraces()
+        .filterKeys { it.name.startsWith(UI_THREAD) || it.name.startsWith("DefaultDispatcher") }
+        .entries.joinToString("\n") { (thread, frames) ->
+            "${thread.name} ${thread.state}\n" + frames.take(25).joinToString("\n") { "    at $it" }
+        }
 
     @Test
     fun `an extraction run writes its console, stages and result only on the UI scope`() {
@@ -90,7 +118,7 @@ class RefineryUiStateThreadingTest {
                     state.images.add(RefineryImage(capture, 1920, 1080, precropped = false, thumbnail = null))
                     state.runExtraction(scope, "0.0.0-test")
                 }
-                awaitOnUi(scope) { !state.running }
+                awaitOnUi(scope, { "running=${state.running} console=${state.console.toList()}" }) { !state.running }
                 withContext(scope.coroutineContext) {
                     console = state.console.toList()
                     error = state.extractError
@@ -109,11 +137,41 @@ class RefineryUiStateThreadingTest {
         var status: OllamaStatus? = null
         val writers = onUiThread { scope, state ->
             withContext(scope.coroutineContext) { state.pullModel(scope) }
-            awaitOnUi(scope) { state.ollamaStatus !is OllamaStatus.Pulling }
+            awaitOnUi(scope, { "status=${state.ollamaStatus}" }) { state.ollamaStatus !is OllamaStatus.Pulling }
             withContext(scope.coroutineContext) { status = state.ollamaStatus }
         }
         assertTrue(status is OllamaStatus.ModelMissing, "after the pull the check ran: $status")
         assertEquals(setOf(UI_THREAD), writers.toSet())
+    }
+
+    @Test
+    fun `pull progress that arrives after the pull returned does not overwrite the result`() {
+        val executor = Executors.newSingleThreadExecutor { Thread(it, UI_THREAD) }
+        val ui = HoldingDispatcher(executor)
+        val scope = CoroutineScope(SupervisorJob() + ui)
+        val client = object : OllamaApi by UnreadableOllama() {
+            override fun pull(model: String, onProgress: (Long?, Long?, String) -> Unit) {
+                ui.holding = true
+                try {
+                    repeat(5) { onProgress(it.toLong(), 5L, "pulling") }
+                } finally {
+                    ui.holding = false
+                }
+            }
+        }
+        val state = RefineryUiState(clientFor = { client })
+        try {
+            val status = runBlocking {
+                withContext(scope.coroutineContext) { state.pullModel(scope) }
+                awaitOnUi(scope, { "status=${state.ollamaStatus}" }) { state.ollamaStatus !is OllamaStatus.Pulling }
+                ui.release()
+                withContext(scope.coroutineContext) { state.ollamaStatus }
+            }
+            assertTrue(status is OllamaStatus.ModelMissing, "the late progress was dropped: $status")
+        } finally {
+            scope.cancel()
+            executor.shutdown()
+        }
     }
 
     private companion object {

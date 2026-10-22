@@ -27,7 +27,7 @@ the user's Ollama; never add a cloud-inference path.
 
 ## Commands
 
-Run from the **repo root** (not a subfolder), with **JDK 25** active. On Windows use
+Run from the **repo root** (not a subfolder), with **JDK 27** active. On Windows use
 `.\gradlew.bat`.
 
 ```powershell
@@ -56,7 +56,7 @@ An **onnxruntime bump** is checked differently, and much more cheaply: `OcrDiges
 bundled classical-OCR reader over the whole corpus and prints a SHA-256 of every cell it
 recognised, with its box. ONNX Runtime's CPU inference is deterministic, so a clean bump is
 **bit-for-bit identical** — run it before and after and diff. No Ollama, under a minute, and any
-difference at all is real (1.22.0→1.27.0 and 1.29.0→1.30.0 both came back byte-identical).
+difference at all is real (1.22.0→1.27.0, 1.29.0→1.30.0 and 1.30.0→1.31.0 all came back byte-identical).
 
 ```powershell
 $env:OCR_DIGEST_DIR = "<the sample corpus>"
@@ -117,11 +117,18 @@ private (guardrail 1a) and live outside the repo; ask for their path.
    Pasted/dropped refinery images without a picked folder follow this rule via a session
    temp dir (`ImageIntake.tempFolder()`) that a shutdown hook removes — reuse that pattern
    for anything similar.
-3. **JDK 25 must drive both compile and the bundled runtime.** `kotlin.jvmToolchain(25)`
-   handles compile/bytecode; `compose.desktop.application.javaHome` is *separately*
-   pinned to the JDK 25 toolchain. If you drop the `javaHome` pin, jpackage builds the
-   bundled runtime from the Gradle daemon's JDK (often 21) and the shipped app crashes
+3. **JDK 27 must drive both compile and the bundled runtime.** `kotlin.jvmToolchain(27)`
+   handles compile; `compose.desktop.application.javaHome` is *separately*
+   pinned to the JDK 27 toolchain. If you drop the `javaHome` pin, jpackage builds the
+   bundled runtime from the Gradle daemon's JDK (often 21 or 25) and the shipped app crashes
    at launch with `UnsupportedClassVersionError`. Keep both in lockstep.
+   **The bytecode targets 26, one below the toolchain**: Kotlin 2.4.21, the newest stable
+   Kotlin, emits at most JVM target 26, so `compilerOptions.jvmTarget` is `JVM_26` and every
+   `JavaCompile` has `options.release = 26` (Gradle refuses mismatched Java/Kotlin targets).
+   JDK 27 runs that bytecode natively. Raise both to the toolchain once a stable Kotlin
+   offers `JVM_27`. JDK 27 is an STS release (owner decision 2026-10-22: always the newest
+   stable JDK); locally it is Temurin 27 under `%USERPROFILE%\.jdks\temurin-27`, which
+   Gradle's toolchain detection finds.
 4. **Only OFL-licensed fonts in the repo.** The brand display face (Ethnocentric) is
    commercial and ships nowhere; since the Lato-only redesign the GUI uses **Lato**
    (SIL OFL, `fonts/Lato-OFL.txt`) exclusively — headlines are Lato Bold UPPERCASE,
@@ -585,7 +592,7 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   slim runtime still boots. (The bundled runtime ships no standalone `java.exe` — jpackage
   strips launchers — so to test a dep on the slim module set non-interactively, run the full
   JDK with `--limit-modules <the runtime/release MODULES list>`.)
-- `--enable-native-access=ALL-UNNAMED` (in `jvmArgs`) silences JDK 25's native-access
+- `--enable-native-access=ALL-UNNAMED` (in `jvmArgs`) silences JDK 27's native-access
   warnings from `System.load()` — used by **both** Skiko's renderer **and** ONNX Runtime
   (the refinery OCR cross-reader). Keep it.
 - **Bundled OCR models + ONNX Runtime:** the refinery extractor runs a local classical-OCR
@@ -614,7 +621,7 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   alpha-only days the deprecated `compose.material3` accessor was kept for) and
   `org.jetbrains.compose.components:components-resources` (was `compose.components.resources`).
   Bump BOTH whenever the `org.jetbrains.compose` plugin moves — components-resources tracks the
-  plugin version 1:1, while material3's stable line lags it (plugin 1.12.0 ↔ material3 1.9.0), so
+  plugin version 1:1, while material3's stable line lags it (plugin 1.12.2 ↔ material3 1.9.0), so
   they are not interchangeable. Check the resolved version with
   `gradlew dependencies --configuration runtimeClasspath` rather than assuming.
 - **Bundled drawables go through the Compose resources library:** images/SVGs live in
