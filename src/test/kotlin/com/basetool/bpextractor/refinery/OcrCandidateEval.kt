@@ -145,6 +145,8 @@ object OcrCandidateEval {
             ocr = result?.readings ?: emptyMap(),
             toRefineContested = result?.toRefineContested ?: false,
             qtyOcrContested = result?.qtyContested ?: emptySet(),
+            glyphVeto = result?.glyphVeto ?: OcrCrossCheck.GlyphVeto.NONE,
+            qtyOcrWitness = result?.qtyWitness ?: emptyMap(),
         )
         return validated to result
     }

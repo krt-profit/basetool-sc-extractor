@@ -217,6 +217,54 @@ class StitcherTest {
     }
 
     @Test
+    fun `a clipped name with a confusable quality misread still closes a multi-row overlap`() {
+        val upper = ImageRead(
+            "1_upper.png",
+            panel(
+                listOf(
+                    row("STILERON (ORE)", "330", "247", "111"),
+                    row("IRON (ORE)", "325", "930", "--", refine = "OFF"),
+                    row("IRON (ORE)", "874", "701", "341"),
+                    row("TARANITE (RAW)", "525", "71", "--", refine = "OFF"),
+                    row("INERT MATERIALS", "0", "843", "0", refine = "OFF"),
+                ),
+            ),
+        )
+        val lower = ImageRead(
+            "2_lower.png",
+            panel(
+                listOf(
+                    row("IRON (ORE)", "325", "930", "--", refine = "OFF"),
+                    row("IRON (ORE)", "874", "701", "341"),
+                    row("TARANITE (RAW)", "525", "71", "--", refine = "OFF"),
+                    row("NERT MATERIALS", "8", "843", "8", refine = "OFF"),
+                    row("HEPH (RAW)", "330", "77", "--", refine = "OFF"),
+                ),
+            ),
+        )
+
+        val result = Stitcher.stitch(listOf(upper, lower))
+
+        assertEquals(
+            listOf("STILERON (ORE)", "IRON (ORE)", "IRON (ORE)", "TARANITE (RAW)", "INERT MATERIALS", "HEPH (RAW)"),
+            result.rows.map { it.name },
+        )
+        val inert = result.rows.single { it.name == "INERT MATERIALS" }
+        assertEquals("0", inert.quality, "the upper capture's read survives")
+        assertTrue(inert.contested, "the cross-capture quality disagreement is contested")
+    }
+
+    @Test
+    fun `a confusable quality difference with a different qty stays two rows`() {
+        val upper = ImageRead("1.png", panel(listOf(row("HEPH (RAW)", "330", "77", "--", refine = "OFF"))))
+        val lower = ImageRead("2.png", panel(listOf(row("HEPH (RAW)", "338", "23", "--", refine = "OFF"))))
+
+        val result = Stitcher.stitch(listOf(upper, lower))
+
+        assertEquals(2, result.rows.size)
+    }
+
+    @Test
     fun `a non-confusable OFF seam difference stays a scroll gap, not reconciled`() {
         val upper = ImageRead("1.png", panel(listOf(row("TARANITE (RAW)", "310", "290", "--", refine = "OFF"))))
         val lower = ImageRead("2.png", panel(listOf(row("TARANITE (RAW)", "317", "290", "--", refine = "OFF"))))

@@ -44,7 +44,8 @@ data class StitchResult(
  * - Row identity is the triple (material name, quality, qty); rows co-visible in one screenshot never
  *   merge.
  * - Captures are ordered by the longest suffix-prefix row overlap; a loose pass on (name, quality)
- *   tolerates one QTY disagreement, keeping the read farther from its viewport edges. Sequences
+ *   tolerates one QTY disagreement, keeping the read farther from its viewport edges, and a loose pass
+ *   on (name, qty) one confusable QUALITY digit plus a one-character name garble. Sequences
  *   without overlap are appended in input order.
  * - The quoted variant of a row wins; partial viewport-edge rows are dropped before stitching.
  *
@@ -55,7 +56,8 @@ object Stitcher {
     /**
      * Row identity for cross-image alignment: quality and qty match exactly, and the name matches after
      * folding case, whitespace and bracket style. A single-character name difference is tolerated when
-     * both numeric cells are present and equal.
+     * both numeric cells are present and equal. The loose pass also accepts an equal qty with a quality
+     * one confusable digit apart, the name equal or one edit apart.
      */
     private fun sameRow(a: PanelRow, b: PanelRow, loose: Boolean = false): Boolean {
         val an = foldName(a.name)
@@ -67,6 +69,9 @@ object Stitcher {
         }
         if (!loose) return false
 
+        if (a.qty != null && a.qty == b.qty && withinOneConfusableDigitEdit(a.quality, b.quality)) {
+            return withinOneEdit(an, bn)
+        }
         if (an != bn) return false
         val qtyTolerance = a.quality == b.quality && a.quality != null && a.qty != null && b.qty != null
         val yieldAnchor = a.qty != b.qty && hasQuotedYield(a) && a.yield_ == b.yield_ &&
@@ -133,8 +138,8 @@ object Stitcher {
         a != null && b != null && (a == b || withinOneConfusableDigitEdit(a, b))
 
     /** Same length, exactly one position differs, and BOTH differing digits are HUD-confusable. */
-    private fun withinOneConfusableDigitEdit(a: String, b: String): Boolean {
-        if (a.length != b.length) return false
+    private fun withinOneConfusableDigitEdit(a: String?, b: String?): Boolean {
+        if (a == null || b == null || a.length != b.length) return false
         var diff = -1
         for (i in a.indices) {
             if (a[i] != b[i]) {
