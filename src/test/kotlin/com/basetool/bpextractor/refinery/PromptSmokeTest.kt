@@ -138,6 +138,8 @@ class PromptSmokeTest {
                 ocr = ocrResult?.readings ?: emptyMap(),
                 toRefineContested = ocrResult?.toRefineContested ?: false,
                 qtyOcrContested = ocrResult?.qtyContested ?: emptySet(),
+                glyphVeto = ocrResult?.glyphVeto ?: OcrCrossCheck.GlyphVeto.NONE,
+                qtyOcrWitness = ocrResult?.qtyWitness ?: emptyMap(),
             )
             report.appendLine(
                 "  VALIDATED quoted=${validated.quoted} toRefine=${validated.toRefineTotal} " +

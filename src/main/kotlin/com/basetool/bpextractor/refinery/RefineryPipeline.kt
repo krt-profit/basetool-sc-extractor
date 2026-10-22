@@ -205,6 +205,7 @@ class RefineryPipeline(
             toRefineContested = ocrResult?.toRefineContested ?: false,
             qtyOcrContested = ocrResult?.qtyContested ?: emptySet(),
             glyphVeto = ocrResult?.glyphVeto ?: OcrCrossCheck.GlyphVeto.NONE,
+            qtyOcrWitness = ocrResult?.qtyWitness ?: emptyMap(),
         )
         listener.onLog("✓ Stitch — ${validated.goods.size} row(s) from ${reads.size} read(s)")
         if (validated.warnings.isNotEmpty()) {

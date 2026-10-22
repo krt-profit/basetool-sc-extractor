@@ -114,6 +114,72 @@ class ValidationTest {
         assertFalse(ExtractWarning.GLYPH_VETOED in order.warnings)
     }
 
+    private val auftrag35Rows = listOf(
+        StitchedRow("STILERON (ORE)", "330", "247", "111", "ON", "a.png", quotedRead = true),
+        StitchedRow("STILERON (ORE)", "747", "139", "62", "ON", "a.png", quotedRead = true),
+        StitchedRow("IRON (ORE)", "325", "930", "--", "OFF", "a.png", quotedRead = true),
+        StitchedRow("IRON (ORE)", "874", "781", "341", "ON", "a.png", quotedRead = true),
+        StitchedRow("TARANITE (RAW)", "525", "71", "--", "OFF", "a.png", quotedRead = true),
+        StitchedRow("INERT MATERIALS", "0", "843", "0", "OFF", "a.png", quotedRead = true),
+        StitchedRow("HEPH (RAW)", "330", "77", "--", "OFF", "b.png", quotedRead = true),
+        StitchedRow("HEPH (RAW)", "896", "23", "11", "ON", "b.png", quotedRead = true),
+    )
+
+    @Test
+    fun `an OCR-witnessed qty edit that closes the checksum is repaired without a sibling rate`() {
+        val order = Validation.validate(stitched(auftrag35Rows, toRefine = "1112"), qtyOcrWitness = mapOf(3 to 701L))
+
+        assertEquals(701L, order.goods[3].inputQuantity)
+        assertEquals(Validation.CONFIDENCE_CHECKSUM_REPAIRED, order.goods[3].confidence)
+        assertTrue(ExtractWarning.CHECKSUM_REPAIRED in order.warnings)
+        assertFalse(ExtractWarning.SUM_MISMATCH in order.warnings)
+    }
+
+    @Test
+    fun `an OCR qty witness that does not close the checksum changes nothing`() {
+        val order = Validation.validate(stitched(auftrag35Rows, toRefine = "1112"), qtyOcrWitness = mapOf(3 to 981L))
+
+        assertEquals(781L, order.goods[3].inputQuantity)
+        assertTrue(ExtractWarning.SUM_MISMATCH in order.warnings)
+        assertFalse(ExtractWarning.CHECKSUM_REPAIRED in order.warnings)
+    }
+
+    @Test
+    fun `an OCR qty witness the glyphs contradict is held back`() {
+        val order = Validation.validate(
+            stitched(auftrag35Rows, toRefine = "1112"),
+            glyphVeto = { _, _, _ -> true },
+            qtyOcrWitness = mapOf(3 to 701L),
+        )
+
+        assertEquals(781L, order.goods[3].inputQuantity)
+        assertTrue(ExtractWarning.GLYPH_VETOED in order.warnings)
+    }
+
+    @Test
+    fun `a clipped inert row read with eights is held to zero and OFF`() {
+        val row = StitchedRow("NERT MATERIALS", "8", "843", "8", "OFF", "b.png", quotedRead = true)
+
+        val order = Validation.validate(stitched(listOf(row)))
+
+        val good = order.goods.single()
+        assertEquals(0, good.quality)
+        assertEquals(0L, good.outputQuantity)
+        assertEquals(843L, good.inputQuantity)
+        assertFalse(good.refine)
+        assertEquals(Validation.CONFIDENCE_REFINE_CORRECTED, good.confidence)
+    }
+
+    @Test
+    fun `a cleanly read inert row keeps the full confidence`() {
+        val row = StitchedRow("INERT MATERIALS", "0", "843", "0", "OFF", "a.png", quotedRead = true)
+
+        val good = Validation.validate(stitched(listOf(row))).goods.single()
+
+        assertEquals(Validation.CONFIDENCE_OK, good.confidence)
+        assertFalse(good.refine)
+    }
+
     @Test
     fun `a within-noise yield flip is left as read, never repaired`() {
         val rows = listOf(

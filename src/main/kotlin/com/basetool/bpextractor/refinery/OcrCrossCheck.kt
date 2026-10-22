@@ -9,7 +9,7 @@ import java.awt.image.BufferedImage
  * 1. [Result.readings]: per stitched row, the OCR reading of the same row, aligned by an exact QTY
  *    anchor.
  * 2. [Result.qtyContested]: rows whose VLM qty is absent from the OCR qty column while a single
- *    confusable-digit edit of it is present; flag-only.
+ *    confusable-digit edit of it is present; [Result.qtyWitness] names that edit when it is the only one.
  * 3. [Result.toRefineContested]: set when the VLM TO REFINE total is absent from every panel's OCR
  *    numbers but a confusable edit of it is present.
  *
@@ -17,7 +17,8 @@ import java.awt.image.BufferedImage
  *    ([GlyphTopology]).
  *
  * Every check requires a confusable single-digit edit ([Validation.confusableEdits]), so OCR noise
- * can only raise a review flag or hold a repair back, never change a value.
+ * alone can only raise a review flag or hold a repair back; a value changes only where a second,
+ * arithmetic witness in [Validation] agrees.
  */
 object OcrCrossCheck {
 
@@ -32,12 +33,14 @@ object OcrCrossCheck {
         }
     }
 
-    /** The fused signals; all but [readings] are flag-only or hold a repair back. */
+    /** The fused signals; [readings] and [qtyWitness] feed repairs, the rest flag or hold a repair back. */
     data class Result(
         val readings: Map<Int, PanelOcr.RowReading>,
         val qtyContested: Set<Int>,
         val toRefineContested: Boolean,
         val glyphVeto: GlyphVeto = GlyphVeto.NONE,
+        /** Per [qtyContested] row, the one confusable edit of its VLM qty the OCR qty column shows. */
+        val qtyWitness: Map<Int, Long> = emptyMap(),
     )
 
     fun read(
@@ -49,6 +52,7 @@ object OcrCrossCheck {
         val cache = HashMap<String, PanelOcr.PanelNumbers>()
         val readings = HashMap<Int, PanelOcr.RowReading>()
         val qtyContested = mutableSetOf<Int>()
+        val qtyWitness = HashMap<Int, Long>()
         val allVlmQtys = rows.mapNotNull { PanelValues.toQuantity(it.qty) }
 
         rows.forEachIndexed { i, row ->
@@ -61,9 +65,9 @@ object OcrCrossCheck {
 
             if (qty !in pn.qtyColumn) {
                 val others = allVlmQtys.filterIndexed { j, _ -> j != i }.toSet()
-                if (Validation.confusableEdits(qty).any { it in pn.qtyColumn && it !in others }) {
-                    qtyContested += i
-                }
+                val seen = Validation.confusableEdits(qty).filter { it in pn.qtyColumn && it !in others }.toSet()
+                if (seen.isNotEmpty()) qtyContested += i
+                if (seen.size == 1) qtyWitness[i] = seen.first()
             }
         }
 
@@ -80,6 +84,6 @@ object OcrCrossCheck {
             GlyphTopology.arbitrate(ocr.cellImage(panel, cell), from.toString(), to.toString()) == from.toString()
         }
 
-        return Result(readings, qtyContested, toRefineContested, glyphVeto)
+        return Result(readings, qtyContested, toRefineContested, glyphVeto, qtyWitness)
     }
 }
