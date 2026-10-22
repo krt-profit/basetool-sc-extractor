@@ -253,6 +253,18 @@ interface Strings {
     val rfPullCta: String
     val rfPullProgress: (String) -> String
     val rfPullFailed: (String) -> String
+    val rfVerifyLabel: String
+    val rfVerifyOff: String
+    val rfVerifyOffer: (String, String) -> String
+    val rfVerifyPullCta: String
+    val rfModelUnneeded: (String, String) -> String
+    val rfModelUpdate: (String, String) -> String
+    val rfUpdateCta: String
+    val rfRemoveCta: String
+    val rfRemoveConfirm: (String) -> String
+    val rfRemoveConfirmCta: String
+    val rfRemoving: (String) -> String
+    val rfRemoveFailed: (String, String) -> String
     val rfOllamaUnreachable: String
     val rfInstallHint1: String
     val rfInstallHint2: String
@@ -575,6 +587,27 @@ object StringsDe : Strings {
     override val rfPullCta = "Laden"
     override val rfPullProgress: (String) -> String = { status -> "Lade Modell… $status" }
     override val rfPullFailed: (String) -> String = { msg -> "Modell-Download fehlgeschlagen: $msg" }
+    override val rfVerifyLabel = "Zweitprüfung"
+    override val rfVerifyOff = "aus"
+    override val rfVerifyOffer: (String, String) -> String = { model, size ->
+        "Optional: Mit „$model\" ($size) liest ein zweites Modell jede Aufnahme gegen und fängt " +
+            "Ziffern-Fehler ab. Kostet etwa 2 s pro Bild."
+    }
+    override val rfVerifyPullCta = "Zweitprüfung laden"
+    override val rfModelUnneeded: (String, String) -> String = { model, size ->
+        "„$model\" ($size) braucht der Extractor auf diesem PC nicht mehr."
+    }
+    override val rfModelUpdate: (String, String) -> String = { model, size ->
+        "Neue Version von „$model\" verfügbar ($size)."
+    }
+    override val rfUpdateCta = "Aktualisieren"
+    override val rfRemoveCta = "Entfernen"
+    override val rfRemoveConfirm: (String) -> String = { model ->
+        "„$model\" aus Ollama löschen? Andere Programme, die es nutzen, müssen es dann neu laden."
+    }
+    override val rfRemoveConfirmCta = "Löschen"
+    override val rfRemoving: (String) -> String = { model -> "Entferne „$model\"…" }
+    override val rfRemoveFailed: (String, String) -> String = { model, msg -> "„$model\" ließ sich nicht entfernen: $msg" }
     override val rfOllamaUnreachable = "Ollama ist nicht erreichbar."
     override val rfInstallHint1 = "1. Ollama von ollama.com herunterladen und installieren."
     override val rfInstallHint2 = "2. „ollama serve\" starten (Standard-Port 11434), dann erneut prüfen."
@@ -700,7 +733,7 @@ object StringsDe : Strings {
             "CHECKSUM_REPAIRED" -> "QTY-Ziffer automatisch über die TO-REFINE-Summe korrigiert — bitte prüfen"
             "YIELD_REPAIRED" -> "Ausbeute-Ziffer automatisch über die Materialrate korrigiert — bitte prüfen"
             "YIELD_OCR_REPAIRED" -> "Ausbeute-Ziffer per OCR-Abgleich (durch die Materialrate bestätigt) korrigiert — bitte prüfen"
-            "OCR_CORRECTED" -> "Qualität per 8b/4b/OCR-Mehrheit korrigiert — bitte prüfen"
+            "OCR_CORRECTED" -> "Qualität per Mehrheit aus Hauptmodell, Zweitprüfung und OCR korrigiert — bitte prüfen"
             "OCR_CONTESTED" -> "Qualität: Modelle/OCR widersprechen sich ohne Mehrheit — markierte Zeile prüfen"
             "QTY_OCR_CONTESTED" -> "Menge einer Refine-OFF-Zeile: OCR liest sie anders als das Modell — markierte Zeile prüfen"
             "TO_REFINE_CONTESTED" -> "TO-REFINE-Gesamtwert (Checksummen-Anker) von OCR/Zweitmodell bestritten — Kopfzeile prüfen"
@@ -1120,6 +1153,27 @@ object StringsEn : Strings {
     override val rfPullCta = "Pull"
     override val rfPullProgress: (String) -> String = { status -> "Pulling model… $status" }
     override val rfPullFailed: (String) -> String = { msg -> "Model download failed: $msg" }
+    override val rfVerifyLabel = "Second check"
+    override val rfVerifyOff = "off"
+    override val rfVerifyOffer: (String, String) -> String = { model, size ->
+        "Optional: with \"$model\" ($size) a second model reads every capture again and catches " +
+            "digit misreads. Costs about 2 s per image."
+    }
+    override val rfVerifyPullCta = "Pull second check"
+    override val rfModelUnneeded: (String, String) -> String = { model, size ->
+        "\"$model\" ($size) is no longer needed by the extractor on this PC."
+    }
+    override val rfModelUpdate: (String, String) -> String = { model, size ->
+        "A new version of \"$model\" is available ($size)."
+    }
+    override val rfUpdateCta = "Update"
+    override val rfRemoveCta = "Remove"
+    override val rfRemoveConfirm: (String) -> String = { model ->
+        "Delete \"$model\" from Ollama? Other programs that use it will have to pull it again."
+    }
+    override val rfRemoveConfirmCta = "Delete"
+    override val rfRemoving: (String) -> String = { model -> "Removing \"$model\"…" }
+    override val rfRemoveFailed: (String, String) -> String = { model, msg -> "Could not remove \"$model\": $msg" }
     override val rfOllamaUnreachable = "Ollama is not reachable."
     override val rfInstallHint1 = "1. Download and install Ollama from ollama.com."
     override val rfInstallHint2 = "2. Start \"ollama serve\" (default port 11434), then re-check."
@@ -1245,7 +1299,7 @@ object StringsEn : Strings {
             "CHECKSUM_REPAIRED" -> "A QTY digit was auto-corrected from the TO REFINE total — please verify"
             "YIELD_REPAIRED" -> "A yield digit was auto-corrected from the material yield rate — please verify"
             "YIELD_OCR_REPAIRED" -> "A yield digit was corrected via the OCR cross-read (confirmed by the material rate) — please verify"
-            "OCR_CORRECTED" -> "Quality corrected by 8b/4b/OCR majority — please verify"
+            "OCR_CORRECTED" -> "Quality corrected by a majority of main model, second check and OCR — please verify"
             "OCR_CONTESTED" -> "Quality: models/OCR disagree with no majority — review the flagged row"
             "QTY_OCR_CONTESTED" -> "A refine-OFF row's quantity: OCR reads it differently than the model — review the flagged row"
             "TO_REFINE_CONTESTED" -> "TO REFINE total (the checksum anchor) is disputed by OCR/the verify model — check the header"

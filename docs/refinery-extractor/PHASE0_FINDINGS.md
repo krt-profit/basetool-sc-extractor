@@ -686,3 +686,105 @@ benefit only German members get. So the labels moved into `setup_panel_prompt_de
 `user.cfg` says German; English clients keep the frozen prompt byte for byte, and the sweep is back
 to the baseline. `Validation.ctaMeansQuoted` maps BESTÄTIGEN / ANGEBOT EINHOLEN either way. No
 German capture is in the corpus; German reads stay unmeasured until one arrives.
+
+## Addendum 2026-10-22 — bake-off round 4: verify partner `qwen3.5:9b`, `think: false`
+
+**Corpus:** 35 orders, 268 rows. Auftrag 35 joined the corpus on 2026-10-22: two terminal crops from
+a member, Discord re-encodes at about 860×1044. Scored row by row against the expected file and against
+a *truth* file. The truth file is the expected file with the two QUALITY misreads of 2026-09-05
+settled against the pixels: a10 GOLD **553** (file: 559), a14 LARANITE **510** (file: 518).
+All runs: same prompt, pipeline and `num_ctx`, idle RTX 5090.
+
+**Primary: the 8b pin stands.** Nothing published on Ollama since round 3 beats it, and the newest
+PaddleOCR weights are still PP-OCRv6 (June 2026).
+
+| Model (alone, no verify) | Size | Numbers right (truth) | Orders right | Invented rows | Run |
+| --- | --- | --- | --- | --- | --- |
+| `qwen3-vl:8b-instruct` (pin) | 6.1 GB | 265/268 | 32/35 | 0 | 158 s |
+| `qwen3-vl:4b-instruct` | 3.3 GB | 256/268 | 26/35 | 0 | 127 s |
+| `ornith-1.5:9b`, thinking off | 6.6 GB | 257/268 | 30/35 | 0 | 185 s |
+| `qwen3.5:9b`, thinking off | 6.6 GB | 256/268 | 28/35 | 0 | 161 s |
+| `bonsai-2:9b` (Prism ML, ternary) | 3.2 GB | 242/268 | 18/35 | 0 | 157 s |
+| `bonsai-2:27b` | 8.3 GB | 250/268 | 25/35 | 5 | 243 s |
+| `qwen3.8:27b`, thinking off | 17 GB | 250/268 | 27/35 | 5 | 201 s |
+| `qwen3.6:35b-a3b`, thinking off | 22 GB | 249/268 | 26/35 | 5 | 134 s |
+
+Every model outside the qwen3-vl family reads both truth cells correctly; both qwen3-vl sizes
+misread them the same way. Not tested:
+- `d1` scores fixed answers and generates no text.
+- `nemotron-3.5-bolt` exists only as a 2-bit 74B quant.
+- `qwen3.8-flash-next` is 125B.
+- PaddleOCR-VL exists on Ollama only as community uploads, and the same model class (`glm-ocr`,
+  `deepseek-ocr`) is structurally unusable on this panel.
+
+**Verify partner: `qwen3-vl:4b-instruct` → `qwen3.5:9b`.** The 4b shares the 8b's vision encoder
+family. Wherever both misread the same digit, the OCR cross-reader is outvoted 2:1 in the QUALITY
+vote, as on a10 and a14. A partner from another family errs elsewhere:
+
+| 8b + partner | Partner size | Numbers right (truth) | Orders right | Verify comparable | Contested cells / flagged orders | Run |
+| --- | --- | --- | --- | --- | --- | --- |
+| `qwen3-vl:4b-instruct` (old) | 3.3 GB | 266/268 | 33/35 | 34/35 | 12 / 24 | 233 s |
+| **`qwen3.5:9b`** | 6.6 GB | **268/268** | **35/35** | **35/35** | 19 / 25 | 248 s |
+| `ornith-1.5:9b` | 6.6 GB | 268/268 | 35/35 | 35/35 | 18 / 25 | 241 s |
+| `bonsai-2:9b` | 3.2 GB | 268/268 | 35/35 | 35/35 | 32 / 30 | 232 s |
+| `bonsai-2:27b` | 8.3 GB | 267/268 | 34/35 | 34/35 | 14 / 25 | 312 s |
+
+Both cells are corrected by the existing QUALITY majority (`OCR_CORRECTED`, confidence 0.85 or
+lower), so the review still points at them. On the other 266 rows no exported value changed. The price
+is about seven more contested cells, all on correct values, and one more flagged order.
+`qwen3.5:9b` wins on that trade:
+- `ornith-1.5:9b` has no named publisher behind it.
+- `bonsai-2:9b` almost triples the false flags and was five days old.
+
+The evidence is two cells. Next to the 2026-09-05 analysis, which showed the qwen3-vl-only vote
+cannot recover them at all, that is enough to switch. It is not enough to claim a general accuracy
+gain.
+
+**`think: false` is sent on every chat call.** `qwen3.5` and `ornith` are thinking models. Without
+the flag `qwen3.5:9b` took ~66 s per image in round 2; with it, the verify pass costs as much as the
+4b's. Ollama accepts the flag for the non-thinking qwen3-vl models too. The full sweep's 363 primary
+read lines are byte-identical to the run without it, so the pin's reads are untouched.
+`HttpOllamaClientTest` pins the flag in the request.
+
+**Policy:** verify still runs on the recommended tier only, and only when the partner is installed.
+New: the preflight offers the partner's download there, as an optional outline action beside the
+primary's own pull. It also offers to remove installed extractor models the PC's tier never uses,
+e.g. the 4b on a recommended-tier PC, behind an inline confirmation and never unasked. Only the
+models `Preflight.EXTRACTOR_MODELS` pins are ever offered, since a member may use other Ollama
+models elsewhere.
+
+**Expected file:** regenerated cells only where the switch moved them: a10 GOLD 559 → **553** and
+a14 LARANITE 518 → **510**. Both are now right; the backup is `golden-expected.json.bak-20261022-verify`.
+With the weights installed here at the time, the sweep differed only in Auftrag 17's name
+(`SAVRILIMUM` vs. `SA VRIL IUM`). The unchanged code reproduced that too, so the file keeps the old
+spelling.
+
+**The registry weights moved under the same tags.** A fresh pull of both models, through the new
+preflight offer, brought new digests:
+- `qwen3-vl:8b-instruct`: `0533d74…` 6.1 GB → `70e58e37…` 6.2 GB.
+- `qwen3.5:9b`: `6488c96…` → `56671c2…`.
+
+That is what members get, so the sweep was rerun on them:
+- Auftrag 17 reads `SA VRIL IUM` again.
+- Auftrag 35 broke again. The new 8b reads Iron `701` correctly in the upper capture, but the inert
+  row's QTY as `643` there (`843` in the lower one). The overlap row then differs in name
+  (`INERT`/`NERT`) **and** QTY, and no loose rule took that combination.
+
+The terminal scrolls a name too long for its cell back and forth (owner, 2026-10-22), so a capture
+can cut a name at either end, and two captures of one row can show different windows of it.
+`Stitcher.scrolledName` treats two reads as windows of one name in two cases:
+- one is contained in the other (`NERT MATERIALS` / `INERT MATERIALS`);
+- they overlap end to start (`INERT MATERIAL` / `NERT MATERIALS` → `INERT MATERIALS`).
+
+Both reads need at least 6 characters, and the shared part at least 75 % of the shorter one. Real
+windows share 79–93 %; `BORASE (ORE)` / `E (ORE) BORASE` shares 58 % and stays apart.
+
+Two rules use it:
+- Row identity, next to the one-edit tolerance. The loose pass also accepts such a name when one
+  numeric cell is equal and the other one confusable digit apart. On Auftrag 35 the existing
+  edge-distance rule then keeps `843` and `701`, both right.
+- The merged row gets the whole name. A garble that adds a letter (`LINDINIMUM`) is no window of
+  the clean name, so it never wins.
+
+Result: **all 35 orders match the expected file exactly** on the current registry weights. Pin
+digests are not checked anywhere; a tag can move again, and this sweep is how to notice.

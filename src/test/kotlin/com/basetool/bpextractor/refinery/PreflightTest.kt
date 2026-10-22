@@ -16,6 +16,62 @@ class PreflightTest {
         const val GIB = 1024L * 1024 * 1024
     }
 
+    private fun installed(vararg names: String) = names.map { OllamaModel(it, 1L, null) }
+
+    @Test
+    fun `on the recommended tier only the fallback model is unneeded`() {
+        val all = installed("qwen3-vl:8b-instruct", "qwen3-vl:4b-instruct", "qwen3.5:9b", "llava:13b")
+
+        assertEquals(
+            listOf("qwen3-vl:4b-instruct"),
+            Preflight.unneededModels(all, HardwareTier.RECOMMENDED).map { it.name },
+        )
+    }
+
+    @Test
+    fun `on the lower tiers the recommended model and the verify partner are unneeded`() {
+        val all = installed("qwen3-vl:8b-instruct", "qwen3-vl:4b-instruct", "qwen3.5:9b")
+
+        for (tier in listOf(HardwareTier.MINIMUM, HardwareTier.CPU)) {
+            assertEquals(
+                listOf("qwen3-vl:8b-instruct", "qwen3.5:9b"),
+                Preflight.unneededModels(all, tier).map { it.name },
+            )
+        }
+    }
+
+    @Test
+    fun `a retired pin is offered for removal on every tier`() {
+        val all = installed("qwen3-vl:8b-instruct", "qwen3.5:9b", "qwen3-vl:4b-instruct", "minicpm-v4.5")
+        val known = Preflight.EXTRACTOR_MODELS + "minicpm-v4.5"
+
+        for (tier in HardwareTier.entries) {
+            assertTrue("minicpm-v4.5" in Preflight.unneededModels(all, tier, known).map { it.name }, "$tier")
+        }
+    }
+
+    @Test
+    fun `every retired pin is known and no current pin is retired`() {
+        assertTrue(Preflight.EXTRACTOR_MODELS.containsAll(Preflight.RETIRED_MODELS))
+        val current = setOf(Preflight.MODEL_RECOMMENDED, Preflight.MODEL_MINIMUM, Preflight.MODEL_VERIFY)
+        assertTrue(Preflight.RETIRED_MODELS.none { it in current })
+    }
+
+    @Test
+    fun `models the extractor does not pin are never offered for removal`() {
+        val all = installed("llava:13b", "gemma4:12b", "qwen3-vl:2b-instruct")
+
+        assertTrue(Preflight.unneededModels(all, HardwareTier.RECOMMENDED).isEmpty())
+        assertTrue(Preflight.unneededModels(all, HardwareTier.CPU).isEmpty())
+    }
+
+    @Test
+    fun `an installed name matches its model with or without a further tag`() {
+        assertTrue(Preflight.isModel("qwen3.5:9b", "qwen3.5:9b"))
+        assertTrue(Preflight.isModel("qwen3.5:9b:latest", "qwen3.5:9b"))
+        assertFalse(Preflight.isModel("qwen3.5:9b-q8_0", "qwen3.5:9b"))
+    }
+
     @Test
     fun `16 GB VRAM selects the recommended model on GPU`() {
         val decision = Preflight.decide(16 * GIB)

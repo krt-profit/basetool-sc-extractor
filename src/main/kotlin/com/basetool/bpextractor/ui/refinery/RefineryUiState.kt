@@ -15,12 +15,15 @@ import com.basetool.bpextractor.refinery.ExtractWarning
 import com.basetool.bpextractor.refinery.GpuInfo
 import com.basetool.bpextractor.refinery.HardwareSnapshot
 import com.basetool.bpextractor.refinery.HardwareTier
+import com.basetool.bpextractor.refinery.HttpModelRegistry
 import com.basetool.bpextractor.refinery.HttpOllamaClient
 import com.basetool.bpextractor.refinery.ImageOutcome
 import com.basetool.bpextractor.refinery.JmxRamProbe
 import com.basetool.bpextractor.refinery.JvmScProcessProbe
 import com.basetool.bpextractor.refinery.Locate
+import com.basetool.bpextractor.refinery.ModelRegistry
 import com.basetool.bpextractor.refinery.OllamaApi
+import com.basetool.bpextractor.refinery.OllamaModel
 import com.basetool.bpextractor.refinery.PipelineCancelledException
 import com.basetool.bpextractor.refinery.PipelineInput
 import com.basetool.bpextractor.refinery.PipelineListener
@@ -28,6 +31,7 @@ import com.basetool.bpextractor.refinery.PipelineResult
 import com.basetool.bpextractor.refinery.PipelineStage
 import com.basetool.bpextractor.refinery.Preflight
 import com.basetool.bpextractor.refinery.RefineryPipeline
+import com.basetool.bpextractor.refinery.RegistryVersion
 import com.basetool.bpextractor.refinery.TierDecision
 import com.basetool.bpextractor.refinery.Validation
 import com.basetool.bpextractor.refinery.WindowsGpuProbe
@@ -71,6 +75,24 @@ sealed interface OllamaStatus {
     data class Unreachable(val message: String) : OllamaStatus
 }
 
+/** A download or removal of a model other than the run's own (§5.1 model housekeeping). */
+sealed interface ModelTask {
+    /** The model the task acts on. */
+    val model: String
+
+    /** A pull in flight; progress in bytes when the registry reports it. */
+    data class Pulling(override val model: String, val completed: Long?, val total: Long?, val status: String) : ModelTask
+
+    /** A removal in flight. */
+    data class Removing(override val model: String) : ModelTask
+
+    /** The pull ([removal] false) or removal that failed, with Ollama's message. */
+    data class Failed(override val model: String, val removal: Boolean, val message: String) : ModelTask
+}
+
+/** An installed model whose registry tag points to a newer version, and that version's download size. */
+data class ModelUpdate(val model: String, val sizeBytes: Long?)
+
 /** The below-recommended fallback choice (§5.1 radio): compact GPU model vs. CPU-only mode. */
 enum class FallbackChoice { LOW_VRAM, CPU }
 
@@ -106,6 +128,8 @@ data class RefineryImage(
 class RefineryUiState(
     /** Ollama client factory — injectable so UI logic could be exercised without a server. */
     private val clientFor: (String) -> OllamaApi = { HttpOllamaClient(it) },
+    /** Where the preflight looks up a model's current version — injectable like [clientFor]. */
+    private val registry: ModelRegistry = HttpModelRegistry(),
 ) {
     var step by mutableStateOf(0)
     var maxReached by mutableStateOf(0)
@@ -254,7 +278,7 @@ class RefineryUiState(
 
     /** True when the cross-model verify partner is installed (probed alongside the model check). */
     var verifyAvailable by mutableStateOf(false)
-        private set
+        internal set
 
     /**
      * The cross-model verify partner for this run, or `null`: set only on the recommended tier on the GPU
@@ -307,39 +331,162 @@ class RefineryUiState(
             ollamaStatus = OllamaStatus.Unreachable(t.message ?: t::class.simpleName ?: "?")
             return
         }
-        verifyAvailable = installed.any {
-            it.name == Preflight.MODEL_VERIFY || it.name.startsWith("${Preflight.MODEL_VERIFY}:")
-        }
-        ollamaStatus = if (installed.any { it.name == model || it.name.startsWith("$model:") }) {
+        verifyAvailable = installed.any { Preflight.isModel(it.name, Preflight.MODEL_VERIFY) }
+        installedExtractorModels = installed.filter { m -> Preflight.EXTRACTOR_MODELS.any { Preflight.isModel(m.name, it) } }
+        ollamaStatus = if (installed.any { Preflight.isModel(it.name, model) }) {
             OllamaStatus.Ready
         } else {
             OllamaStatus.ModelMissing(model)
         }
+        askRegistry()
+    }
+
+    /** The registry's current version of each model asked about this session. */
+    internal val registryVersions = mutableStateMapOf<String, RegistryVersion>()
+
+    /** Models already asked about this session, so the registry is asked once per model and run. */
+    private val registryAsked = mutableSetOf<String>()
+
+    /** Asks the registry, once per session, for the current version of every installed model this tier uses. */
+    private suspend fun askRegistry() {
+        val tier = decision?.tier ?: return
+        val due = Preflight.modelsNeeded(tier).filter { needed ->
+            needed !in registryAsked && installedExtractorModels.any { Preflight.isModel(it.name, needed) }
+        }
+        for (model in due) {
+            registryAsked += model
+            withContext(Dispatchers.IO) { registry.latest(model) }?.let { registryVersions[model] = it }
+        }
     }
 
     /**
-     * The guided `ollama pull` of the missing model with streaming progress (§5.1). A progress update
-     * still queued when the pull has returned is dropped, so it cannot overwrite the result.
+     * Installed models this tier uses whose registry tag now points to another version, with the
+     * download size; offered for update, never updated unasked.
      */
+    val updatableModels: List<ModelUpdate>
+        get() {
+            val tier = decision?.tier ?: return emptyList()
+            if (ollamaStatus != OllamaStatus.Ready) return emptyList()
+            return Preflight.modelsNeeded(tier).mapNotNull { needed ->
+                val installed = installedExtractorModels.firstOrNull { Preflight.isModel(it.name, needed) }
+                val latest = registryVersions[needed]
+                if (installed?.digest == null || latest == null || latest.digest == installed.digest) {
+                    null
+                } else {
+                    ModelUpdate(installed.name, latest.sizeBytes)
+                }
+            }
+        }
+
+    /** Pulls the registry's current version of [model], one of [updatableModels]; progress lands in [modelTask]. */
+    fun updateModel(scope: CoroutineScope, model: String) {
+        if (modelTaskRunning || updatableModels.none { it.model == model }) return
+        modelTask = ModelTask.Pulling(model, null, null, "")
+        pullThenCheck(
+            scope,
+            model,
+            onProgress = { completed, total, status -> modelTask = ModelTask.Pulling(model, completed, total, status) },
+            onFailure = { modelTask = ModelTask.Failed(model, removal = false, message = it) },
+            onSuccess = { modelTask = null },
+        )
+    }
+
+    /** The guided `ollama pull` of the missing model with streaming progress (§5.1). */
     fun pullModel(scope: CoroutineScope) {
-        val model = selectedModel
-        val client = clientFor(endpoint)
         ollamaStatus = OllamaStatus.Pulling(null, null, "")
+        pullThenCheck(
+            scope,
+            selectedModel,
+            onProgress = { completed, total, status -> ollamaStatus = OllamaStatus.Pulling(completed, total, status) },
+            onFailure = { ollamaStatus = OllamaStatus.PullFailed(it) },
+        )
+    }
+
+    /** The extractor models installed at the last Ollama check, with their sizes. */
+    var installedExtractorModels by mutableStateOf<List<OllamaModel>>(emptyList())
+        internal set
+
+    /** The verify-partner download or model removal in flight, or the last one that failed. */
+    var modelTask by mutableStateOf<ModelTask?>(null)
+        internal set
+
+    private val modelTaskRunning: Boolean
+        get() = modelTask is ModelTask.Pulling || modelTask is ModelTask.Removing
+
+    /**
+     * The verify partner the preflight offers to download: on the recommended tier on the GPU, with the
+     * run's own model ready and the partner missing; `null` otherwise.
+     */
+    val verifyOffer: String?
+        get() = Preflight.MODEL_VERIFY.takeIf {
+            ollamaStatus == OllamaStatus.Ready && decision?.tier == HardwareTier.RECOMMENDED && gpuMode &&
+                selectedModel == Preflight.MODEL_RECOMMENDED && !verifyAvailable
+        }
+
+    /** Installed extractor models this PC's tier never uses; offered for removal, never removed unasked. */
+    val removableModels: List<OllamaModel>
+        get() {
+            val tier = decision?.tier ?: return emptyList()
+            if (ollamaStatus != OllamaStatus.Ready) return emptyList()
+            return Preflight.unneededModels(installedExtractorModels, tier)
+        }
+
+    /** Pulls the offered verify partner ([verifyOffer]); progress and failure land in [modelTask]. */
+    fun pullVerifyModel(scope: CoroutineScope) {
+        val model = verifyOffer ?: return
+        if (modelTaskRunning) return
+        modelTask = ModelTask.Pulling(model, null, null, "")
+        pullThenCheck(
+            scope,
+            model,
+            onProgress = { completed, total, status -> modelTask = ModelTask.Pulling(model, completed, total, status) },
+            onFailure = { modelTask = ModelTask.Failed(model, removal = false, message = it) },
+            onSuccess = { modelTask = null },
+        )
+    }
+
+    /** Removes [model] from Ollama once the member confirmed it; only a model in [removableModels]. */
+    fun removeModel(scope: CoroutineScope, model: String) {
+        if (modelTaskRunning || removableModels.none { it.name == model }) return
+        val client = clientFor(endpoint)
+        modelTask = ModelTask.Removing(model)
+        scope.launch {
+            try {
+                withContext(Dispatchers.IO) { client.delete(model) }
+                checkOllama()
+                modelTask = null
+            } catch (t: Throwable) {
+                modelTask = ModelTask.Failed(model, removal = true, message = t.message ?: t::class.simpleName ?: "?")
+            }
+        }
+    }
+
+    /**
+     * Pulls [model], then re-checks Ollama and calls [onSuccess]. A progress update still queued when the
+     * pull has returned is dropped, so it cannot overwrite the result.
+     */
+    private fun pullThenCheck(
+        scope: CoroutineScope,
+        model: String,
+        onProgress: (Long?, Long?, String) -> Unit,
+        onFailure: (String) -> Unit,
+        onSuccess: () -> Unit = {},
+    ) {
+        val client = clientFor(endpoint)
         var pullReturned = false
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
                     client.pull(model) { completed, total, status ->
-                        scope.launch {
-                            if (!pullReturned) ollamaStatus = OllamaStatus.Pulling(completed, total, status)
-                        }
+                        scope.launch { if (!pullReturned) onProgress(completed, total, status) }
                     }
                 }
                 pullReturned = true
                 checkOllama()
+                onSuccess()
             } catch (t: Throwable) {
                 pullReturned = true
-                ollamaStatus = OllamaStatus.PullFailed(t.message ?: t::class.simpleName ?: "?")
+                onFailure(t.message ?: t::class.simpleName ?: "?")
             }
         }
     }

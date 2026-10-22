@@ -56,8 +56,9 @@ object Stitcher {
     /**
      * Row identity for cross-image alignment: quality and qty match exactly, and the name matches after
      * folding case, whitespace and bracket style. A single-character name difference is tolerated when
-     * both numeric cells are present and equal. The loose pass also accepts an equal qty with a quality
-     * one confusable digit apart, the name equal or one edit apart.
+     * both numeric cells are present and equal, and so is a name the scrolling panel clipped differently
+     * ([scrolledName]). The loose pass also accepts such a name when one numeric cell is equal and the
+     * other one confusable digit apart.
      */
     private fun sameRow(a: PanelRow, b: PanelRow, loose: Boolean = false): Boolean {
         val an = foldName(a.name)
@@ -65,12 +66,14 @@ object Stitcher {
 
         if (a.quality == b.quality && a.qty == b.qty) {
             if (an == bn) return true
-            return a.quality != null && a.qty != null && withinOneEdit(an, bn)
+            return a.quality != null && a.qty != null && namesAlign(a.name, b.name)
         }
         if (!loose) return false
 
-        if (a.qty != null && a.qty == b.qty && withinOneConfusableDigitEdit(a.quality, b.quality)) {
-            return withinOneEdit(an, bn)
+        val qualityMisread = a.qty != null && a.qty == b.qty && withinOneConfusableDigitEdit(a.quality, b.quality)
+        val qtyMisread = a.quality != null && a.quality == b.quality && withinOneConfusableDigitEdit(a.qty, b.qty)
+        if (qualityMisread || qtyMisread) {
+            if (namesAlign(a.name, b.name)) return true
         }
         if (an != bn) return false
         val qtyTolerance = a.quality == b.quality && a.quality != null && a.qty != null && b.qty != null
@@ -89,8 +92,48 @@ object Stitcher {
             (a.qty != null && b.qty != null && a.qty != b.qty) ||
             (hasQuotedYield(a) && hasQuotedYield(b) && a.yield_ != b.yield_)
 
-    private fun foldName(name: String): String = name.trim().uppercase()
-        .replace(Regex("\\s+"), " ").replace('[', '(').replace(']', ')')
+    private fun foldName(name: String): String = spaced(name).uppercase().replace('[', '(').replace(']', ')')
+
+    /** [name] trimmed with its whitespace runs collapsed; [foldName] keeps this length, so indices carry over. */
+    private fun spaced(name: String): String = name.trim().replace(Regex("\\s+"), " ")
+
+    /** Two reads name the same row: equal after folding, one character apart, or windows of one scrolled name. */
+    private fun namesAlign(a: String, b: String): Boolean {
+        val an = foldName(a)
+        val bn = foldName(b)
+        return withinOneEdit(an, bn) || scrolledName(a, b) != null
+    }
+
+    /**
+     * The whole name two reads of one row show when each is a window of it, or `null`. The terminal
+     * scrolls a name too long for its cell back and forth, so a capture may cut it at either end: one
+     * window inside the other yields the longer, two windows cut at opposite ends are joined over their
+     * shared part. Both reads and the shared part need [MIN_SCROLL_OVERLAP] characters, and the shared
+     * part at least [MIN_SCROLL_SHARE] of the shorter read.
+     */
+    internal fun scrolledName(a: String, b: String): String? {
+        val x = spaced(a)
+        val y = spaced(b)
+        val fx = foldName(a)
+        val fy = foldName(b)
+        if (fx == fy) return x
+        val shorter = minOf(fx.length, fy.length)
+        if (shorter < MIN_SCROLL_OVERLAP) return null
+        if (fx.contains(fy)) return x
+        if (fy.contains(fx)) return y
+        val least = maxOf(MIN_SCROLL_OVERLAP, (shorter * MIN_SCROLL_SHARE).toInt())
+        for (k in shorter - 1 downTo least) {
+            if (fx.endsWith(fy.substring(0, k))) return x + y.substring(k)
+            if (fy.endsWith(fx.substring(0, k))) return y + x.substring(k)
+        }
+        return null
+    }
+
+    /** The fewest characters a scrolled name's window, and the part two windows share, may have. */
+    private const val MIN_SCROLL_OVERLAP = 6
+
+    /** The least share of the shorter window two windows must have in common to be joined. */
+    private const val MIN_SCROLL_SHARE = 0.75
 
     /** Levenshtein distance ≤ 1 (one substitution, insertion or deletion). */
     internal fun withinOneEdit(a: String, b: String): Boolean {
@@ -278,11 +321,14 @@ object Stitcher {
         for (i in b.rows.indices) {
             val ai = start + i
             val contested = a.contested[ai] || b.contested[i] || cellsContested(a.rows[ai], b.rows[i])
-            if (prefersIncoming(a.rows[ai], a.quoted[ai], b.rows[i], b.quoted[i])) {
+            val replace = prefersIncoming(a.rows[ai], a.quoted[ai], b.rows[i], b.quoted[i])
+            val other = if (replace) a.rows[ai] else b.rows[i]
+            if (replace) {
                 a.rows[ai] = b.rows[i]
                 a.sources[ai] = b.sources[i]
                 a.quoted[ai] = b.quoted[i]
             }
+            a.rows[ai] = withFullerName(a.rows[ai], other)
             a.contested[ai] = contested
         }
     }
@@ -303,6 +349,15 @@ object Stitcher {
         return 0
     }
 
+    /**
+     * [kept] with the whole name its read and [other]'s show together, when both are windows of one
+     * scrolled name ([scrolledName]); otherwise [kept] unchanged.
+     */
+    private fun withFullerName(kept: PanelRow, other: PanelRow): PanelRow {
+        val whole = scrolledName(kept.name, other.name) ?: return kept
+        return if (foldName(whole).length > foldName(kept.name).length) kept.copy(name = whole) else kept
+    }
+
     /** Rows from the middle of a capture's table render clean; edge rows sit half-cut/glowing. */
     private fun edgeDistance(index: Int, size: Int): Int = minOf(index, size - 1 - index)
 
@@ -320,11 +375,13 @@ object Stitcher {
             } else {
                 prefersIncoming(rows[ai], quoted[ai], b.rows[i], b.quoted[i])
             }
+            val other = if (replace) rows[ai] else b.rows[i]
             if (replace) {
                 rows[ai] = b.rows[i]
                 sources[ai] = b.sources[i]
                 quoted[ai] = b.quoted[i]
             }
+            rows[ai] = withFullerName(rows[ai], other)
         }
         for (i in k until b.rows.size) {
             rows += b.rows[i]

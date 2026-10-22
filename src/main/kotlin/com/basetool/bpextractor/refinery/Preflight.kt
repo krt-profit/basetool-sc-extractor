@@ -168,10 +168,44 @@ object Preflight {
     const val MODEL_MINIMUM = "qwen3-vl:4b-instruct"
 
     /**
-     * Cross-model verify partner ([CrossModelVerify]), a differently sized vision encoder. Used on the
-     * recommended tier only, and only when already installed.
+     * Cross-model verify partner ([CrossModelVerify]), a vision encoder of another model family, so its
+     * digit misreads are not the primary's. Used on the recommended tier only, and only when already
+     * installed.
      */
-    const val MODEL_VERIFY = "qwen3-vl:4b-instruct"
+    const val MODEL_VERIFY = "qwen3.5:9b"
+
+    /** The verify partner's download size in bytes, as the offer to pull it names it. */
+    const val MODEL_VERIFY_DOWNLOAD_BYTES: Long = 6_600_000_000L
+
+    /**
+     * Models an earlier release pinned and this one no longer uses on any tier; the preflight offers their
+     * removal everywhere. A pin that changes moves its old name here.
+     */
+    val RETIRED_MODELS: List<String> = emptyList()
+
+    /** Every model this app pins or pinned; the only ones it ever offers to remove. */
+    val EXTRACTOR_MODELS: List<String> =
+        (listOf(MODEL_RECOMMENDED, MODEL_MINIMUM, MODEL_VERIFY) + RETIRED_MODELS).distinct()
+
+    /** The models a run on [tier] can use: primary and verify partner on the recommended tier, else the fallback. */
+    fun modelsNeeded(tier: HardwareTier): Set<String> = when (tier) {
+        HardwareTier.RECOMMENDED -> setOf(MODEL_RECOMMENDED, MODEL_VERIFY)
+        HardwareTier.MINIMUM, HardwareTier.CPU -> setOf(MODEL_MINIMUM)
+    }
+
+    /** Whether Ollama's installed [name] is [model], with or without an explicit `:latest`-style tag. */
+    fun isModel(name: String, model: String): Boolean = name == model || name.startsWith("$model:")
+
+    /** The installed models of [known] that a run on [tier] does not use, in [known] order. */
+    fun unneededModels(
+        installed: List<OllamaModel>,
+        tier: HardwareTier,
+        known: List<String> = EXTRACTOR_MODELS,
+    ): List<OllamaModel> {
+        val needed = modelsNeeded(tier)
+        return known.filter { it !in needed }
+            .mapNotNull { model -> installed.firstOrNull { isModel(it.name, model) } }
+    }
 
     /** Fully-GPU-resident footprint of the 8b model at default context (~10 GB) + headroom. */
     const val VRAM_RECOMMENDED_BYTES: Long = 12L * GIB

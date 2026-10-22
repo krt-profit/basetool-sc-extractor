@@ -17,8 +17,11 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 
-/** One model entry from `GET /api/tags` (installed) or `GET /api/ps` (loaded). */
-data class OllamaModel(val name: String, val sizeBytes: Long?, val sizeVramBytes: Long?)
+/**
+ * One model entry from `GET /api/tags` (installed) or `GET /api/ps` (loaded); [digest] is the SHA-256 of
+ * the registry manifest the model was pulled from.
+ */
+data class OllamaModel(val name: String, val sizeBytes: Long?, val sizeVramBytes: Long?, val digest: String? = null)
 
 /** The result of one chat read: the raw answer text + why generation stopped. */
 data class ChatResult(val text: String, val doneReason: String?)
@@ -36,8 +39,9 @@ interface OllamaApi {
     fun loadedModels(): List<OllamaModel>
 
     /**
-     * One vision chat call (`POST /api/chat`): [prompt] + one base64 [imageB64], temperature 0,
-     * [numPredict] output budget, [keepAlive] model retention (e.g. `"10m"`, `"0"` to release).
+     * One vision chat call (`POST /api/chat`): [prompt] + one base64 [imageB64], temperature 0, no
+     * thinking pass, [numPredict] output budget, [keepAlive] model retention (e.g. `"10m"`, `"0"` to
+     * release).
      * [numGpu] = 0 forces CPU-only inference (the below-minimum hardware tier); null keeps
      * Ollama's automatic GPU offload.
      */
@@ -55,6 +59,9 @@ interface OllamaApi {
      * harmless no-op.
      */
     fun unload(model: String)
+
+    /** Removes [model] from the Ollama install (`DELETE /api/delete`); throws when Ollama refuses. */
+    fun delete(model: String)
 }
 
 /**
@@ -89,6 +96,7 @@ class HttpOllamaClient(private val endpoint: String = DEFAULT_ENDPOINT) : Ollama
                 name = obj["name"]?.jsonPrimitive?.content ?: "",
                 sizeBytes = obj["size"]?.jsonPrimitive?.long,
                 sizeVramBytes = obj["size_vram"]?.jsonPrimitive?.long,
+                digest = obj["digest"]?.jsonPrimitive?.content,
             )
         }
     }
@@ -105,6 +113,7 @@ class HttpOllamaClient(private val endpoint: String = DEFAULT_ENDPOINT) : Ollama
             put("model", model)
             put("stream", false)
             put("keep_alive", keepAlive)
+            put("think", false)
             put(
                 "messages",
                 buildJsonArray {
@@ -160,6 +169,19 @@ class HttpOllamaClient(private val endpoint: String = DEFAULT_ENDPOINT) : Ollama
             HttpResponse.BodyHandlers.ofString(),
         )
         check(response.statusCode() == 200) { "POST /api/chat (unload) failed: HTTP ${response.statusCode()}" }
+    }
+
+    override fun delete(model: String) {
+        val body = buildJsonObject { put("model", model) }
+        val response = http.send(
+            HttpRequest.newBuilder(URI.create("$endpoint/api/delete"))
+                .timeout(Duration.ofSeconds(30))
+                .header("Content-Type", "application/json")
+                .method("DELETE", HttpRequest.BodyPublishers.ofString(body.toString()))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+        check(response.statusCode() == 200) { "DELETE /api/delete failed: HTTP ${response.statusCode()} ${response.body()}" }
     }
 
     /**

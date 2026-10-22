@@ -129,19 +129,7 @@ private fun OllamaCard(state: RefineryUiState, appScope: CoroutineScope, modifie
                 }
                 GhostButton(strings.rfPullCta, onClick = { state.pullModel(appScope) }, tone = ButtonTone.OUTLINE)
             }
-            is OllamaStatus.Pulling -> {
-                val completed = status.completed
-                val total = status.total
-                val label = if (completed != null && total != null && total > 0) {
-                    "${completed / MIB} / ${total / MIB} MB"
-                } else {
-                    status.status
-                }
-                Text(strings.rfPullProgress(label), style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
-                if (completed != null && total != null && total > 0) {
-                    KrtProgressBar(done = (completed / MIB).toInt(), total = (total / MIB).toInt())
-                }
-            }
+            is OllamaStatus.Pulling -> PullProgress(status.completed, status.total, status.status)
             is OllamaStatus.PullFailed -> {
                 AlertBox(Krt.Danger) {
                     Text(strings.rfPullFailed(status.message), style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
@@ -158,6 +146,137 @@ private fun OllamaCard(state: RefineryUiState, appScope: CoroutineScope, modifie
                 GhostButton(strings.rfRetry, onClick = { state.recheckOllama(appScope) })
             }
         }
+        ModelHousekeeping(state, appScope)
+    }
+}
+
+/**
+ * The second-check row and the model housekeeping under the Ollama status: the verify partner's
+ * optional download, updates of models whose registry tag moved, and the removal of installed extractor
+ * models this PC's tier never uses, each removal behind an inline confirmation.
+ */
+@Composable
+private fun ModelHousekeeping(state: RefineryUiState, appScope: CoroutineScope) {
+    val strings = LocalStrings.current
+    val task = state.modelTask
+    val busy = task is ModelTask.Pulling || task is ModelTask.Removing
+    var confirming by remember { mutableStateOf<String?>(null) }
+
+    if (state.decision?.tier == HardwareTier.RECOMMENDED && state.ollamaStatus == OllamaStatus.Ready) {
+        KeyValueRow(strings.rfVerifyLabel, state.verifyModel ?: strings.rfVerifyOff)
+    }
+
+    val offer = state.verifyOffer
+    if (offer != null) {
+        if (task is ModelTask.Pulling && task.model == offer) {
+            PullProgress(task.completed, task.total, task.status, model = offer)
+        } else {
+            AlertBox(Krt.Info) {
+                Text(
+                    strings.rfVerifyOffer(offer, modelSize(Preflight.MODEL_VERIFY_DOWNLOAD_BYTES)),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Krt.Gray1,
+                )
+                if (task is ModelTask.Failed && !task.removal && task.model == offer) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(strings.rfPullFailed(task.message), style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
+                }
+            }
+            GhostButton(
+                strings.rfVerifyPullCta,
+                onClick = { state.pullVerifyModel(appScope) },
+                enabled = !busy,
+                tone = ButtonTone.OUTLINE,
+            )
+        }
+    }
+
+    state.updatableModels.forEach { update ->
+        if (task is ModelTask.Pulling && task.model == update.model) {
+            PullProgress(task.completed, task.total, task.status, model = update.model)
+        } else {
+            AlertBox(Krt.Info) {
+                Text(
+                    strings.rfModelUpdate(update.model, update.sizeBytes?.let(::modelSize) ?: "?"),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Krt.Gray1,
+                )
+                if (task is ModelTask.Failed && !task.removal && task.model == update.model) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(strings.rfPullFailed(task.message), style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
+                }
+            }
+            GhostButton(
+                strings.rfUpdateCta,
+                onClick = { state.updateModel(appScope, update.model) },
+                enabled = !busy,
+                tone = ButtonTone.OUTLINE,
+            )
+        }
+    }
+
+    state.removableModels.forEach { model ->
+        val size = model.sizeBytes?.let(::modelSize) ?: "?"
+        AlertBox(Krt.ControlBorder) {
+            Text(strings.rfModelUnneeded(model.name, size), style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
+            when {
+                task is ModelTask.Removing && task.model == model.name -> {
+                    Spacer(Modifier.height(4.dp))
+                    Text(strings.rfRemoving(model.name), style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
+                }
+                task is ModelTask.Failed && task.removal && task.model == model.name -> {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        strings.rfRemoveFailed(model.name, task.message),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Krt.DangerText,
+                    )
+                }
+                confirming == model.name -> {
+                    Spacer(Modifier.height(4.dp))
+                    Text(strings.rfRemoveConfirm(model.name), style = MaterialTheme.typography.bodySmall, color = Krt.TextMuted)
+                }
+            }
+        }
+        if (confirming == model.name) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GhostButton(
+                    strings.rfRemoveConfirmCta,
+                    onClick = {
+                        confirming = null
+                        state.removeModel(appScope, model.name)
+                    },
+                    enabled = !busy,
+                    tone = ButtonTone.QUIET_DANGER,
+                )
+                GhostButton(strings.rfCancel, onClick = { confirming = null })
+            }
+        } else {
+            GhostButton(
+                strings.rfRemoveCta,
+                onClick = { confirming = model.name },
+                enabled = !busy,
+                tone = ButtonTone.QUIET_DANGER,
+            )
+        }
+    }
+}
+
+/** A model's size the way Ollama lists it, in decimal gigabytes. */
+private fun modelSize(bytes: Long): String = String.format("%.1f GB", bytes / 1e9)
+
+/**
+ * Download progress of a pull: bytes and a bar when the registry reports them, else its status line;
+ * [model] names the model when it is not the run's own.
+ */
+@Composable
+private fun PullProgress(completed: Long?, total: Long?, status: String, model: String? = null) {
+    val strings = LocalStrings.current
+    val amount = if (completed != null && total != null && total > 0) "${completed / MIB} / ${total / MIB} MB" else status
+    val label = if (model != null) "$model · $amount" else amount
+    Text(strings.rfPullProgress(label), style = MaterialTheme.typography.bodyMedium, color = Krt.Gray1)
+    if (completed != null && total != null && total > 0) {
+        KrtProgressBar(done = (completed / MIB).toInt(), total = (total / MIB).toInt())
     }
 }
 

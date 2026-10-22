@@ -45,8 +45,10 @@ import com.basetool.bpextractor.refinery.GpuInfo
 import com.basetool.bpextractor.refinery.HardwareSnapshot
 import com.basetool.bpextractor.refinery.HardwareTier
 import com.basetool.bpextractor.refinery.ImageOutcome
+import com.basetool.bpextractor.refinery.OllamaModel
 import com.basetool.bpextractor.refinery.PipelineResult
 import com.basetool.bpextractor.refinery.PipelineStage
+import com.basetool.bpextractor.refinery.RegistryVersion
 import com.basetool.bpextractor.refinery.TierDecision
 import com.basetool.bpextractor.refinery.ValidatedOrder
 import com.basetool.bpextractor.refinery.model.RefineryExtract
@@ -64,6 +66,7 @@ import com.basetool.bpextractor.ui.refinery.ChipTone
 import com.basetool.bpextractor.ui.refinery.HelpOverlay
 import com.basetool.bpextractor.ui.refinery.KrtChip
 import com.basetool.bpextractor.ui.refinery.KrtRadio
+import com.basetool.bpextractor.ui.refinery.ModelTask
 import com.basetool.bpextractor.ui.refinery.OllamaStatus
 import com.basetool.bpextractor.ui.refinery.PanelCard
 import com.basetool.bpextractor.ui.refinery.RefineryImage
@@ -335,6 +338,39 @@ class UiGalleryTest {
         list += Shot("40-rf-preflight-pullfailed") { RefineryFrame(f.rf(OllamaStatus.PullFailed("connection reset"), HardwareTier.RECOMMENDED)) }
         list += Shot("40-rf-preflight-unreachable-cpu") { RefineryFrame(f.rf(OllamaStatus.Unreachable("refused"), HardwareTier.CPU, scRunning = true)) }
         list += Shot("40-rf-preflight-small", 640, 520) { RefineryFrame(f.rf(OllamaStatus.Ready, HardwareTier.RECOMMENDED)) }
+        list += Shot("41-rf-models-verify-active") { RefineryFrame(f.rfModels(verify = true)) }
+        list += Shot("41-rf-models-verify-pulling") {
+            RefineryFrame(f.rfModels(task = ModelTask.Pulling("qwen3.5:9b", 2_400_000_000, 6_600_000_000, "pulling")))
+        }
+        list += Shot("41-rf-models-verify-failed") {
+            RefineryFrame(f.rfModels(task = ModelTask.Failed("qwen3.5:9b", removal = false, message = "connection reset")))
+        }
+        list += Shot("41-rf-models-remove") { RefineryFrame(f.rfModels(verify = true, fallbackInstalled = true)) }
+        list += Shot("41-rf-models-remove-en", lang = Lang.EN) { RefineryFrame(f.rfModels(verify = true, fallbackInstalled = true), Lang.EN) }
+        list += Shot("41-rf-models-remove-failed") {
+            RefineryFrame(
+                f.rfModels(
+                    verify = true,
+                    fallbackInstalled = true,
+                    task = ModelTask.Failed("qwen3-vl:4b-instruct", removal = true, message = "model is in use"),
+                ),
+            )
+        }
+        list += Shot("41-rf-models-offer-and-remove-small", 640, 520) { RefineryFrame(f.rfModels(fallbackInstalled = true)) }
+        list += Shot("41-rf-models-update") { RefineryFrame(f.rfModels(verify = true, primaryOutdated = true)) }
+        list += Shot("41-rf-models-update-en", lang = Lang.EN) { RefineryFrame(f.rfModels(verify = true, primaryOutdated = true), Lang.EN) }
+        list += Shot("41-rf-models-updating") {
+            RefineryFrame(
+                f.rfModels(
+                    verify = true,
+                    primaryOutdated = true,
+                    task = ModelTask.Pulling("qwen3-vl:8b-instruct", 3_900_000_000, 6_200_000_000, "pulling"),
+                ),
+            )
+        }
+        list += Shot("41-rf-models-everything") {
+            RefineryFrame(f.rfModels(fallbackInstalled = true, primaryOutdated = true))
+        }
         list += Shot("41-rf-help") { RefineryFrame(f.rf(OllamaStatus.Ready, HardwareTier.RECOMMENDED), overlay = { HelpOverlay {} }) }
         list += Shot("41-rf-help-small", 640, 520) { RefineryFrame(f.rf(OllamaStatus.Ready, HardwareTier.RECOMMENDED), overlay = { HelpOverlay {} }) }
 
@@ -566,6 +602,22 @@ class UiGalleryTest {
                     )
                 }
             }
+        }
+
+        fun rfModels(
+            verify: Boolean = false,
+            fallbackInstalled: Boolean = false,
+            task: ModelTask? = null,
+            primaryOutdated: Boolean = false,
+        ): RefineryUiState = rf(OllamaStatus.Ready, HardwareTier.RECOMMENDED).also { s ->
+            s.verifyAvailable = verify
+            s.installedExtractorModels = listOfNotNull(
+                OllamaModel("qwen3-vl:8b-instruct", 6_100_000_000, null, "0533d74"),
+                OllamaModel("qwen3.5:9b", 6_600_000_000, null, "56671c2").takeIf { verify },
+                OllamaModel("qwen3-vl:4b-instruct", 3_300_000_000, null, "ee4b975").takeIf { fallbackInstalled },
+            )
+            if (primaryOutdated) s.registryVersions["qwen3-vl:8b-instruct"] = RegistryVersion("70e58e37", 6_200_000_000)
+            s.modelTask = task
         }
 
         fun rfExtract(running: Boolean, error: String? = null): RefineryUiState = rf(OllamaStatus.Ready, HardwareTier.RECOMMENDED, step = 2, images = true).also { s ->

@@ -87,7 +87,7 @@ $env:GLYPH_EVAL_EXPECTED = "<corpus>\golden-expected.json"
 .\gradlew.bat test --tests '*GlyphTopologyEval*' --rerun-tasks -i
 ```
 
-Add `PROMPT_SMOKE_VERIFY_MODEL=qwen3-vl:4b-instruct` for the config the expected file was generated
+Add `PROMPT_SMOKE_VERIFY_MODEL=qwen3.5:9b` for the config the expected file was generated
 with. **Never** regenerate the whole file with `PROMPT_SMOKE_WRITE_EXPECTED=1` to make a diff go
 away — merge the orders you meant to add and leave the rest, and settle any disputed cell against
 the pixels of the capture, not against whichever run you like better. Corpus and expected file are
@@ -217,7 +217,14 @@ private (guardrail 1a) and live outside the repo; ask for their path.
     own functions in real Windows PowerShell with `Start-Process` stubbed, so that property
     is tested, not just grepped. Never loosen either check to make an odd release work —
     fix the release.
-- **`net/`** — the only outbound path besides the update check. `ExchangeClient` talks to
+- **`refinery/ModelRegistry.kt`** — the third outbound path: the refinery preflight reads the public
+  manifest of each extractor model the PC's tier uses from `registry.ollama.ai` (once per model and
+  session, `GET`, nothing sent but the model name). Ollama's local model digest is the SHA-256 of
+  those manifest bytes, so a differing digest means the tag moved, and the preflight offers the
+  update (an `ollama pull`); members always get the registry's current version (owner decision
+  2026-10-22). Any failure means no offer. A moved tag can change recognition, so a registry move is
+  a reason to re-run the `PromptSmokeTest` sweep.
+- **`net/`** — the outbound path to the basetool, next to the update check and the model registry. `ExchangeClient` talks to
   `/exchange/v1` on the gateway: the two draft routes (`drafts/blueprints`,
   `drafts/refinery-orders`) and the installation label. Every call carries `Authorization:
   DPoP`, a proof with `ath` and the server's current nonce, `User-Agent:
@@ -639,6 +646,11 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   corpus and LOOK at the crops, then the full `PromptSmokeTest` sweep. The game restyles the
   refinement terminal without notice, and a broken anchor does not fail — it exports a work order
   read out of the sidebar.
+- **a pinned Ollama model** (`Preflight.MODEL_RECOMMENDED` / `MODEL_MINIMUM` / `MODEL_VERIFY`) → the
+  full `PromptSmokeTest` sweep on the new model, and move the old name to `Preflight.RETIRED_MODELS`
+  unless another pin still uses it. Otherwise members keep the old model forever: the preflight only
+  offers to remove models it knows, and Ollama itself only cleans up the old layers of a model updated
+  under the same tag.
 - **the refinery prompt** (`setup_panel_prompt_v1.txt`) → the full `PromptSmokeTest` sweep; any
   diff against the golden file is a regression. Even an added *paragraph* moves English reads: a
   German-label paragraph in the shared prompt flipped Auftrag 15's `[RAW]` to `(RAW)`, cleared two
