@@ -56,8 +56,8 @@ object Stitcher {
     /**
      * Row identity for cross-image alignment: quality and qty match exactly, and the name matches after
      * folding case, whitespace and bracket style. A single-character name difference is tolerated when
-     * both numeric cells are present and equal. The loose pass also accepts an equal qty with a quality
-     * one confusable digit apart, the name equal or one edit apart.
+     * both numeric cells are present and equal. The loose pass also accepts a name one edit apart when
+     * one numeric cell is equal and the other one confusable digit apart.
      */
     private fun sameRow(a: PanelRow, b: PanelRow, loose: Boolean = false): Boolean {
         val an = foldName(a.name)
@@ -69,8 +69,10 @@ object Stitcher {
         }
         if (!loose) return false
 
-        if (a.qty != null && a.qty == b.qty && withinOneConfusableDigitEdit(a.quality, b.quality)) {
-            return withinOneEdit(an, bn)
+        val qualityMisread = a.qty != null && a.qty == b.qty && withinOneConfusableDigitEdit(a.quality, b.quality)
+        val qtyMisread = a.quality != null && a.quality == b.quality && withinOneConfusableDigitEdit(a.qty, b.qty)
+        if (qualityMisread || qtyMisread) {
+            if (withinOneEdit(an, bn)) return true
         }
         if (an != bn) return false
         val qtyTolerance = a.quality == b.quality && a.quality != null && a.qty != null && b.qty != null
@@ -278,11 +280,14 @@ object Stitcher {
         for (i in b.rows.indices) {
             val ai = start + i
             val contested = a.contested[ai] || b.contested[i] || cellsContested(a.rows[ai], b.rows[i])
-            if (prefersIncoming(a.rows[ai], a.quoted[ai], b.rows[i], b.quoted[i])) {
+            val replace = prefersIncoming(a.rows[ai], a.quoted[ai], b.rows[i], b.quoted[i])
+            val other = if (replace) a.rows[ai] else b.rows[i]
+            if (replace) {
                 a.rows[ai] = b.rows[i]
                 a.sources[ai] = b.sources[i]
                 a.quoted[ai] = b.quoted[i]
             }
+            a.rows[ai] = withFullerName(a.rows[ai], other)
             a.contested[ai] = contested
         }
     }
@@ -303,6 +308,17 @@ object Stitcher {
         return 0
     }
 
+    /**
+     * [kept] with [other]'s name when [kept]'s is that name with its start cut off, as the panel's left
+     * edge clips a scrolled name (`NERT MATERIALS` for `INERT MATERIALS`).
+     */
+    private fun withFullerName(kept: PanelRow, other: PanelRow): PanelRow {
+        val keptName = foldName(kept.name)
+        val otherName = foldName(other.name)
+        val clipped = keptName.isNotEmpty() && otherName.length > keptName.length && otherName.endsWith(keptName)
+        return if (clipped) kept.copy(name = other.name) else kept
+    }
+
     /** Rows from the middle of a capture's table render clean; edge rows sit half-cut/glowing. */
     private fun edgeDistance(index: Int, size: Int): Int = minOf(index, size - 1 - index)
 
@@ -320,11 +336,13 @@ object Stitcher {
             } else {
                 prefersIncoming(rows[ai], quoted[ai], b.rows[i], b.quoted[i])
             }
+            val other = if (replace) rows[ai] else b.rows[i]
             if (replace) {
                 rows[ai] = b.rows[i]
                 sources[ai] = b.sources[i]
                 quoted[ai] = b.quoted[i]
             }
+            rows[ai] = withFullerName(rows[ai], other)
         }
         for (i in k until b.rows.size) {
             rows += b.rows[i]

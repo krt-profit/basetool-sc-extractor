@@ -755,5 +755,26 @@ models elsewhere.
 
 **Expected file:** regenerated cells only where the switch moved them: a10 GOLD 559 → **553** and
 a14 LARANITE 518 → **510**. Both are now right; the backup is `golden-expected.json.bak-20261022-verify`.
-The sweep against it differs only in Auftrag 17's name (`SAVRILIMUM` vs. `SA VRIL IUM`). The
-unchanged code reproduces that drift too, so the file keeps the old spelling.
+With the weights installed here at the time, the sweep differed only in Auftrag 17's name
+(`SAVRILIMUM` vs. `SA VRIL IUM`). The unchanged code reproduced that too, so the file keeps the old
+spelling.
+
+**The registry weights moved under the same tags.** A fresh pull of both models, through the new
+preflight offer, brought new digests:
+- `qwen3-vl:8b-instruct`: `0533d74…` 6.1 GB → `70e58e37…` 6.2 GB.
+- `qwen3.5:9b`: `6488c96…` → `56671c2…`.
+
+That is what members get, so the sweep was rerun on them:
+- Auftrag 17 reads `SA VRIL IUM` again.
+- Auftrag 35 broke again. The new 8b reads Iron `701` correctly in the upper capture, but the inert
+  row's QTY as `643` there (`843` in the lower one). The overlap row then differs in name
+  (`INERT`/`NERT`) **and** QTY, and no loose rule took that combination.
+
+The loose pass now also aligns a name one edit apart when one numeric cell is equal and the other
+one confusable digit apart. The existing edge-distance rule keeps `843` and `701`, both right. A
+merged row also keeps the fuller name when the other read is that name with its start clipped by
+the panel edge (`NERT` → `INERT`). That is only ever a prefix cut, so a garble that adds a letter
+(`LINDINIMUM`) never wins.
+
+Result: **all 35 orders match the expected file exactly** on the current registry weights. Pin
+digests are not checked anywhere; a tag can move again, and this sweep is how to notice.

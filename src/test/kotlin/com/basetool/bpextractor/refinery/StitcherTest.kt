@@ -255,6 +255,57 @@ class StitcherTest {
     }
 
     @Test
+    fun `a clipped name with a confusable qty misread closes the overlap and keeps the full name`() {
+        val upper = ImageRead(
+            "1_upper.png",
+            panel(
+                listOf(
+                    row("STILERON (ORE)", "330", "247", "111"),
+                    row("IRON (ORE)", "325", "930", "--", refine = "OFF"),
+                    row("IRON (ORE)", "874", "701", "341"),
+                    row("TARANITE (RAW)", "525", "71", "--", refine = "OFF"),
+                    row("INERT MATERIALS", "0", "643", "0", refine = "OFF"),
+                ),
+            ),
+        )
+        val lower = ImageRead(
+            "2_lower.png",
+            panel(
+                listOf(
+                    row("IRON (ORE)", "325", "930", "--", refine = "OFF"),
+                    row("IRON (ORE)", "874", "781", "341"),
+                    row("TARANITE (RAW)", "525", "71", "--", refine = "OFF"),
+                    row("NERT MATERIALS", "0", "843", "0", refine = "OFF"),
+                    row("HEPH (RAW)", "330", "77", "--", refine = "OFF"),
+                    row("HEPH (RAW)", "896", "23", "11"),
+                ),
+            ),
+        )
+
+        val result = Stitcher.stitch(listOf(upper, lower))
+
+        assertEquals(
+            listOf(
+                "STILERON (ORE)", "IRON (ORE)", "IRON (ORE)", "TARANITE (RAW)", "INERT MATERIALS", "HEPH (RAW)", "HEPH (RAW)",
+            ),
+            result.rows.map { it.name },
+        )
+        assertEquals("701", result.rows[2].qty, "the read farther from its viewport edge wins")
+        assertEquals("843", result.rows[4].qty, "the read farther from its viewport edge wins")
+        assertTrue(result.rows[4].contested)
+    }
+
+    @Test
+    fun `a garble that adds a letter does not replace the clean name`() {
+        val top = ImageRead("a.png", panel(listOf(row("LINDINIUM (ORE)", "729", "391", "183"), row("TUNGSTEN (ORE)", "530", "1431", "695"))))
+        val bottom = ImageRead("b.png", panel(listOf(row("LINDINIMUM (ORE)", "729", "391", "183"), row("TUNGSTEN (ORE)", "530", "1431", "695"))))
+
+        val result = Stitcher.stitch(listOf(top, bottom))
+
+        assertEquals(listOf("LINDINIUM (ORE)", "TUNGSTEN (ORE)"), result.rows.map { it.name })
+    }
+
+    @Test
     fun `a confusable quality difference with a different qty stays two rows`() {
         val upper = ImageRead("1.png", panel(listOf(row("HEPH (RAW)", "330", "77", "--", refine = "OFF"))))
         val lower = ImageRead("2.png", panel(listOf(row("HEPH (RAW)", "338", "23", "--", refine = "OFF"))))
