@@ -41,6 +41,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.awt.Toolkit
 import java.awt.datatransfer.Transferable
 import java.awt.image.BufferedImage
@@ -98,8 +99,9 @@ data class RefineryImage(
 
 /**
  * All UI state of the refinery workflow plus the glue driving the preflight probes, the model pull,
- * folder loading and the extraction pipeline. Heavy work runs on [Dispatchers.IO], which writes the
- * Compose snapshot state directly.
+ * folder loading and the extraction pipeline. Heavy work runs on [Dispatchers.IO]; every state write
+ * happens on the scope the caller passes, which must be the UI scope, because a lazy list measured
+ * while another thread changes its backing list fails with an `IndexOutOfBoundsException`.
  */
 class RefineryUiState(
     /** Ollama client factory — injectable so UI logic could be exercised without a server. */
@@ -278,8 +280,10 @@ class RefineryUiState(
         if (preflightRan && !force) return
         preflightRan = true
         ollamaStatus = OllamaStatus.Checking
-        scope.launch(Dispatchers.IO) {
-            val snapshot = Preflight.snapshot(JvmScProcessProbe(), JmxRamProbe(), WindowsGpuProbe())
+        scope.launch {
+            val snapshot = withContext(Dispatchers.IO) {
+                Preflight.snapshot(JvmScProcessProbe(), JmxRamProbe(), WindowsGpuProbe())
+            }
             hardware = snapshot
             val auto = Preflight.decide(snapshot.gpu?.vramBytes)
             decision = auto
@@ -291,34 +295,39 @@ class RefineryUiState(
     /** Re-check Ollama only (the §5.1 "Erneut prüfen" ghost action + after endpoint edits). */
     fun recheckOllama(scope: CoroutineScope) {
         ollamaStatus = OllamaStatus.Checking
-        scope.launch(Dispatchers.IO) { checkOllama() }
+        scope.launch { checkOllama() }
     }
 
-    private fun checkOllama() {
+    private suspend fun checkOllama() {
         val model = selectedModel
-        ollamaStatus = try {
-            val installed = clientFor(endpoint).installedModels()
-            verifyAvailable = installed.any {
-                it.name == Preflight.MODEL_VERIFY || it.name.startsWith("${Preflight.MODEL_VERIFY}:")
-            }
-            if (installed.any { it.name == model || it.name.startsWith("$model:") }) {
-                OllamaStatus.Ready
-            } else {
-                OllamaStatus.ModelMissing(model)
-            }
+        val client = clientFor(endpoint)
+        val installed = try {
+            withContext(Dispatchers.IO) { client.installedModels() }
         } catch (t: Throwable) {
-            OllamaStatus.Unreachable(t.message ?: t::class.simpleName ?: "?")
+            ollamaStatus = OllamaStatus.Unreachable(t.message ?: t::class.simpleName ?: "?")
+            return
+        }
+        verifyAvailable = installed.any {
+            it.name == Preflight.MODEL_VERIFY || it.name.startsWith("${Preflight.MODEL_VERIFY}:")
+        }
+        ollamaStatus = if (installed.any { it.name == model || it.name.startsWith("$model:") }) {
+            OllamaStatus.Ready
+        } else {
+            OllamaStatus.ModelMissing(model)
         }
     }
 
     /** The guided `ollama pull` of the missing model with streaming progress (§5.1). */
     fun pullModel(scope: CoroutineScope) {
         val model = selectedModel
+        val client = clientFor(endpoint)
         ollamaStatus = OllamaStatus.Pulling(null, null, "")
-        scope.launch(Dispatchers.IO) {
+        scope.launch {
             try {
-                clientFor(endpoint).pull(model) { completed, total, status ->
-                    ollamaStatus = OllamaStatus.Pulling(completed, total, status)
+                withContext(Dispatchers.IO) {
+                    client.pull(model) { completed, total, status ->
+                        scope.launch { ollamaStatus = OllamaStatus.Pulling(completed, total, status) }
+                    }
                 }
                 checkOllama()
             } catch (t: Throwable) {
@@ -335,9 +344,9 @@ class RefineryUiState(
         imagesNote = null
         dismissedPaths.clear()
         images.clear()
-        scope.launch(Dispatchers.IO) {
+        scope.launch {
             try {
-                val loaded = loadImages(imageFilesIn(File(path)))
+                val loaded = withContext(Dispatchers.IO) { loadImages(imageFilesIn(File(path))) }
                 images.clear()
                 images.addAll(loaded)
             } finally {
@@ -355,16 +364,19 @@ class RefineryUiState(
     fun rescanFolder(scope: CoroutineScope, path: String) {
         if (loadingImages || rescanning || path != loadedFolder) return
         rescanning = true
-        scope.launch(Dispatchers.IO) {
+        val known = images.mapTo(HashSet()) { it.file.absolutePath }
+        scope.launch {
             try {
                 val dir = File(path)
-                if (!dir.isDirectory) return@launch
-                val files = imageFilesIn(dir)
-                val onDisk = files.mapTo(HashSet()) { it.absolutePath }
-                val known = images.mapTo(HashSet()) { it.file.absolutePath }
-                val added = loadImages(
-                    files.filter { it.absolutePath !in known && it.absolutePath !in dismissedPaths },
-                )
+                val scan = withContext(Dispatchers.IO) {
+                    if (!dir.isDirectory) return@withContext null
+                    val files = imageFilesIn(dir)
+                    val added = loadImages(
+                        files.filter { it.absolutePath !in known && it.absolutePath !in dismissedPaths },
+                    )
+                    files.mapTo(HashSet()) { it.absolutePath } to added
+                } ?: return@launch
+                val (onDisk, added) = scan
                 if (path == loadedFolder) {
                     images.removeAll {
                         it.file.absoluteFile.parentFile == dir.absoluteFile &&
@@ -434,18 +446,20 @@ class RefineryUiState(
         if (!ImageIntake.accepts(t)) return false
         if (loadingImages) return true
         loadingImages = true
-        scope.launch(Dispatchers.IO) {
+        val known = images.mapTo(HashSet()) { it.file.absolutePath }
+        val dir = intakeDir()
+        scope.launch {
             try {
-                val dir = intakeDir()
-                val saved = mutableListOf<File>()
-                ImageIntake.imageFilesFrom(t).forEach { file ->
-                    runCatching { saved += ImageIntake.copyInto(file, dir) }
+                val loaded = withContext(Dispatchers.IO) {
+                    val saved = mutableListOf<File>()
+                    ImageIntake.imageFilesFrom(t).forEach { file ->
+                        runCatching { saved += ImageIntake.copyInto(file, dir) }
+                    }
+                    if (saved.isEmpty()) {
+                        ImageIntake.rawImageFrom(t)?.let { saved += ImageIntake.saveClipboardImage(it, dir) }
+                    }
+                    loadImages(saved.filter { it.absolutePath !in known }.distinct())
                 }
-                if (saved.isEmpty()) {
-                    ImageIntake.rawImageFrom(t)?.let { saved += ImageIntake.saveClipboardImage(it, dir) }
-                }
-                val known = images.mapTo(HashSet()) { it.file.absolutePath }
-                val loaded = loadImages(saved.filter { it.absolutePath !in known }.distinct())
                 loaded.forEach { dismissedPaths -= it.file.absolutePath }
                 images.addAll(loaded)
             } finally {
@@ -486,10 +500,12 @@ class RefineryUiState(
         if (print == lastClipboardImage) return
         lastClipboardImage = print
         loadingImages = true
-        scope.launch(Dispatchers.IO) {
+        val dir = intakeDir()
+        scope.launch {
             try {
-                val saved = ImageIntake.saveClipboardImage(image, intakeDir())
-                val loaded = loadImages(listOf(saved))
+                val loaded = withContext(Dispatchers.IO) {
+                    loadImages(listOf(ImageIntake.saveClipboardImage(image, dir)))
+                }
                 loaded.forEach { dismissedPaths -= it.file.absolutePath }
                 images.addAll(loaded)
             } finally {
@@ -548,24 +564,28 @@ class RefineryUiState(
         )
         val listener = object : PipelineListener {
             override fun onStage(index: Int, name: String, stage: PipelineStage) {
-                currentIndex = index
-                stageReached[index] = stage
+                scope.launch {
+                    currentIndex = index
+                    stageReached[index] = stage
+                }
             }
 
             override fun onImageDone(index: Int, outcome: ImageOutcome) {
-                outcomes[index] = outcome
+                scope.launch { outcomes[index] = outcome }
             }
 
             override fun onLog(line: String) {
-                console += line
+                scope.launch { console += line }
             }
         }
-        scope.launch(Dispatchers.IO) {
+        scope.launch {
             try {
-                val inputs = snapshot.map {
-                    PipelineInput(it.file.name, readFull(it.file), CaptureTime.of(it.file))
+                result = withContext(Dispatchers.IO) {
+                    val inputs = snapshot.map {
+                        PipelineInput(it.file.name, readFull(it.file), CaptureTime.of(it.file))
+                    }
+                    pipeline.extract(inputs, listener)
                 }
-                result = pipeline.extract(inputs, listener)
             } catch (c: PipelineCancelledException) {
                 extractError = CANCELLED_MARKER
             } catch (t: Throwable) {
@@ -594,9 +614,9 @@ class RefineryUiState(
     fun export(scope: CoroutineScope, target: File, strings: Strings) {
         val extract = reviewedExtract() ?: return
         exportError = null
-        scope.launch(Dispatchers.IO) {
+        scope.launch {
             try {
-                RefineryPipeline.writeJson(extract, target)
+                withContext(Dispatchers.IO) { RefineryPipeline.writeJson(extract, target) }
                 exportedFile = target
             } catch (t: Throwable) {
                 exportError = strings.rfExportFailed(t.message ?: t::class.simpleName ?: strings.unknownError)

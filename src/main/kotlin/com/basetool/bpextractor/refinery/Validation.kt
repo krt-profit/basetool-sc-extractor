@@ -131,6 +131,7 @@ data class ValidatedOrder(
  * 1. QTY, QUALITY and YIELD must parse as numbers (or be `--`), else [CONFIDENCE_IMPLAUSIBLE];
  * 2. the REFINE toggle must read `ON` or `OFF`, else ON at low confidence; in a quoted order the
  *    YIELD column overrides the toggle (`--` is OFF, > 0 is ON) at [CONFIDENCE_REFINE_CORRECTED];
+ *    the inert row is held to quality 0, yield 0 and OFF, at that confidence when its read differed;
  * 3. the one-sided header checksum flags a visible ON-row QTY sum exceeding TO REFINE;
  * 4. the optional cross-model verify ([CrossModelVerify]) caps rows at [CONFIDENCE_VERIFY_CORRECTED]
  *    or [CONFIDENCE_VERIFY_CONTESTED];
@@ -203,6 +204,9 @@ object Validation {
      */
     private const val YIELD_RATIO_TOLERANCE = 0.18
 
+    /** The folded on-screen name of the inert row. */
+    private const val INERT_ROW_NAME = "INERT MATERIALS"
+
     /** Dampening factor on layout confidence when the header checksum flags. */
     private const val SUM_MISMATCH_DAMPENING = 0.9
 
@@ -229,6 +233,13 @@ object Validation {
         (PanelValues.toQuantity(row.yield_) ?: 0L) > 0L -> true
         else -> null
     }
+
+    /**
+     * Whether [name] is the panel's inert row, read whole or with one character clipped or garbled; that
+     * row always shows quality 0 and yield 0 behind a disabled toggle.
+     */
+    fun isInertRow(name: String): Boolean =
+        Stitcher.withinOneEdit(foldMaterial(name), INERT_ROW_NAME)
 
     /**
      * The one-sided TO-REFINE checksum over contract-ready [goods] (§7 semantics: Σ QTY of
@@ -313,6 +324,27 @@ object Validation {
             }
         }
         return if (candidates.size == 1) mapOf(candidates.first().first to candidates.first().second) else emptyMap()
+    }
+
+    /**
+     * OCR-witnessed single-digit QTY repair for a TO REFINE overflow [checksumRepair] cannot place: an ON
+     * row's QTY becomes the OCR's confusable edit of it ([OcrCrossCheck.Result.qtyWitness]) when that lands
+     * the ON-row sum inside the ±1-per-row band and keeps YIELD ≤ QTY. Returns rowIndex to corrected QTY
+     * when exactly one row qualifies, else an empty map.
+     */
+    fun ocrChecksumRepair(goods: List<RefineryExtractGood>, toRefineTotal: Long?, witness: Map<Int, Long>): Map<Int, Long> {
+        if (toRefineTotal == null || witness.isEmpty()) return emptyMap()
+        val on = goods.filter { it.refine && it.inputQuantity != null }
+        val sumOn = on.sumOf { it.inputQuantity!! }
+        val tol = goods.size.toLong()
+        if (sumOn <= toRefineTotal + tol) return emptyMap()
+        val candidates = on.mapNotNull { row ->
+            val fixed = witness[row.rowIndex] ?: return@mapNotNull null
+            val newSum = sumOn - row.inputQuantity!! + fixed
+            val keepsYield = (row.outputQuantity ?: 0L) <= fixed
+            if (keepsYield && newSum in (toRefineTotal - tol)..(toRefineTotal + tol)) row.rowIndex to fixed else null
+        }
+        return candidates.singleOrNull()?.let { mapOf(it) } ?: emptyMap()
     }
 
     /**
@@ -448,20 +480,26 @@ object Validation {
         qtyOcrContested: Set<Int> = emptySet(),
         /** [OcrCrossCheck]: holds back a repair the cell's glyphs contradict. */
         glyphVeto: OcrCrossCheck.GlyphVeto = OcrCrossCheck.GlyphVeto.NONE,
+        /** [OcrCrossCheck]: per row, the confusable QTY edit the OCR read instead of the VLM's value. */
+        qtyOcrWitness: Map<Int, Long> = emptyMap(),
     ): ValidatedOrder {
         val warnings = mutableSetOf<ExtractWarning>()
         val goods = mutableListOf<RefineryExtractGood>()
 
         stitch.rows.forEachIndexed { index, row ->
+            val inert = isInertRow(row.name)
             val qty = PanelValues.toQuantity(row.qty)
-            val quality = PanelValues.toQuality(row.quality)
-            val yieldQty = PanelValues.toQuantity(row.yield_)
+            val readQuality = PanelValues.toQuality(row.quality)
+            val readYield = PanelValues.toQuantity(row.yield_)
+            val quality = if (inert && readQuality != null) 0 else readQuality
+            val yieldQty = if (inert && readYield != null) 0L else readYield
             val refineKnown = row.refine == "ON" || row.refine == "OFF"
             val refineFromToggle = if (refineKnown) row.refine == "ON" else true
 
-            val refineFromYield = yieldRefineSignal(row)
+            val refineFromYield = if (inert) false else yieldRefineSignal(row)
             val refine = refineFromYield ?: refineFromToggle
             val refineCorrected = refineKnown && refineFromYield != null && refineFromYield != refineFromToggle
+            val inertCorrected = inert && (quality != readQuality || yieldQty != readYield)
 
             val qtyImplausible = row.qty != null && qty == null
             val qualityImplausible = row.quality != null && quality == null
@@ -474,7 +512,7 @@ object Validation {
             var confidence = when {
                 implausible -> CONFIDENCE_IMPLAUSIBLE
                 !refineKnown -> CONFIDENCE_REFINE_UNREADABLE
-                refineCorrected -> CONFIDENCE_REFINE_CORRECTED
+                refineCorrected || inertCorrected -> CONFIDENCE_REFINE_CORRECTED
                 else -> CONFIDENCE_OK
             }
             if (crossCheck != null) {
@@ -536,7 +574,9 @@ object Validation {
         val repair = if (anchorContested) {
             emptyMap()
         } else {
-            checksumRepair(goods, PanelValues.toQuantity(stitch.toRefine)).unlessVetoed { it.inputQuantity }
+            val header = PanelValues.toQuantity(stitch.toRefine)
+            checksumRepair(goods, header).unlessVetoed { it.inputQuantity }
+                .ifEmpty { ocrChecksumRepair(goods, header, qtyOcrWitness).unlessVetoed { it.inputQuantity } }
         }
         if (repair.isNotEmpty()) {
             warnings += ExtractWarning.CHECKSUM_REPAIRED
