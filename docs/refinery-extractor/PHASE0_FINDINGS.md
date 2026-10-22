@@ -770,11 +770,21 @@ That is what members get, so the sweep was rerun on them:
   row's QTY as `643` there (`843` in the lower one). The overlap row then differs in name
   (`INERT`/`NERT`) **and** QTY, and no loose rule took that combination.
 
-The loose pass now also aligns a name one edit apart when one numeric cell is equal and the other
-one confusable digit apart. The existing edge-distance rule keeps `843` and `701`, both right. A
-merged row also keeps the fuller name when the other read is that name with its start clipped by
-the panel edge (`NERT` → `INERT`). That is only ever a prefix cut, so a garble that adds a letter
-(`LINDINIMUM`) never wins.
+The terminal scrolls a name too long for its cell back and forth (owner, 2026-10-22), so a capture
+can cut a name at either end, and two captures of one row can show different windows of it.
+`Stitcher.scrolledName` treats two reads as windows of one name in two cases:
+- one is contained in the other (`NERT MATERIALS` / `INERT MATERIALS`);
+- they overlap end to start (`INERT MATERIAL` / `NERT MATERIALS` → `INERT MATERIALS`).
+
+Both reads need at least 6 characters, and the shared part at least 75 % of the shorter one. Real
+windows share 79–93 %; `BORASE (ORE)` / `E (ORE) BORASE` shares 58 % and stays apart.
+
+Two rules use it:
+- Row identity, next to the one-edit tolerance. The loose pass also accepts such a name when one
+  numeric cell is equal and the other one confusable digit apart. On Auftrag 35 the existing
+  edge-distance rule then keeps `843` and `701`, both right.
+- The merged row gets the whole name. A garble that adds a letter (`LINDINIMUM`) is no window of
+  the clean name, so it never wins.
 
 Result: **all 35 orders match the expected file exactly** on the current registry weights. Pin
 digests are not checked anywhere; a tag can move again, and this sweep is how to notice.

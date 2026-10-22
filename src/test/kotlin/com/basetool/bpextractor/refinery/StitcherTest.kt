@@ -296,6 +296,38 @@ class StitcherTest {
     }
 
     @Test
+    fun `windows of a scrolled name yield the whole name`() {
+        assertEquals("INERT MATERIALS", Stitcher.scrolledName("NERT MATERIALS", "INERT MATERIALS"))
+        assertEquals("INERT MATERIALS", Stitcher.scrolledName("INERT MATERIAL", "NERT MATERIALS"))
+        assertEquals("CONSTRUCTION SALVAGE", Stitcher.scrolledName("UCTION SALVAGE", "CONSTRUCTION SALVAGE"))
+        assertEquals("CONSTRUCTION SALVAGE", Stitcher.scrolledName("CONSTRUCTION SALV", "UCTION SALVAGE"))
+    }
+
+    @Test
+    fun `different names, garbles and short fragments are no scrolled windows`() {
+        assertEquals(null, Stitcher.scrolledName("LINDINIUM (ORE)", "LINDINIMUM (ORE)"))
+        assertEquals(null, Stitcher.scrolledName("TUNGSTEN (ORE)", "IRON (ORE)"))
+        assertEquals(null, Stitcher.scrolledName("GOLD (ORE)", "(ORE)"))
+        assertEquals(null, Stitcher.scrolledName("BORASE (ORE)", "E (ORE) BORASE"))
+    }
+
+    @Test
+    fun `a row whose name the scroll cut differently stitches across captures with the whole name`() {
+        val upper = ImageRead(
+            "1.png",
+            panel(listOf(row("TUNGSTEN (ORE)", "530", "1431", "695"), row("UCTION SALVAGE", "0", "400", "64"))),
+        )
+        val lower = ImageRead(
+            "2.png",
+            panel(listOf(row("CONSTRUCTION SALV", "0", "400", "64"), row("INERT MATERIALS", "0", "852", "0", refine = "OFF"))),
+        )
+
+        val result = Stitcher.stitch(listOf(upper, lower))
+
+        assertEquals(listOf("TUNGSTEN (ORE)", "CONSTRUCTION SALVAGE", "INERT MATERIALS"), result.rows.map { it.name })
+    }
+
+    @Test
     fun `a garble that adds a letter does not replace the clean name`() {
         val top = ImageRead("a.png", panel(listOf(row("LINDINIUM (ORE)", "729", "391", "183"), row("TUNGSTEN (ORE)", "530", "1431", "695"))))
         val bottom = ImageRead("b.png", panel(listOf(row("LINDINIMUM (ORE)", "729", "391", "183"), row("TUNGSTEN (ORE)", "530", "1431", "695"))))
