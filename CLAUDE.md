@@ -606,9 +606,20 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   class count (an off-by-one would shift every digit silently); `OcrModelsTest` loads the bundled
   trio on every `gradlew test`. The detector parameters are per model
   (`TextDetector.Params.PP_OCR_V6_SMALL`). `suggestRuntimeModules` is
-  UNCHANGED by onnxruntime (it needs no extra jlink module) and its native libs extract to
-  `%TEMP%`, NOT the install dir (guardrail 2 — verified under the bundled module set). Models
-  are committed to git; build-time fetch is an option if the repo should stay lean.
+  UNCHANGED by onnxruntime (it needs no extra jlink module). **Its native libraries ship in the
+  app image**, not unpacked at runtime:
+  - `extractOrtNative` copies the `win-x64` DLLs out of the resolved onnxruntime jar into
+    `appResourcesRootDir`, so they land in `$APPDIR\resources` and follow every onnxruntime bump.
+  - At start, `OrtNative.useBundledLibraries()` points `onnxruntime.native.path` there. Left to
+    itself, ONNX Runtime unpacks a fresh `%TEMP%\onnxruntime-java…` folder per start and cannot
+    delete it on exit (Windows locks a loaded DLL): 16.5 MB per refinery session, surviving an
+    uninstall.
+  - `OrtNative.sweepStaleExtractions()` removes such folders older than a day on every GUI start;
+    one in use resists.
+  - Dev runs and tests without the resources folder still unpack to `%TEMP%`, never into the
+    install dir (guardrail 2).
+
+  Models are committed to git; build-time fetch is an option if the repo should stay lean.
 - Gradle **configuration cache is off on purpose** (Compose jpackage tasks aren't
   cc-safe). Don't enable it.
 - **Repositories are `mavenCentral()` + `google()` only** (plus the Plugin Portal for plugins).
@@ -652,8 +663,9 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   / ANGEBOT EINHOLEN. No real German capture is in the corpus yet — add one when a member sends it.
 - **bundled modules or the runtime** → `suggestRuntimeModules`, rebuild, GUI-launch test.
 - **`onnxruntime`** → diff `OcrDigestTest` across the bump (above), then `suggestRuntimeModules` + a
-  GUI-launch test from the app image — the native libs come out of the jar at runtime, so a
-  packaging regression shows up at launch, not in the tests.
+  GUI-launch test from the app image. Check that `$APPDIR\app\resources` holds the jar's `win-x64`
+  DLLs, and that a run with `-Donnxruntime.native.path=<build\ort-native\windows-x64>` unpacks no
+  `onnxruntime-java…` folder. A packaging regression shows up there, not in the tests.
 - **the bundled `/ocr/` models** → the `OcrCandidateEval` round (above) with and without the verify
   model, every disputed cell settled against the pixels, then a new `OcrDigestTest` baseline,
   `suggestRuntimeModules` and a GUI-launch test from the app image.

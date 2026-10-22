@@ -490,9 +490,11 @@ In [`build.gradle.kts`](build.gradle.kts) under `windows { … }`:
 > memory probe for the hardware preflight) plus the ones the Compose plugin detects
 > automatically (`java.desktop` etc.), determined via `gradlew suggestRuntimeModules`.
 > The user still needs no Java of their own. On top of that sit the two **PP-OCRv6 small
-> ONNX models** (~31 MB) of the classical-OCR cross-reader; ONNX Runtime itself needs
-> **no** extra jlink module, and its native libraries extract to `%TEMP%`, never into
-> the installation folder.
+> ONNX models** (~31 MB) of the classical-OCR cross-reader. ONNX Runtime itself needs
+> **no** extra jlink module. Its native libraries ship in the installation folder and are
+> loaded from there, so nothing is unpacked into `%TEMP%` per run. Folders that older
+> versions left in `%TEMP%` (`onnxruntime-java…`) are removed automatically on start once
+> they are a day old.
 > (`jvmArgs += "--enable-native-access=ALL-UNNAMED"` silences the JDK 27 "native
 > access" warnings that `System.load()` would otherwise write to stderr — from Skiko's
 > renderer **and** from ONNX Runtime.)

@@ -49,6 +49,7 @@ import com.basetool.bpextractor.config.AppConfigStore
 import com.basetool.bpextractor.model.BlueprintEnvelope
 import com.basetool.bpextractor.model.BlueprintScan
 import com.basetool.bpextractor.model.LogAccount
+import com.basetool.bpextractor.refinery.OrtNative
 import com.basetool.bpextractor.resources.Res
 import com.basetool.bpextractor.resources.basetool_extractor_icon
 import com.basetool.bpextractor.resources.basetool_extractor_logo
@@ -895,7 +896,10 @@ private fun openWithDesktop(target: File, scope: CoroutineScope, state: AppState
 }
 
 /** Entry point — Basetool SC Extractor is a GUI-only Compose Desktop app. */
-fun main() = guiMain()
+fun main() {
+    OrtNative.useBundledLibraries()
+    guiMain()
+}
 
 private fun guiMain() = application {
     val state = remember { AppState() }
@@ -912,6 +916,7 @@ private fun guiMain() = application {
     LaunchedEffect(Unit) {
         val found = withContext(Dispatchers.IO) {
             UpdateChecker.cleanupLeftovers()
+            OrtNative.sweepStaleExtractions()
             UpdateChecker.checkForUpdate(BlueprintExtractor.TOOL_VERSION)
         }
         if (found != null) {
