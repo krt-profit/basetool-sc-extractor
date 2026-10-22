@@ -262,8 +262,8 @@ evaluation runs entirely locally via [Ollama](https://ollama.com):
 
 The extraction processes **one image at a time** (throttling), shows the stages
 *Locate → Normalize → Read* per image (plus *Verify* when a second model
-cross-checks the read — on the recommended tier, if `qwen3-vl:4b-instruct` is
-already installed) and ends in a review step: check every value that was read
+cross-checks the read — on the recommended tier, if `qwen3.5:9b` is already
+installed; `ollama pull qwen3.5:9b` adds it, 6.6 GB) and ends in a review step: check every value that was read
 together with its derived confidence, then either **Send to Basetool** (afterwards
 **Open in basetool** takes you to the pre-filled form) or **Export as JSON** and
 import the file as described

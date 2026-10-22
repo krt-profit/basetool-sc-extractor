@@ -168,10 +168,11 @@ object Preflight {
     const val MODEL_MINIMUM = "qwen3-vl:4b-instruct"
 
     /**
-     * Cross-model verify partner ([CrossModelVerify]), a differently sized vision encoder. Used on the
-     * recommended tier only, and only when already installed.
+     * Cross-model verify partner ([CrossModelVerify]), a vision encoder of another model family, so its
+     * digit misreads are not the primary's. Used on the recommended tier only, and only when already
+     * installed.
      */
-    const val MODEL_VERIFY = "qwen3-vl:4b-instruct"
+    const val MODEL_VERIFY = "qwen3.5:9b"
 
     /** Fully-GPU-resident footprint of the 8b model at default context (~10 GB) + headroom. */
     const val VRAM_RECOMMENDED_BYTES: Long = 12L * GIB

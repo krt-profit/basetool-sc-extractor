@@ -87,7 +87,7 @@ $env:GLYPH_EVAL_EXPECTED = "<corpus>\golden-expected.json"
 .\gradlew.bat test --tests '*GlyphTopologyEval*' --rerun-tasks -i
 ```
 
-Add `PROMPT_SMOKE_VERIFY_MODEL=qwen3-vl:4b-instruct` for the config the expected file was generated
+Add `PROMPT_SMOKE_VERIFY_MODEL=qwen3.5:9b` for the config the expected file was generated
 with. **Never** regenerate the whole file with `PROMPT_SMOKE_WRITE_EXPECTED=1` to make a diff go
 away — merge the orders you meant to add and leave the rest, and settle any disputed cell against
 the pixels of the capture, not against whichever run you like better. Corpus and expected file are

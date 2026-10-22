@@ -36,8 +36,9 @@ interface OllamaApi {
     fun loadedModels(): List<OllamaModel>
 
     /**
-     * One vision chat call (`POST /api/chat`): [prompt] + one base64 [imageB64], temperature 0,
-     * [numPredict] output budget, [keepAlive] model retention (e.g. `"10m"`, `"0"` to release).
+     * One vision chat call (`POST /api/chat`): [prompt] + one base64 [imageB64], temperature 0, no
+     * thinking pass, [numPredict] output budget, [keepAlive] model retention (e.g. `"10m"`, `"0"` to
+     * release).
      * [numGpu] = 0 forces CPU-only inference (the below-minimum hardware tier); null keeps
      * Ollama's automatic GPU offload.
      */
@@ -105,6 +106,7 @@ class HttpOllamaClient(private val endpoint: String = DEFAULT_ENDPOINT) : Ollama
             put("model", model)
             put("stream", false)
             put("keep_alive", keepAlive)
+            put("think", false)
             put(
                 "messages",
                 buildJsonArray {
