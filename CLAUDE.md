@@ -646,6 +646,11 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   corpus and LOOK at the crops, then the full `PromptSmokeTest` sweep. The game restyles the
   refinement terminal without notice, and a broken anchor does not fail — it exports a work order
   read out of the sidebar.
+- **a pinned Ollama model** (`Preflight.MODEL_RECOMMENDED` / `MODEL_MINIMUM` / `MODEL_VERIFY`) → the
+  full `PromptSmokeTest` sweep on the new model, and move the old name to `Preflight.RETIRED_MODELS`
+  unless another pin still uses it. Otherwise members keep the old model forever: the preflight only
+  offers to remove models it knows, and Ollama itself only cleans up the old layers of a model updated
+  under the same tag.
 - **the refinery prompt** (`setup_panel_prompt_v1.txt`) → the full `PromptSmokeTest` sweep; any
   diff against the golden file is a regression. Even an added *paragraph* moves English reads: a
   German-label paragraph in the shared prompt flipped Auftrag 15's `[RAW]` to `(RAW)`, cleared two

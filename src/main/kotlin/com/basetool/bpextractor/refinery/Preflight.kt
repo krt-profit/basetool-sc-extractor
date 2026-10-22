@@ -177,8 +177,15 @@ object Preflight {
     /** The verify partner's download size in bytes, as the offer to pull it names it. */
     const val MODEL_VERIFY_DOWNLOAD_BYTES: Long = 6_600_000_000L
 
-    /** Every model this app pins; the only ones it ever offers to remove. */
-    val EXTRACTOR_MODELS: List<String> = listOf(MODEL_RECOMMENDED, MODEL_MINIMUM, MODEL_VERIFY).distinct()
+    /**
+     * Models an earlier release pinned and this one no longer uses on any tier; the preflight offers their
+     * removal everywhere. A pin that changes moves its old name here.
+     */
+    val RETIRED_MODELS: List<String> = emptyList()
+
+    /** Every model this app pins or pinned; the only ones it ever offers to remove. */
+    val EXTRACTOR_MODELS: List<String> =
+        (listOf(MODEL_RECOMMENDED, MODEL_MINIMUM, MODEL_VERIFY) + RETIRED_MODELS).distinct()
 
     /** The models a run on [tier] can use: primary and verify partner on the recommended tier, else the fallback. */
     fun modelsNeeded(tier: HardwareTier): Set<String> = when (tier) {
@@ -189,10 +196,14 @@ object Preflight {
     /** Whether Ollama's installed [name] is [model], with or without an explicit `:latest`-style tag. */
     fun isModel(name: String, model: String): Boolean = name == model || name.startsWith("$model:")
 
-    /** The installed extractor models a run on [tier] does not use, in [EXTRACTOR_MODELS] order. */
-    fun unneededModels(installed: List<OllamaModel>, tier: HardwareTier): List<OllamaModel> {
+    /** The installed models of [known] that a run on [tier] does not use, in [known] order. */
+    fun unneededModels(
+        installed: List<OllamaModel>,
+        tier: HardwareTier,
+        known: List<String> = EXTRACTOR_MODELS,
+    ): List<OllamaModel> {
         val needed = modelsNeeded(tier)
-        return EXTRACTOR_MODELS.filter { it !in needed }
+        return known.filter { it !in needed }
             .mapNotNull { model -> installed.firstOrNull { isModel(it.name, model) } }
     }
 

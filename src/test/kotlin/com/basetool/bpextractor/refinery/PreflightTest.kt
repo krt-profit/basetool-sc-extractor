@@ -41,6 +41,23 @@ class PreflightTest {
     }
 
     @Test
+    fun `a retired pin is offered for removal on every tier`() {
+        val all = installed("qwen3-vl:8b-instruct", "qwen3.5:9b", "qwen3-vl:4b-instruct", "minicpm-v4.5")
+        val known = Preflight.EXTRACTOR_MODELS + "minicpm-v4.5"
+
+        for (tier in HardwareTier.entries) {
+            assertTrue("minicpm-v4.5" in Preflight.unneededModels(all, tier, known).map { it.name }, "$tier")
+        }
+    }
+
+    @Test
+    fun `every retired pin is known and no current pin is retired`() {
+        assertTrue(Preflight.EXTRACTOR_MODELS.containsAll(Preflight.RETIRED_MODELS))
+        val current = setOf(Preflight.MODEL_RECOMMENDED, Preflight.MODEL_MINIMUM, Preflight.MODEL_VERIFY)
+        assertTrue(Preflight.RETIRED_MODELS.none { it in current })
+    }
+
+    @Test
     fun `models the extractor does not pin are never offered for removal`() {
         val all = installed("llava:13b", "gemma4:12b", "qwen3-vl:2b-instruct")
 
