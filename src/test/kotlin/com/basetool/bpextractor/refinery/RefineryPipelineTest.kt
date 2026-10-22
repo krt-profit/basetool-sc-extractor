@@ -63,6 +63,8 @@ class RefineryPipelineTest {
             calls += "unload" to model
             if (failUnload) error("ollama went away")
         }
+
+        override fun delete(model: String) = error("not used")
     }
 
     private val fixedNow: () -> Instant = { Instant.parse("2026-06-10T12:00:00Z") }

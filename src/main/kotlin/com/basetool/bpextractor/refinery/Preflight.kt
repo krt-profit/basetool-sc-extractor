@@ -174,6 +174,28 @@ object Preflight {
      */
     const val MODEL_VERIFY = "qwen3.5:9b"
 
+    /** The verify partner's download size in bytes, as the offer to pull it names it. */
+    const val MODEL_VERIFY_DOWNLOAD_BYTES: Long = 6_600_000_000L
+
+    /** Every model this app pins; the only ones it ever offers to remove. */
+    val EXTRACTOR_MODELS: List<String> = listOf(MODEL_RECOMMENDED, MODEL_MINIMUM, MODEL_VERIFY).distinct()
+
+    /** The models a run on [tier] can use: primary and verify partner on the recommended tier, else the fallback. */
+    fun modelsNeeded(tier: HardwareTier): Set<String> = when (tier) {
+        HardwareTier.RECOMMENDED -> setOf(MODEL_RECOMMENDED, MODEL_VERIFY)
+        HardwareTier.MINIMUM, HardwareTier.CPU -> setOf(MODEL_MINIMUM)
+    }
+
+    /** Whether Ollama's installed [name] is [model], with or without an explicit `:latest`-style tag. */
+    fun isModel(name: String, model: String): Boolean = name == model || name.startsWith("$model:")
+
+    /** The installed extractor models a run on [tier] does not use, in [EXTRACTOR_MODELS] order. */
+    fun unneededModels(installed: List<OllamaModel>, tier: HardwareTier): List<OllamaModel> {
+        val needed = modelsNeeded(tier)
+        return EXTRACTOR_MODELS.filter { it !in needed }
+            .mapNotNull { model -> installed.firstOrNull { isModel(it.name, model) } }
+    }
+
     /** Fully-GPU-resident footprint of the 8b model at default context (~10 GB) + headroom. */
     const val VRAM_RECOMMENDED_BYTES: Long = 12L * GIB
 

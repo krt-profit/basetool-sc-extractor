@@ -253,6 +253,16 @@ interface Strings {
     val rfPullCta: String
     val rfPullProgress: (String) -> String
     val rfPullFailed: (String) -> String
+    val rfVerifyLabel: String
+    val rfVerifyOff: String
+    val rfVerifyOffer: (String, String) -> String
+    val rfVerifyPullCta: String
+    val rfModelUnneeded: (String, String) -> String
+    val rfRemoveCta: String
+    val rfRemoveConfirm: (String) -> String
+    val rfRemoveConfirmCta: String
+    val rfRemoving: (String) -> String
+    val rfRemoveFailed: (String, String) -> String
     val rfOllamaUnreachable: String
     val rfInstallHint1: String
     val rfInstallHint2: String
@@ -575,6 +585,23 @@ object StringsDe : Strings {
     override val rfPullCta = "Laden"
     override val rfPullProgress: (String) -> String = { status -> "Lade Modell… $status" }
     override val rfPullFailed: (String) -> String = { msg -> "Modell-Download fehlgeschlagen: $msg" }
+    override val rfVerifyLabel = "Zweitprüfung"
+    override val rfVerifyOff = "aus"
+    override val rfVerifyOffer: (String, String) -> String = { model, size ->
+        "Optional: Mit „$model\" ($size) liest ein zweites Modell jede Aufnahme gegen und fängt " +
+            "Ziffern-Fehler ab. Kostet etwa 2 s pro Bild."
+    }
+    override val rfVerifyPullCta = "Zweitprüfung laden"
+    override val rfModelUnneeded: (String, String) -> String = { model, size ->
+        "„$model\" ($size) braucht der Extractor auf diesem PC nicht mehr."
+    }
+    override val rfRemoveCta = "Entfernen"
+    override val rfRemoveConfirm: (String) -> String = { model ->
+        "„$model\" aus Ollama löschen? Andere Programme, die es nutzen, müssen es dann neu laden."
+    }
+    override val rfRemoveConfirmCta = "Löschen"
+    override val rfRemoving: (String) -> String = { model -> "Entferne „$model\"…" }
+    override val rfRemoveFailed: (String, String) -> String = { model, msg -> "„$model\" ließ sich nicht entfernen: $msg" }
     override val rfOllamaUnreachable = "Ollama ist nicht erreichbar."
     override val rfInstallHint1 = "1. Ollama von ollama.com herunterladen und installieren."
     override val rfInstallHint2 = "2. „ollama serve\" starten (Standard-Port 11434), dann erneut prüfen."
@@ -1120,6 +1147,23 @@ object StringsEn : Strings {
     override val rfPullCta = "Pull"
     override val rfPullProgress: (String) -> String = { status -> "Pulling model… $status" }
     override val rfPullFailed: (String) -> String = { msg -> "Model download failed: $msg" }
+    override val rfVerifyLabel = "Second check"
+    override val rfVerifyOff = "off"
+    override val rfVerifyOffer: (String, String) -> String = { model, size ->
+        "Optional: with \"$model\" ($size) a second model reads every capture again and catches " +
+            "digit misreads. Costs about 2 s per image."
+    }
+    override val rfVerifyPullCta = "Pull second check"
+    override val rfModelUnneeded: (String, String) -> String = { model, size ->
+        "\"$model\" ($size) is no longer needed by the extractor on this PC."
+    }
+    override val rfRemoveCta = "Remove"
+    override val rfRemoveConfirm: (String) -> String = { model ->
+        "Delete \"$model\" from Ollama? Other programs that use it will have to pull it again."
+    }
+    override val rfRemoveConfirmCta = "Delete"
+    override val rfRemoving: (String) -> String = { model -> "Removing \"$model\"…" }
+    override val rfRemoveFailed: (String, String) -> String = { model, msg -> "Could not remove \"$model\": $msg" }
     override val rfOllamaUnreachable = "Ollama is not reachable."
     override val rfInstallHint1 = "1. Download and install Ollama from ollama.com."
     override val rfInstallHint2 = "2. Start \"ollama serve\" (default port 11434), then re-check."

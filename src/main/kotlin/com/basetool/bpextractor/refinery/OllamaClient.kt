@@ -56,6 +56,9 @@ interface OllamaApi {
      * harmless no-op.
      */
     fun unload(model: String)
+
+    /** Removes [model] from the Ollama install (`DELETE /api/delete`); throws when Ollama refuses. */
+    fun delete(model: String)
 }
 
 /**
@@ -162,6 +165,19 @@ class HttpOllamaClient(private val endpoint: String = DEFAULT_ENDPOINT) : Ollama
             HttpResponse.BodyHandlers.ofString(),
         )
         check(response.statusCode() == 200) { "POST /api/chat (unload) failed: HTTP ${response.statusCode()}" }
+    }
+
+    override fun delete(model: String) {
+        val body = buildJsonObject { put("model", model) }
+        val response = http.send(
+            HttpRequest.newBuilder(URI.create("$endpoint/api/delete"))
+                .timeout(Duration.ofSeconds(30))
+                .header("Content-Type", "application/json")
+                .method("DELETE", HttpRequest.BodyPublishers.ofString(body.toString()))
+                .build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
+        check(response.statusCode() == 200) { "DELETE /api/delete failed: HTTP ${response.statusCode()} ${response.body()}" }
     }
 
     /**

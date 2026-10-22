@@ -220,7 +220,10 @@ evaluation runs entirely locally via [Ollama](https://ollama.com):
    11434).
 2. Pull the model: `ollama pull qwen3-vl:8b-instruct` — or simply let the app do
    it: the **preflight** detects a missing model and downloads it on click, with a
-   progress indicator.
+   progress indicator. On the recommended tier it also offers the optional second-check
+   model (`qwen3.5:9b`), and it offers to remove extractor models this PC no longer needs
+   (e.g. `qwen3-vl:4b-instruct` on a recommended-tier PC). Nothing is removed without
+   your confirmation, and models the extractor does not use are never touched.
 
 **Hardware tiers** (detected and pre-selected automatically by the app):
 
@@ -262,8 +265,8 @@ evaluation runs entirely locally via [Ollama](https://ollama.com):
 
 The extraction processes **one image at a time** (throttling), shows the stages
 *Locate → Normalize → Read* per image (plus *Verify* when a second model
-cross-checks the read — on the recommended tier, if `qwen3.5:9b` is already
-installed; `ollama pull qwen3.5:9b` adds it, 6.6 GB) and ends in a review step: check every value that was read
+cross-checks the read — on the recommended tier, once `qwen3.5:9b` is installed;
+the preflight offers it, 6.6 GB) and ends in a review step: check every value that was read
 together with its derived confidence, then either **Send to Basetool** (afterwards
 **Open in basetool** takes you to the pre-filled form) or **Export as JSON** and
 import the file as described

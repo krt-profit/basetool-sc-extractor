@@ -746,9 +746,12 @@ the flag `qwen3.5:9b` took ~66 s per image in round 2; with it, the verify pass 
 read lines are byte-identical to the run without it, so the pin's reads are untouched.
 `HttpOllamaClientTest` pins the flag in the request.
 
-**Policy unchanged:** verify runs on the recommended tier and only when the partner is already
-installed. The preflight still offers only the primary's download. A member who had the 4b for
-verify gets no verify pass until `qwen3.5:9b` is pulled. The README says how.
+**Policy:** verify still runs on the recommended tier only, and only when the partner is installed.
+New: the preflight offers the partner's download there, as an optional outline action beside the
+primary's own pull. It also offers to remove installed extractor models the PC's tier never uses,
+e.g. the 4b on a recommended-tier PC, behind an inline confirmation and never unasked. Only the
+models `Preflight.EXTRACTOR_MODELS` pins are ever offered, since a member may use other Ollama
+models elsewhere.
 
 **Expected file:** regenerated cells only where the switch moved them: a10 GOLD 559 → **553** and
 a14 LARANITE 518 → **510**. Both are now right; the backup is `golden-expected.json.bak-20261022-verify`.

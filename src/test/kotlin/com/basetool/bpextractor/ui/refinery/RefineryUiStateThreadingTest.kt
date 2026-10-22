@@ -47,6 +47,8 @@ class RefineryUiStateThreadingTest {
         }
 
         override fun unload(model: String) {}
+
+        override fun delete(model: String) {}
     }
 
     /** A UI dispatcher that parks the tasks dispatched while [holding] until [release]. */
