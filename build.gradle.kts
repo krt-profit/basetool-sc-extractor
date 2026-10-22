@@ -85,6 +85,19 @@ tasks.test {
     jvmArgs("--enable-native-access=ALL-UNNAMED")
 }
 
+val ortNativeRoot = layout.buildDirectory.dir("ort-native")
+val extractOrtNative = tasks.register<Sync>("extractOrtNative") {
+    from({ configurations.runtimeClasspath.get().filter { it.name.startsWith("onnxruntime-") }.map { zipTree(it) } }) {
+        include("ai/onnxruntime/native/win-x64/*.dll")
+        eachFile { relativePath = RelativePath(true, "windows-x64", name) }
+    }
+    includeEmptyDirs = false
+    into(ortNativeRoot)
+}
+tasks.matching { it.name == "prepareAppResources" }.configureEach {
+    dependsOn(extractOrtNative)
+}
+
 compose.desktop {
     application {
         mainClass = "com.basetool.bpextractor.MainKt"
@@ -105,6 +118,8 @@ compose.desktop {
             copyright = "© 2026 Basetool. GPL-3.0-or-later. Unofficial Star Citizen fan tool, not affiliated with the Cloud Imperium group of companies. Star Citizen®, Roberts Space Industries® and Cloud Imperium® are registered trademarks of Cloud Imperium Rights LLC."
 
             modules("java.instrument", "jdk.unsupported", "java.net.http", "jdk.management")
+
+            appResourcesRootDir.set(ortNativeRoot)
 
             windows {
                 upgradeUuid = "530c8db7-fe35-4e3f-8ac4-1af9a611a0a6"
