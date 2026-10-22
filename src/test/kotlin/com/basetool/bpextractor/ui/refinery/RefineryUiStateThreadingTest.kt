@@ -9,13 +9,16 @@ import java.awt.image.BufferedImage
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import javax.imageio.ImageIO
+import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlin.test.fail
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -44,6 +47,21 @@ class RefineryUiStateThreadingTest {
         }
 
         override fun unload(model: String) {}
+    }
+
+    /** A UI dispatcher that parks the tasks dispatched while [holding] until [release]. */
+    private class HoldingDispatcher(private val target: Executor) : CoroutineDispatcher() {
+        @Volatile
+        var holding = false
+        private val held = ConcurrentLinkedQueue<Runnable>()
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            if (holding) held += block else target.execute(block)
+        }
+
+        fun release() {
+            generateSequence { held.poll() }.forEach(target::execute)
+        }
     }
 
     private fun darkFrame(dir: File): File {
@@ -124,6 +142,36 @@ class RefineryUiStateThreadingTest {
         }
         assertTrue(status is OllamaStatus.ModelMissing, "after the pull the check ran: $status")
         assertEquals(setOf(UI_THREAD), writers.toSet())
+    }
+
+    @Test
+    fun `pull progress that arrives after the pull returned does not overwrite the result`() {
+        val executor = Executors.newSingleThreadExecutor { Thread(it, UI_THREAD) }
+        val ui = HoldingDispatcher(executor)
+        val scope = CoroutineScope(SupervisorJob() + ui)
+        val client = object : OllamaApi by UnreadableOllama() {
+            override fun pull(model: String, onProgress: (Long?, Long?, String) -> Unit) {
+                ui.holding = true
+                try {
+                    repeat(5) { onProgress(it.toLong(), 5L, "pulling") }
+                } finally {
+                    ui.holding = false
+                }
+            }
+        }
+        val state = RefineryUiState(clientFor = { client })
+        try {
+            val status = runBlocking {
+                withContext(scope.coroutineContext) { state.pullModel(scope) }
+                awaitOnUi(scope, { "status=${state.ollamaStatus}" }) { state.ollamaStatus !is OllamaStatus.Pulling }
+                ui.release()
+                withContext(scope.coroutineContext) { state.ollamaStatus }
+            }
+            assertTrue(status is OllamaStatus.ModelMissing, "the late progress was dropped: $status")
+        } finally {
+            scope.cancel()
+            executor.shutdown()
+        }
     }
 
     private companion object {

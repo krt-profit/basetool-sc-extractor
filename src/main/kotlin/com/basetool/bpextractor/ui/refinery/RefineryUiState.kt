@@ -317,20 +317,28 @@ class RefineryUiState(
         }
     }
 
-    /** The guided `ollama pull` of the missing model with streaming progress (§5.1). */
+    /**
+     * The guided `ollama pull` of the missing model with streaming progress (§5.1). A progress update
+     * still queued when the pull has returned is dropped, so it cannot overwrite the result.
+     */
     fun pullModel(scope: CoroutineScope) {
         val model = selectedModel
         val client = clientFor(endpoint)
         ollamaStatus = OllamaStatus.Pulling(null, null, "")
+        var pullReturned = false
         scope.launch {
             try {
                 withContext(Dispatchers.IO) {
                     client.pull(model) { completed, total, status ->
-                        scope.launch { ollamaStatus = OllamaStatus.Pulling(completed, total, status) }
+                        scope.launch {
+                            if (!pullReturned) ollamaStatus = OllamaStatus.Pulling(completed, total, status)
+                        }
                     }
                 }
+                pullReturned = true
                 checkOllama()
             } catch (t: Throwable) {
+                pullReturned = true
                 ollamaStatus = OllamaStatus.PullFailed(t.message ?: t::class.simpleName ?: "?")
             }
         }
