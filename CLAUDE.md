@@ -217,7 +217,14 @@ private (guardrail 1a) and live outside the repo; ask for their path.
     own functions in real Windows PowerShell with `Start-Process` stubbed, so that property
     is tested, not just grepped. Never loosen either check to make an odd release work —
     fix the release.
-- **`net/`** — the only outbound path besides the update check. `ExchangeClient` talks to
+- **`refinery/ModelRegistry.kt`** — the third outbound path: the refinery preflight reads the public
+  manifest of each extractor model the PC's tier uses from `registry.ollama.ai` (once per model and
+  session, `GET`, nothing sent but the model name). Ollama's local model digest is the SHA-256 of
+  those manifest bytes, so a differing digest means the tag moved, and the preflight offers the
+  update (an `ollama pull`); members always get the registry's current version (owner decision
+  2026-10-22). Any failure means no offer. A moved tag can change recognition, so a registry move is
+  a reason to re-run the `PromptSmokeTest` sweep.
+- **`net/`** — the outbound path to the basetool, next to the update check and the model registry. `ExchangeClient` talks to
   `/exchange/v1` on the gateway: the two draft routes (`drafts/blueprints`,
   `drafts/refinery-orders`) and the installation label. Every call carries `Authorization:
   DPoP`, a proof with `ath` and the server's current nonce, `User-Agent:

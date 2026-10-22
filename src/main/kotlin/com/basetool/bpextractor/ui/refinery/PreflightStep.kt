@@ -152,8 +152,8 @@ private fun OllamaCard(state: RefineryUiState, appScope: CoroutineScope, modifie
 
 /**
  * The second-check row and the model housekeeping under the Ollama status: the verify partner's
- * optional download and the removal of installed extractor models this PC's tier never uses, each
- * removal behind an inline confirmation.
+ * optional download, updates of models whose registry tag moved, and the removal of installed extractor
+ * models this PC's tier never uses, each removal behind an inline confirmation.
  */
 @Composable
 private fun ModelHousekeeping(state: RefineryUiState, appScope: CoroutineScope) {
@@ -185,6 +185,30 @@ private fun ModelHousekeeping(state: RefineryUiState, appScope: CoroutineScope) 
             GhostButton(
                 strings.rfVerifyPullCta,
                 onClick = { state.pullVerifyModel(appScope) },
+                enabled = !busy,
+                tone = ButtonTone.OUTLINE,
+            )
+        }
+    }
+
+    state.updatableModels.forEach { update ->
+        if (task is ModelTask.Pulling && task.model == update.model) {
+            PullProgress(task.completed, task.total, task.status, model = update.model)
+        } else {
+            AlertBox(Krt.Info) {
+                Text(
+                    strings.rfModelUpdate(update.model, update.sizeBytes?.let(::modelSize) ?: "?"),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Krt.Gray1,
+                )
+                if (task is ModelTask.Failed && !task.removal && task.model == update.model) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(strings.rfPullFailed(task.message), style = MaterialTheme.typography.bodySmall, color = Krt.DangerText)
+                }
+            }
+            GhostButton(
+                strings.rfUpdateCta,
+                onClick = { state.updateModel(appScope, update.model) },
                 enabled = !busy,
                 tone = ButtonTone.OUTLINE,
             )

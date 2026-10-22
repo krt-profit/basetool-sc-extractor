@@ -17,8 +17,11 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 
-/** One model entry from `GET /api/tags` (installed) or `GET /api/ps` (loaded). */
-data class OllamaModel(val name: String, val sizeBytes: Long?, val sizeVramBytes: Long?)
+/**
+ * One model entry from `GET /api/tags` (installed) or `GET /api/ps` (loaded); [digest] is the SHA-256 of
+ * the registry manifest the model was pulled from.
+ */
+data class OllamaModel(val name: String, val sizeBytes: Long?, val sizeVramBytes: Long?, val digest: String? = null)
 
 /** The result of one chat read: the raw answer text + why generation stopped. */
 data class ChatResult(val text: String, val doneReason: String?)
@@ -93,6 +96,7 @@ class HttpOllamaClient(private val endpoint: String = DEFAULT_ENDPOINT) : Ollama
                 name = obj["name"]?.jsonPrimitive?.content ?: "",
                 sizeBytes = obj["size"]?.jsonPrimitive?.long,
                 sizeVramBytes = obj["size_vram"]?.jsonPrimitive?.long,
+                digest = obj["digest"]?.jsonPrimitive?.content,
             )
         }
     }

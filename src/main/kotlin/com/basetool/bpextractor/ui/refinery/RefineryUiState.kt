@@ -15,11 +15,13 @@ import com.basetool.bpextractor.refinery.ExtractWarning
 import com.basetool.bpextractor.refinery.GpuInfo
 import com.basetool.bpextractor.refinery.HardwareSnapshot
 import com.basetool.bpextractor.refinery.HardwareTier
+import com.basetool.bpextractor.refinery.HttpModelRegistry
 import com.basetool.bpextractor.refinery.HttpOllamaClient
 import com.basetool.bpextractor.refinery.ImageOutcome
 import com.basetool.bpextractor.refinery.JmxRamProbe
 import com.basetool.bpextractor.refinery.JvmScProcessProbe
 import com.basetool.bpextractor.refinery.Locate
+import com.basetool.bpextractor.refinery.ModelRegistry
 import com.basetool.bpextractor.refinery.OllamaApi
 import com.basetool.bpextractor.refinery.OllamaModel
 import com.basetool.bpextractor.refinery.PipelineCancelledException
@@ -29,6 +31,7 @@ import com.basetool.bpextractor.refinery.PipelineResult
 import com.basetool.bpextractor.refinery.PipelineStage
 import com.basetool.bpextractor.refinery.Preflight
 import com.basetool.bpextractor.refinery.RefineryPipeline
+import com.basetool.bpextractor.refinery.RegistryVersion
 import com.basetool.bpextractor.refinery.TierDecision
 import com.basetool.bpextractor.refinery.Validation
 import com.basetool.bpextractor.refinery.WindowsGpuProbe
@@ -87,6 +90,9 @@ sealed interface ModelTask {
     data class Failed(override val model: String, val removal: Boolean, val message: String) : ModelTask
 }
 
+/** An installed model whose registry tag points to a newer version, and that version's download size. */
+data class ModelUpdate(val model: String, val sizeBytes: Long?)
+
 /** The below-recommended fallback choice (§5.1 radio): compact GPU model vs. CPU-only mode. */
 enum class FallbackChoice { LOW_VRAM, CPU }
 
@@ -122,6 +128,8 @@ data class RefineryImage(
 class RefineryUiState(
     /** Ollama client factory — injectable so UI logic could be exercised without a server. */
     private val clientFor: (String) -> OllamaApi = { HttpOllamaClient(it) },
+    /** Where the preflight looks up a model's current version — injectable like [clientFor]. */
+    private val registry: ModelRegistry = HttpModelRegistry(),
 ) {
     var step by mutableStateOf(0)
     var maxReached by mutableStateOf(0)
@@ -330,6 +338,57 @@ class RefineryUiState(
         } else {
             OllamaStatus.ModelMissing(model)
         }
+        askRegistry()
+    }
+
+    /** The registry's current version of each model asked about this session. */
+    internal val registryVersions = mutableStateMapOf<String, RegistryVersion>()
+
+    /** Models already asked about this session, so the registry is asked once per model and run. */
+    private val registryAsked = mutableSetOf<String>()
+
+    /** Asks the registry, once per session, for the current version of every installed model this tier uses. */
+    private suspend fun askRegistry() {
+        val tier = decision?.tier ?: return
+        val due = Preflight.modelsNeeded(tier).filter { needed ->
+            needed !in registryAsked && installedExtractorModels.any { Preflight.isModel(it.name, needed) }
+        }
+        for (model in due) {
+            registryAsked += model
+            withContext(Dispatchers.IO) { registry.latest(model) }?.let { registryVersions[model] = it }
+        }
+    }
+
+    /**
+     * Installed models this tier uses whose registry tag now points to another version, with the
+     * download size; offered for update, never updated unasked.
+     */
+    val updatableModels: List<ModelUpdate>
+        get() {
+            val tier = decision?.tier ?: return emptyList()
+            if (ollamaStatus != OllamaStatus.Ready) return emptyList()
+            return Preflight.modelsNeeded(tier).mapNotNull { needed ->
+                val installed = installedExtractorModels.firstOrNull { Preflight.isModel(it.name, needed) }
+                val latest = registryVersions[needed]
+                if (installed?.digest == null || latest == null || latest.digest == installed.digest) {
+                    null
+                } else {
+                    ModelUpdate(installed.name, latest.sizeBytes)
+                }
+            }
+        }
+
+    /** Pulls the registry's current version of [model], one of [updatableModels]; progress lands in [modelTask]. */
+    fun updateModel(scope: CoroutineScope, model: String) {
+        if (modelTaskRunning || updatableModels.none { it.model == model }) return
+        modelTask = ModelTask.Pulling(model, null, null, "")
+        pullThenCheck(
+            scope,
+            model,
+            onProgress = { completed, total, status -> modelTask = ModelTask.Pulling(model, completed, total, status) },
+            onFailure = { modelTask = ModelTask.Failed(model, removal = false, message = it) },
+            onSuccess = { modelTask = null },
+        )
     }
 
     /** The guided `ollama pull` of the missing model with streaming progress (§5.1). */

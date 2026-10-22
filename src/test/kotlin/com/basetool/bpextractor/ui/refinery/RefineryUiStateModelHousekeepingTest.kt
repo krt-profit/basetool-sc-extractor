@@ -2,9 +2,11 @@ package com.basetool.bpextractor.ui.refinery
 
 import com.basetool.bpextractor.refinery.ChatResult
 import com.basetool.bpextractor.refinery.HardwareTier
+import com.basetool.bpextractor.refinery.ModelRegistry
 import com.basetool.bpextractor.refinery.OllamaApi
 import com.basetool.bpextractor.refinery.OllamaModel
 import com.basetool.bpextractor.refinery.Preflight
+import com.basetool.bpextractor.refinery.RegistryVersion
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import kotlin.test.Test
@@ -26,10 +28,11 @@ class RefineryUiStateModelHousekeepingTest {
 
     private class FakeOllama(vararg installed: String) : OllamaApi {
         val models = CopyOnWriteArrayList(installed.toList())
+        val digests = java.util.concurrent.ConcurrentHashMap<String, String>()
         val deleted = CopyOnWriteArrayList<String>()
         var refuseDelete = false
 
-        override fun installedModels() = models.map { OllamaModel(it, 3_300_000_000L, null) }
+        override fun installedModels() = models.map { OllamaModel(it, 3_300_000_000L, null, digests[it] ?: OLD_DIGEST) }
 
         override fun loadedModels(): List<OllamaModel> = emptyList()
 
@@ -38,7 +41,8 @@ class RefineryUiStateModelHousekeepingTest {
 
         override fun pull(model: String, onProgress: (Long?, Long?, String) -> Unit) {
             onProgress(1L, 2L, "pulling")
-            models += model
+            if (model !in models) models += model
+            digests[model] = NEW_DIGEST
         }
 
         override fun unload(model: String) {}
@@ -50,10 +54,15 @@ class RefineryUiStateModelHousekeepingTest {
         }
     }
 
-    private fun onUi(ollama: FakeOllama, tier: HardwareTier, block: suspend (CoroutineScope, RefineryUiState) -> Unit) {
+    private fun onUi(
+        ollama: FakeOllama,
+        tier: HardwareTier,
+        registry: ModelRegistry = ModelRegistry { null },
+        block: suspend (CoroutineScope, RefineryUiState) -> Unit,
+    ) {
         val executor = Executors.newSingleThreadExecutor()
         val scope = CoroutineScope(SupervisorJob() + executor.asCoroutineDispatcher())
-        val state = RefineryUiState(clientFor = { ollama })
+        val state = RefineryUiState(clientFor = { ollama }, registry = registry)
         try {
             runBlocking {
                 withContext(scope.coroutineContext) {
@@ -138,5 +147,64 @@ class RefineryUiStateModelHousekeepingTest {
                 assertEquals(listOf("qwen3-vl:4b-instruct"), state.removableModels.map { it.name })
             }
         }
+    }
+
+    private val newerEverywhere = ModelRegistry { RegistryVersion(NEW_DIGEST, 6_200_000_000L) }
+
+    @Test
+    fun `a model whose registry tag moved is offered and updated`() {
+        val ollama = FakeOllama("qwen3-vl:8b-instruct", "qwen3.5:9b")
+        onUi(ollama, HardwareTier.RECOMMENDED, newerEverywhere) { scope, state ->
+            await(scope) { state.updatableModels.size == 2 }
+            withContext(scope.coroutineContext) {
+                assertEquals(
+                    listOf(ModelUpdate("qwen3-vl:8b-instruct", 6_200_000_000L), ModelUpdate("qwen3.5:9b", 6_200_000_000L)),
+                    state.updatableModels,
+                )
+                state.updateModel(scope, "qwen3-vl:8b-instruct")
+            }
+            await(scope) { state.modelTask == null && state.updatableModels.size == 1 }
+            withContext(scope.coroutineContext) {
+                assertEquals(listOf("qwen3.5:9b"), state.updatableModels.map { it.model })
+            }
+        }
+    }
+
+    @Test
+    fun `an up-to-date model, an unanswered registry and an unneeded model offer no update`() {
+        val current = ModelRegistry { RegistryVersion(OLD_DIGEST, 1L) }
+        onUi(FakeOllama("qwen3-vl:8b-instruct"), HardwareTier.RECOMMENDED, current) { scope, state ->
+            delay(200)
+            withContext(scope.coroutineContext) { assertTrue(state.updatableModels.isEmpty()) }
+        }
+        onUi(FakeOllama("qwen3-vl:8b-instruct"), HardwareTier.RECOMMENDED) { scope, state ->
+            delay(200)
+            withContext(scope.coroutineContext) { assertTrue(state.updatableModels.isEmpty()) }
+        }
+        onUi(FakeOllama("qwen3-vl:8b-instruct", "qwen3-vl:4b-instruct"), HardwareTier.RECOMMENDED, newerEverywhere) { scope, state ->
+            await(scope) { state.updatableModels.isNotEmpty() }
+            withContext(scope.coroutineContext) {
+                assertEquals(listOf("qwen3-vl:8b-instruct"), state.updatableModels.map { it.model })
+            }
+        }
+    }
+
+    @Test
+    fun `the registry is asked once per model and session`() {
+        val asked = CopyOnWriteArrayList<String>()
+        val counting = ModelRegistry { model -> asked += model; null }
+        onUi(FakeOllama("qwen3-vl:8b-instruct"), HardwareTier.RECOMMENDED, counting) { scope, state ->
+            withContext(scope.coroutineContext) { state.recheckOllama(scope) }
+            await(scope) { state.ollamaStatus == OllamaStatus.Ready }
+            withContext(scope.coroutineContext) { state.recheckOllama(scope) }
+            await(scope) { state.ollamaStatus == OllamaStatus.Ready }
+            delay(200)
+        }
+        assertEquals(listOf("qwen3-vl:8b-instruct"), asked.toList())
+    }
+
+    private companion object {
+        const val OLD_DIGEST = "0533d74"
+        const val NEW_DIGEST = "70e58e37"
     }
 }

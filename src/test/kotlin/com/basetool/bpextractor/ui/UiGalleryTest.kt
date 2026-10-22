@@ -48,6 +48,7 @@ import com.basetool.bpextractor.refinery.ImageOutcome
 import com.basetool.bpextractor.refinery.OllamaModel
 import com.basetool.bpextractor.refinery.PipelineResult
 import com.basetool.bpextractor.refinery.PipelineStage
+import com.basetool.bpextractor.refinery.RegistryVersion
 import com.basetool.bpextractor.refinery.TierDecision
 import com.basetool.bpextractor.refinery.ValidatedOrder
 import com.basetool.bpextractor.refinery.model.RefineryExtract
@@ -356,6 +357,20 @@ class UiGalleryTest {
             )
         }
         list += Shot("41-rf-models-offer-and-remove-small", 640, 520) { RefineryFrame(f.rfModels(fallbackInstalled = true)) }
+        list += Shot("41-rf-models-update") { RefineryFrame(f.rfModels(verify = true, primaryOutdated = true)) }
+        list += Shot("41-rf-models-update-en", lang = Lang.EN) { RefineryFrame(f.rfModels(verify = true, primaryOutdated = true), Lang.EN) }
+        list += Shot("41-rf-models-updating") {
+            RefineryFrame(
+                f.rfModels(
+                    verify = true,
+                    primaryOutdated = true,
+                    task = ModelTask.Pulling("qwen3-vl:8b-instruct", 3_900_000_000, 6_200_000_000, "pulling"),
+                ),
+            )
+        }
+        list += Shot("41-rf-models-everything") {
+            RefineryFrame(f.rfModels(fallbackInstalled = true, primaryOutdated = true))
+        }
         list += Shot("41-rf-help") { RefineryFrame(f.rf(OllamaStatus.Ready, HardwareTier.RECOMMENDED), overlay = { HelpOverlay {} }) }
         list += Shot("41-rf-help-small", 640, 520) { RefineryFrame(f.rf(OllamaStatus.Ready, HardwareTier.RECOMMENDED), overlay = { HelpOverlay {} }) }
 
@@ -593,13 +608,15 @@ class UiGalleryTest {
             verify: Boolean = false,
             fallbackInstalled: Boolean = false,
             task: ModelTask? = null,
+            primaryOutdated: Boolean = false,
         ): RefineryUiState = rf(OllamaStatus.Ready, HardwareTier.RECOMMENDED).also { s ->
             s.verifyAvailable = verify
             s.installedExtractorModels = listOfNotNull(
-                OllamaModel("qwen3-vl:8b-instruct", 6_100_000_000, null),
-                OllamaModel("qwen3.5:9b", 6_600_000_000, null).takeIf { verify },
-                OllamaModel("qwen3-vl:4b-instruct", 3_300_000_000, null).takeIf { fallbackInstalled },
+                OllamaModel("qwen3-vl:8b-instruct", 6_100_000_000, null, "0533d74"),
+                OllamaModel("qwen3.5:9b", 6_600_000_000, null, "56671c2").takeIf { verify },
+                OllamaModel("qwen3-vl:4b-instruct", 3_300_000_000, null, "ee4b975").takeIf { fallbackInstalled },
             )
+            if (primaryOutdated) s.registryVersions["qwen3-vl:8b-instruct"] = RegistryVersion("70e58e37", 6_200_000_000)
             s.modelTask = task
         }
 

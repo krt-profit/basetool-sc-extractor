@@ -224,6 +224,9 @@ evaluation runs entirely locally via [Ollama](https://ollama.com):
    model (`qwen3.5:9b`), and it offers to remove extractor models this PC no longer needs
    (e.g. `qwen3-vl:4b-instruct` on a recommended-tier PC). Nothing is removed without
    your confirmation, and models the extractor does not use are never touched.
+   When Ollama publishes a new version of a model the extractor uses, the preflight offers
+   the update. For that it reads the model's public manifest from `registry.ollama.ai`; only
+   the model name is sent.
 
 **Hardware tiers** (detected and pre-selected automatically by the app):
 

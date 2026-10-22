@@ -258,6 +258,8 @@ interface Strings {
     val rfVerifyOffer: (String, String) -> String
     val rfVerifyPullCta: String
     val rfModelUnneeded: (String, String) -> String
+    val rfModelUpdate: (String, String) -> String
+    val rfUpdateCta: String
     val rfRemoveCta: String
     val rfRemoveConfirm: (String) -> String
     val rfRemoveConfirmCta: String
@@ -595,6 +597,10 @@ object StringsDe : Strings {
     override val rfModelUnneeded: (String, String) -> String = { model, size ->
         "„$model\" ($size) braucht der Extractor auf diesem PC nicht mehr."
     }
+    override val rfModelUpdate: (String, String) -> String = { model, size ->
+        "Neue Version von „$model\" verfügbar ($size)."
+    }
+    override val rfUpdateCta = "Aktualisieren"
     override val rfRemoveCta = "Entfernen"
     override val rfRemoveConfirm: (String) -> String = { model ->
         "„$model\" aus Ollama löschen? Andere Programme, die es nutzen, müssen es dann neu laden."
@@ -1157,6 +1163,10 @@ object StringsEn : Strings {
     override val rfModelUnneeded: (String, String) -> String = { model, size ->
         "\"$model\" ($size) is no longer needed by the extractor on this PC."
     }
+    override val rfModelUpdate: (String, String) -> String = { model, size ->
+        "A new version of \"$model\" is available ($size)."
+    }
+    override val rfUpdateCta = "Update"
     override val rfRemoveCta = "Remove"
     override val rfRemoveConfirm: (String) -> String = { model ->
         "Delete \"$model\" from Ollama? Other programs that use it will have to pull it again."
