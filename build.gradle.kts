@@ -2,10 +2,10 @@ import org.jetbrains.compose.desktop.application.dsl.TargetFormat
 import org.jetbrains.compose.desktop.application.tasks.AbstractJPackageTask
 
 plugins {
-    kotlin("jvm") version "2.4.20"
-    kotlin("plugin.compose") version "2.4.20"
-    kotlin("plugin.serialization") version "2.4.20"
-    id("org.jetbrains.compose") version "1.12.1"
+    kotlin("jvm") version "2.4.21"
+    kotlin("plugin.compose") version "2.4.21"
+    kotlin("plugin.serialization") version "2.4.21"
+    id("org.jetbrains.compose") version "1.12.2"
 }
 
 group = "com.basetool"
@@ -21,10 +21,10 @@ repositories {
 dependencies {
     implementation(compose.desktop.currentOs)
     implementation("org.jetbrains.compose.material3:material3:1.9.0")
-    implementation("org.jetbrains.compose.components:components-resources:1.12.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("org.jetbrains.compose.components:components-resources:1.12.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:1.11.0")
-    implementation("com.microsoft.onnxruntime:onnxruntime:1.30.0")
+    implementation("com.microsoft.onnxruntime:onnxruntime:1.31.0")
 
     testImplementation(kotlin("test"))
     testImplementation("com.networknt:json-schema-validator:3.0.8")

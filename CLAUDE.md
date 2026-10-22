@@ -56,7 +56,7 @@ An **onnxruntime bump** is checked differently, and much more cheaply: `OcrDiges
 bundled classical-OCR reader over the whole corpus and prints a SHA-256 of every cell it
 recognised, with its box. ONNX Runtime's CPU inference is deterministic, so a clean bump is
 **bit-for-bit identical** — run it before and after and diff. No Ollama, under a minute, and any
-difference at all is real (1.22.0→1.27.0 and 1.29.0→1.30.0 both came back byte-identical).
+difference at all is real (1.22.0→1.27.0, 1.29.0→1.30.0 and 1.30.0→1.31.0 all came back byte-identical).
 
 ```powershell
 $env:OCR_DIGEST_DIR = "<the sample corpus>"
@@ -614,7 +614,7 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   alpha-only days the deprecated `compose.material3` accessor was kept for) and
   `org.jetbrains.compose.components:components-resources` (was `compose.components.resources`).
   Bump BOTH whenever the `org.jetbrains.compose` plugin moves — components-resources tracks the
-  plugin version 1:1, while material3's stable line lags it (plugin 1.12.0 ↔ material3 1.9.0), so
+  plugin version 1:1, while material3's stable line lags it (plugin 1.12.2 ↔ material3 1.9.0), so
   they are not interchangeable. Check the resolved version with
   `gradlew dependencies --configuration runtimeClasspath` rather than assuming.
 - **Bundled drawables go through the Compose resources library:** images/SVGs live in
