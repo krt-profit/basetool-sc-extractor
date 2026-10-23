@@ -263,14 +263,14 @@ private fun ModelHousekeeping(state: RefineryUiState, appScope: CoroutineScope) 
 }
 
 /** A model's size the way Ollama lists it, in decimal gigabytes. */
-private fun modelSize(bytes: Long): String = String.format("%.1f GB", bytes / 1e9)
+internal fun modelSize(bytes: Long): String = String.format("%.1f GB", bytes / 1e9)
 
 /**
  * Download progress of a pull: bytes and a bar when the registry reports them, else its status line;
  * [model] names the model when it is not the run's own.
  */
 @Composable
-private fun PullProgress(completed: Long?, total: Long?, status: String, model: String? = null) {
+internal fun PullProgress(completed: Long?, total: Long?, status: String, model: String? = null) {
     val strings = LocalStrings.current
     val amount = if (completed != null && total != null && total > 0) "${completed / MIB} / ${total / MIB} MB" else status
     val label = if (model != null) "$model · $amount" else amount

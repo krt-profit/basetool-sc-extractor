@@ -46,6 +46,7 @@ fun StartScreen(
     onUpdateInstall: () -> Unit,
     onUpdateDismiss: () -> Unit,
     onOpen: (MainTab) -> Unit,
+    modelUpdate: @Composable () -> Unit = {},
 ) {
     val strings = LocalStrings.current
     val account = remember { AccountController() }
@@ -66,6 +67,7 @@ fun StartScreen(
                 UpdateBanner(state = update, onInstall = onUpdateInstall, onDismiss = onUpdateDismiss)
                 Spacer(Modifier.height(14.dp))
             }
+            modelUpdate()
             Caption(strings.startChooseWorkflow)
             Spacer(Modifier.height(10.dp))
 

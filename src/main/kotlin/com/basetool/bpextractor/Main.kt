@@ -95,6 +95,7 @@ import com.basetool.bpextractor.ui.i18n.StringsEn
 import com.basetool.bpextractor.ui.i18n.stringsFor
 import com.basetool.bpextractor.ui.refinery.AlertBox
 import com.basetool.bpextractor.ui.refinery.KrtChip
+import com.basetool.bpextractor.ui.refinery.ModelUpdateBanner
 import com.basetool.bpextractor.ui.refinery.RefineryUiState
 import com.basetool.bpextractor.update.UpdateChecker
 import com.basetool.bpextractor.update.UpdateInfo
@@ -923,6 +924,8 @@ private fun guiMain() = application {
             update = UpdateUiState.Available(found)
         }
     }
+    var modelUpdateDismissed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { refinery.checkModelUpdates(appScope) }
 
     fun installUpdate(info: UpdateInfo) {
         update = UpdateUiState.Downloading(info, 0L, info.msiSizeBytes)
@@ -1017,6 +1020,16 @@ private fun guiMain() = application {
                                     },
                                     onUpdateDismiss = { update = UpdateUiState.Hidden },
                                     onOpen = { tab = it },
+                                    modelUpdate = {
+                                        if (!modelUpdateDismissed) {
+                                            ModelUpdateBanner(
+                                                state = refinery,
+                                                appScope = appScope,
+                                                onDismiss = { modelUpdateDismissed = true },
+                                                modifier = Modifier.padding(bottom = 14.dp),
+                                            )
+                                        }
+                                    },
                                 )
                                 MainTab.BLUEPRINTS -> ExtractorScreen(state, appScope)
                                 MainTab.REFINERY -> RefineryScreen(refinery, appScope, onPicker = { state.picker = it })
