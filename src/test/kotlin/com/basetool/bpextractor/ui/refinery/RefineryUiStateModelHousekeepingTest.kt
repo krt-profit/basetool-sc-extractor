@@ -1,6 +1,8 @@
 package com.basetool.bpextractor.ui.refinery
 
 import com.basetool.bpextractor.refinery.ChatResult
+import com.basetool.bpextractor.refinery.GpuInfo
+import com.basetool.bpextractor.refinery.HardwareSnapshot
 import com.basetool.bpextractor.refinery.HardwareTier
 import com.basetool.bpextractor.refinery.ModelRegistry
 import com.basetool.bpextractor.refinery.OllamaApi
@@ -201,6 +203,57 @@ class RefineryUiStateModelHousekeepingTest {
             delay(200)
         }
         assertEquals(listOf("qwen3-vl:8b-instruct"), asked.toList())
+    }
+
+    @Test
+    fun `the start-up check offers the update without running the preflight`() {
+        val executor = Executors.newSingleThreadExecutor()
+        val scope = CoroutineScope(SupervisorJob() + executor.asCoroutineDispatcher())
+        val probes = java.util.concurrent.atomic.AtomicInteger()
+        val state = RefineryUiState(
+            clientFor = { FakeOllama("qwen3-vl:8b-instruct", "qwen3.5:9b") },
+            registry = newerEverywhere,
+            probeHardware = {
+                probes.incrementAndGet()
+                HardwareSnapshot(scRunning = false, totalRamBytes = 32L shl 30, gpu = GpuInfo("GPU", 16L shl 30))
+            },
+        )
+        try {
+            runBlocking {
+                withContext(scope.coroutineContext) { state.checkModelUpdates(scope) }
+                await(scope) { state.updatableModels.size == 2 }
+                withContext(scope.coroutineContext) { state.runPreflight(scope) }
+                await(scope) { probes.get() == 2 && state.ollamaStatus == OllamaStatus.Ready }
+            }
+        } finally {
+            scope.cancel()
+            executor.shutdown()
+        }
+    }
+
+    @Test
+    fun `no start-up offer without Ollama`() {
+        val executor = Executors.newSingleThreadExecutor()
+        val scope = CoroutineScope(SupervisorJob() + executor.asCoroutineDispatcher())
+        val state = RefineryUiState(
+            clientFor = {
+                object : OllamaApi by FakeOllama() {
+                    override fun installedModels(): List<OllamaModel> = error("connection refused")
+                }
+            },
+            registry = newerEverywhere,
+            probeHardware = { HardwareSnapshot(scRunning = false, totalRamBytes = null, gpu = null) },
+        )
+        try {
+            runBlocking {
+                withContext(scope.coroutineContext) { state.checkModelUpdates(scope) }
+                await(scope) { state.ollamaStatus is OllamaStatus.Unreachable }
+                withContext(scope.coroutineContext) { assertTrue(state.updatableModels.isEmpty()) }
+            }
+        } finally {
+            scope.cancel()
+            executor.shutdown()
+        }
     }
 
     private companion object {

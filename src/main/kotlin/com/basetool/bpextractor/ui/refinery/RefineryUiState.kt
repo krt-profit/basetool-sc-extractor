@@ -130,6 +130,10 @@ class RefineryUiState(
     private val clientFor: (String) -> OllamaApi = { HttpOllamaClient(it) },
     /** Where the preflight looks up a model's current version — injectable like [clientFor]. */
     private val registry: ModelRegistry = HttpModelRegistry(),
+    /** The hardware probe behind the tier decision — injectable like [clientFor]. */
+    private val probeHardware: () -> HardwareSnapshot = {
+        Preflight.snapshot(JvmScProcessProbe(), JmxRamProbe(), WindowsGpuProbe())
+    },
 ) {
     var step by mutableStateOf(0)
     var maxReached by mutableStateOf(0)
@@ -304,16 +308,26 @@ class RefineryUiState(
         if (preflightRan && !force) return
         preflightRan = true
         ollamaStatus = OllamaStatus.Checking
-        scope.launch {
-            val snapshot = withContext(Dispatchers.IO) {
-                Preflight.snapshot(JvmScProcessProbe(), JmxRamProbe(), WindowsGpuProbe())
-            }
-            hardware = snapshot
-            val auto = Preflight.decide(snapshot.gpu?.vramBytes)
-            decision = auto
-            fallback = if (auto.tier == HardwareTier.CPU) FallbackChoice.CPU else FallbackChoice.LOW_VRAM
-            checkOllama()
-        }
+        scope.launch { probeThenCheck() }
+    }
+
+    /**
+     * The start screen's silent model-update check: the tier and the Ollama probe without marking the
+     * preflight as run, so opening the refinery tab still runs it afresh. A failure only means no offer.
+     */
+    fun checkModelUpdates(scope: CoroutineScope) {
+        if (preflightRan) return
+        scope.launch { probeThenCheck(unlessPreflightRan = true) }
+    }
+
+    private suspend fun probeThenCheck(unlessPreflightRan: Boolean = false) {
+        val snapshot = withContext(Dispatchers.IO) { probeHardware() }
+        if (unlessPreflightRan && preflightRan) return
+        hardware = snapshot
+        val auto = Preflight.decide(snapshot.gpu?.vramBytes)
+        decision = auto
+        fallback = if (auto.tier == HardwareTier.CPU) FallbackChoice.CPU else FallbackChoice.LOW_VRAM
+        checkOllama()
     }
 
     /** Re-check Ollama only (the §5.1 "Erneut prüfen" ghost action + after endpoint edits). */

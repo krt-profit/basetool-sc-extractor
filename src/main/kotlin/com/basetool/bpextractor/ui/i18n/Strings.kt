@@ -260,6 +260,8 @@ interface Strings {
     val rfModelUnneeded: (String, String) -> String
     val rfModelUpdate: (String, String) -> String
     val rfUpdateCta: String
+    val mupTitle: String
+    val mupBody: (String, String) -> String
     val rfRemoveCta: String
     val rfRemoveConfirm: (String) -> String
     val rfRemoveConfirmCta: String
@@ -601,6 +603,10 @@ object StringsDe : Strings {
         "Neue Version von „$model\" verfügbar ($size)."
     }
     override val rfUpdateCta = "Aktualisieren"
+    override val mupTitle = "KI-Modell-Update verfügbar"
+    override val mupBody: (String, String) -> String = { model, size ->
+        "Für die Refinery-Erkennung gibt es eine neue Version von „$model\" ($size). Ollama lädt sie lokal herunter."
+    }
     override val rfRemoveCta = "Entfernen"
     override val rfRemoveConfirm: (String) -> String = { model ->
         "„$model\" aus Ollama löschen? Andere Programme, die es nutzen, müssen es dann neu laden."
@@ -1167,6 +1173,10 @@ object StringsEn : Strings {
         "A new version of \"$model\" is available ($size)."
     }
     override val rfUpdateCta = "Update"
+    override val mupTitle = "AI model update available"
+    override val mupBody: (String, String) -> String = { model, size ->
+        "A new version of \"$model\" is available for the refinery recognition ($size). Ollama downloads it locally."
+    }
     override val rfRemoveCta = "Remove"
     override val rfRemoveConfirm: (String) -> String = { model ->
         "Delete \"$model\" from Ollama? Other programs that use it will have to pull it again."

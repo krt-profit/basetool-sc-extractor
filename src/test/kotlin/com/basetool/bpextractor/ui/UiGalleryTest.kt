@@ -67,6 +67,7 @@ import com.basetool.bpextractor.ui.refinery.HelpOverlay
 import com.basetool.bpextractor.ui.refinery.KrtChip
 import com.basetool.bpextractor.ui.refinery.KrtRadio
 import com.basetool.bpextractor.ui.refinery.ModelTask
+import com.basetool.bpextractor.ui.refinery.ModelUpdateBanner
 import com.basetool.bpextractor.ui.refinery.OllamaStatus
 import com.basetool.bpextractor.ui.refinery.PanelCard
 import com.basetool.bpextractor.ui.refinery.RefineryImage
@@ -169,8 +170,12 @@ class UiGalleryTest {
     }
 
     @Composable
-    private fun StartFrame(update: UpdateUiState = UpdateUiState.Hidden, lang: Lang = Lang.DE) {
-        AppFrame(MainTab.START, lang) { StartScreen(update, {}, {}, {}) }
+    private fun StartFrame(update: UpdateUiState = UpdateUiState.Hidden, lang: Lang = Lang.DE, models: RefineryUiState? = null) {
+        AppFrame(MainTab.START, lang) {
+            StartScreen(update, {}, {}, {}) {
+                if (models != null) ModelUpdateBanner(models, idle, {}, Modifier.padding(bottom = 14.dp))
+            }
+        }
     }
 
     @Composable
@@ -200,7 +205,24 @@ class UiGalleryTest {
         list += Shot("02-update-downloading") { StartFrame(UpdateUiState.Downloading(update, 21_000_000, 58_000_000)) }
         list += Shot("02-update-installing") { StartFrame(UpdateUiState.Installing(update)) }
         list += Shot("02-update-failed") { StartFrame(UpdateUiState.Failed(update, "HTTP 503 Service Unavailable")) }
-        list += Shot("03-start-hover-card", interact = { it.move(300f, 330f) }) { StartFrame() }
+        list += Shot("02-model-update") { StartFrame(models = f.rfModels(primaryOutdated = true)) }
+        list += Shot("02-model-update-en", lang = Lang.EN) { StartFrame(lang = Lang.EN, models = f.rfModels(primaryOutdated = true)) }
+        list += Shot("02-model-update-both") {
+            StartFrame(UpdateUiState.Available(update), models = f.rfModels(primaryOutdated = true))
+        }
+        list += Shot("02-model-update-pulling") {
+            StartFrame(
+                models = f.rfModels(
+                    primaryOutdated = true,
+                    task = ModelTask.Pulling("qwen3-vl:8b-instruct", 2_100_000_000, 6_200_000_000, "pulling"),
+                ),
+            )
+        }
+        list += Shot("02-model-update-failed") {
+            StartFrame(models = f.rfModels(primaryOutdated = true, task = ModelTask.Failed("qwen3-vl:8b-instruct", false, "connection reset")))
+        }
+        list += Shot("02-model-update-small", 640, 520) { StartFrame(models = f.rfModels(primaryOutdated = true)) }
+        list += Shot("03-start-hover-card",interact = { it.move(300f, 330f) }) { StartFrame() }
 
         list += Shot("10-bp-config-empty") { BlueprintFrame(f.bpState(channel = "")) }
         list += Shot("10-bp-config-valid") { BlueprintFrame(f.bpState(channel = f.live.path)) }
