@@ -145,7 +145,7 @@ class DpopTest {
 
     @Test
     fun athIsAbsentWhenNoTokenIsPresentedYet() {
-        val proof = key.proof("POST", "https://keycloak.example/realms/iri/protocol/openid-connect/token")
+        val proof = key.proof("POST", "https://keycloak.example/realms/basetool/protocol/openid-connect/token")
 
         assertNull(claims(proof)["ath"], "no access token ⇒ no ath claim")
         assertNull(claims(proof)["nonce"], "no nonce demanded ⇒ no nonce claim")

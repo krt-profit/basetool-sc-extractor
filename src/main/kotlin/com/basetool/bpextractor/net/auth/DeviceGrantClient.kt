@@ -388,7 +388,7 @@ class DeviceGrantClient(
          * The production Keycloak realm issuer, served under `/auth` on the web origin (ADR-0166). It is the
          * only copy of the identity base, so moving the identity host requires a release.
          */
-        const val PROD_ISSUER = "https://profit-base.online/auth/realms/iri"
+        const val PROD_ISSUER = "https://profit-base.online/auth/realms/basetool"
 
         /**
          * The public device-grant client id in Keycloak. The gateway's client registry keys on it (the
