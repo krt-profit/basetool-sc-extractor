@@ -281,7 +281,7 @@ private (guardrail 1a) and live outside the repo; ask for their path.
   (`startsWith("http://localhost")`) let `http://localhost.attacker.tld` and
   `http://127.0.0.1@attacker.tld/` through (SIB-SEC-09); don't reintroduce one.
   - **Identity lives on the app origin, and `PROD_ISSUER` is the only copy of that fact here.**
-    ADR-0166 moved Keycloak to `https://profit-base.online/auth/realms/iri` and retired
+    ADR-0166 moved Keycloak under `https://profit-base.online/auth` (the realm is now `basetool`) and retired
     `keycloak.profit-base.online` outright; the constant still named the dead host and every send
     failed with `token refresh failed: (unrecognized_name)` — a *fatal TLS alert*, because a
     wildcard DNS record still resolves the name while the edge serves no vhost for it. Nothing on
