@@ -217,7 +217,7 @@ fun ReviewStep(state: RefineryUiState) {
             Column(modifier = Modifier.weight(1f).fillMaxWidth().hudBox()) {
                 GoodsHeaderRow()
                 Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    order.goods.forEach { good ->
+                    order.goods.forEachIndexed { index, good ->
                         if (editingRow == good.rowIndex) {
                             GoodsEditRow(
                                 displayed = good,
@@ -232,6 +232,7 @@ fun ReviewStep(state: RefineryUiState) {
                             GoodsRow(
                                 good = good,
                                 edited = state.editedGoods.containsKey(good.rowIndex),
+                                striped = index % 2 == 1,
                                 onEdit = { editingRow = good.rowIndex },
                                 onRevert = { state.revertGood(good.rowIndex) },
                             )
@@ -373,11 +374,12 @@ private fun RowScope.HeaderCell(text: String, weight: Float) {
     )
 }
 
-/** One goods row; rows below the 0.90 threshold get the coloured 3px left border (§5.4). */
+/** One goods row; rows below the 0.90 threshold get the coloured 3px left border (§5.4), [striped] rows the zebra fill. */
 @Composable
 private fun GoodsRow(
     good: RefineryExtractGood,
     edited: Boolean,
+    striped: Boolean,
     onEdit: () -> Unit,
     onRevert: () -> Unit,
 ) {
@@ -388,6 +390,7 @@ private fun GoodsRow(
         modifier = Modifier
             .fillMaxWidth()
             .height(IntrinsicSize.Min)
+            .background(if (striped) Krt.TableStripe else Color.Transparent)
             .drawBehind { drawLine(Krt.Hairline, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) },
         verticalAlignment = Alignment.CenterVertically,
     ) {

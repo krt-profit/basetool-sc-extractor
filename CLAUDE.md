@@ -525,7 +525,9 @@ rule as the main repository's ADR-0214 (`basetool/docs/adr/0214-code-carries-no-
   the Grau-2 border (`Krt.Control` / `Krt.ControlBorder`, ≥ 3:1); `Krt.Hairline` is decoration
   only, never a control border. Muted text is `Krt.TextMuted`, never the border gray; status
   text uses the text tints (`DangerText`, `SuccessText`, `InfoText`). A selection (segment,
-  tier, sidebar entry) is tint + orange frame + underline, never a filled orange block. Draw
+  tier, sidebar entry) is tint + orange frame + underline, never a filled orange block. Every
+  second table row takes `Krt.TableStripe` (`--table-stripe-bg`), and a tile set into a panel
+  takes the bar fill (or the canvas inset), never the panel fill it sits on. Draw
   ticks with `CheckMark` and pass any text with `⚠` through `warned(…)`, which sets it in Segoe UI Symbol —
   the plain `✔`/`⚠` glyphs render as coloured emoji on Windows, variation selector or not.
 - **Visual check: `UiGalleryTest`.** With `UI_GALLERY_OUT=<folder outside the repo>` it renders
