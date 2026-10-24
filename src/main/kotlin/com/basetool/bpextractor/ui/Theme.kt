@@ -47,6 +47,9 @@ object Krt {
     /** Hover fill of controls and segments (`--control-bg-hover`). */
     val ControlHover = Color(0xFF434B51)
 
+    /** Zebra fill of every second table row, the control fill at half opacity (`--table-stripe-bg`). */
+    val TableStripe = Color(0x80373E43)
+
     /** Border of every control, the scrollbar thumb and idle status dots (`--control-border`). */
     val ControlBorder = Color(0xFF8F9399)
 

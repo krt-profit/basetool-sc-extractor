@@ -702,7 +702,7 @@ private fun BpSummaryStep(state: AppState) {
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(if (index % 2 == 1) Krt.White.copy(alpha = 0.02f) else Color.Transparent)
+                                    .background(if (index % 2 == 1) Krt.TableStripe else Color.Transparent)
                                     .drawBehind { drawLine(Krt.Hairline, Offset(0f, size.height), Offset(size.width, size.height), 1.dp.toPx()) }
                                     .padding(horizontal = 14.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
