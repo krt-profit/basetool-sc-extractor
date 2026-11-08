@@ -161,6 +161,10 @@ interface Strings {
     val rfCardBullets: List<String>
     val unofficialChip: String
 
+    val deprecationTitle: String
+    val deprecationBody: String
+    val deprecationOpen: String
+
     val updTitle: String
     val updBody: (String, String) -> String
     val updSize: (String) -> String
@@ -473,6 +477,10 @@ object StringsDe : Strings {
         "Läuft lokal über Ollama · kein automatischer Upload",
     )
     override val unofficialChip = "Inoffizielles Fan-Tool"
+
+    override val deprecationTitle = "Der Extractor wird nicht mehr weiterentwickelt"
+    override val deprecationBody = "Künftig bietet VerseKit alle Funktionen des Extractors an und synchronisiert deine Daten auch mit dem Basetool. Bitte steig auf VerseKit um — dieser Extractor bekommt keine Updates mehr."
+    override val deprecationOpen = "VerseKit öffnen"
 
     override val updTitle = "Update verfügbar"
     override val updBody: (String, String) -> String = { new, current -> "Version $new ist auf GitHub veröffentlicht — installiert ist v$current." }
@@ -1043,6 +1051,10 @@ object StringsEn : Strings {
         "Runs locally via Ollama · no automatic upload",
     )
     override val unofficialChip = "Unofficial fan tool"
+
+    override val deprecationTitle = "The extractor is no longer developed"
+    override val deprecationBody = "From now on VerseKit offers every feature of the extractor and also syncs your data with the basetool. Please switch to VerseKit — this extractor gets no further updates."
+    override val deprecationOpen = "Open VerseKit"
 
     override val updTitle = "Update available"
     override val updBody: (String, String) -> String = { new, current -> "Version $new has been released on GitHub — installed is v$current." }

@@ -25,6 +25,10 @@ stay out of scope — for blueprints, capture every detail the log carries; for 
 read the SETUP panel only (PROCESSING is deferred). Inference always runs locally via
 the user's Ollama; never add a cloud-inference path.
 
+**End of life:** the project is deprecated and the repository archived. VerseKit
+(`https://versekit.xharig.com/`) takes over both workflows and the Basetool sync; the start
+screen's `DeprecationBanner` points members there.
+
 ## Commands
 
 Run from the **repo root** (not a subfolder), with **JDK 27** active. On Windows use
