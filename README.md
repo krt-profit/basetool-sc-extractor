@@ -1,5 +1,10 @@
 # Basetool SC Extractor
 
+> [!WARNING]
+> **This project is deprecated and archived.** It is no longer developed and receives no further
+> updates. **[VerseKit](https://versekit.xharig.com/)** offers its features from now on and also
+> syncs your data with the Basetool — please switch to VerseKit.
+
 A **Kotlin desktop app** (Compose for Desktop) that reads Star Citizen data
 **locally** and exports it as JSON for the Basetool. Reading stays entirely local
 and **nothing is uploaded automatically** — the only thing ever sent is the

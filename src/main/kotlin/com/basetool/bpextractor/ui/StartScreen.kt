@@ -63,6 +63,8 @@ fun StartScreen(
         ) {
             GreetingHeader(title = strings.startTitle, subtitle = strings.startSubtitle)
             Spacer(Modifier.height(14.dp))
+            DeprecationBanner()
+            Spacer(Modifier.height(14.dp))
             if (update !is UpdateUiState.Hidden) {
                 UpdateBanner(state = update, onInstall = onUpdateInstall, onDismiss = onUpdateDismiss)
                 Spacer(Modifier.height(14.dp))
